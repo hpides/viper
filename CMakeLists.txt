@@ -3,14 +3,26 @@ project(nvm_kv_bm)
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_library(libpmemobj REQUIRED)
+message("Build type: ${CMAKE_BUILD_TYPE}")
+if (CMAKE_BUILD_TYPE MATCHES Debug)
+    message("BUILDING DEBUG")
+    find_library(libpmemobj REQUIRED PATHS /usr/local/lib64/pmdk_debug)
+    set(PMEM_LIB_PATH /usr/local/lib64/pmdk_debug)
+else()
+    message("BUILDING RELEASE")
+    find_library(libpmemobj REQUIRED)
+    set(PMEM_LIB_PATH /usr/local/lib64/)
+    add_compile_options(-march=native -fopenmp-simd)
+endif()
+
 find_library(libpmemobj++ REQUIRED PATHS /usr/local/include)
 
-SET(CMAKE_EXE_LINKER_FLAGS
-        "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,/usr/local/lib64")
-
-set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PATH}:/usr/local/lib64/")
+SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${PMEM_LIB_PATH}")
+set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PATH}:${PMEM_LIB_PATH}")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
+#add_compile_options(-pthread -Wall -Wextra -pedantic -Werror -Wno-unused-parameter -Wno-dollar-in-identifier-extension -Wno-unknown-pragmas -Wno-subobject-linkage)
+
 
 add_library(nvm_kv_bm_lib benchmark.cpp benchmark.hpp)
 target_link_libraries(nvm_kv_bm_lib pmemobj)

@@ -45,7 +45,7 @@ int main() {
     long total_dram_duration = 0;
 
     Benchmark benchmark{pool_file};
-    for (int i = 0; i < num_runs; ++i) {
+    for (uint64_t i = 0; i < num_runs; ++i) {
         auto [pmem_duration, dram_duration] = benchmark.run(num_inserts);
         total_pmem_duration += pmem_duration;
         total_dram_duration += dram_duration;

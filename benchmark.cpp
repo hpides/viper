@@ -46,7 +46,7 @@ std::pair<long, long> Benchmark::run(const uint64_t num_inserts) {
 
     const auto pmem_map_bm_start = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < num_inserts; ++i) {
+    for (uint64_t i = 0; i < num_inserts; ++i) {
         pmem_map->insert(pmem_map_t::value_type(i, 100 * i));
     }
 
@@ -60,7 +60,7 @@ std::pair<long, long> Benchmark::run(const uint64_t num_inserts) {
     std::unordered_map<uint64_t, uint64_t> dram_map;
     const auto dram_map_bm_start = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < num_inserts; ++i) {
+    for (uint64_t i = 0; i < num_inserts; ++i) {
         dram_map.insert(std::pair{i, 100 * i});
     }
 
