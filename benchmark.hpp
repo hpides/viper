@@ -16,12 +16,17 @@ struct BenchmarkRoot {
 
 class Benchmark {
   public:
-    Benchmark(const std::string& pool_file);
+    explicit Benchmark(const std::string& pool_file);
     ~Benchmark();
 
     std::pair<long, long> run(const uint64_t num_inserts);
 
     static constexpr uint64_t POOL_SIZE = 1024*1024*1024;  // 1GB
+
+  protected:
+    long run_pmem(const uint64_t num_inserts);
+    long run_dram(const uint64_t num_inserts);
+
 
   private:
     pmem::obj::pool<BenchmarkRoot> pmem_pool_;

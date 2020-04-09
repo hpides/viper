@@ -29,7 +29,6 @@ Benchmark::Benchmark(const std::string& pool_file) {
     } else {
         root->pmem_map->runtime_initialize();
         root->pmem_map->clear();
-        root->pmem_map->defragment();
     }
 }
 
@@ -38,7 +37,27 @@ Benchmark::~Benchmark() {
 }
 
 std::pair<long, long> Benchmark::run(const uint64_t num_inserts) {
-//    std::cout << "Running PMEM BM..." << std::endl;
+    const long pmem_map_bm_duration = run_pmem(num_inserts);
+    const long dram_map_bm_duration = run_dram(num_inserts);
+
+    return {pmem_map_bm_duration, dram_map_bm_duration};
+}
+
+long Benchmark::run_dram(const uint64_t num_inserts) {
+    std::unordered_map<uint64_t, uint64_t> dram_map;
+    const auto dram_map_bm_start = std::chrono::high_resolution_clock::now();
+
+    for (uint64_t i = 0; i < num_inserts; ++i) {
+        dram_map.insert(std::pair{i, 100 * i});
+    }
+
+    const auto dram_map_bm_end = std::chrono::high_resolution_clock::now();
+    const auto dram_map_bm_duration = std::chrono::duration_cast<std::chrono::microseconds>(dram_map_bm_end - dram_map_bm_start);
+    return dram_map_bm_duration.count();
+}
+
+
+long Benchmark::run_pmem(const uint64_t num_inserts) {
     persistent_ptr<pmem_map_t> pmem_map = pmem_pool_.root()->pmem_map;
 
     pmem_map->clear();
@@ -52,22 +71,5 @@ std::pair<long, long> Benchmark::run(const uint64_t num_inserts) {
 
     const auto pmem_map_bm_end = std::chrono::high_resolution_clock::now();
     const auto pmem_map_bm_duration = std::chrono::duration_cast<std::chrono::microseconds>(pmem_map_bm_end - pmem_map_bm_start);
-
-//    std::cout << "PMEM MAP DURATION: " << pmem_map_bm_duration.count() << " µs" << std::endl;
-
-
-//    std::cout << "Running DRAM BM..." << std::endl;
-    std::unordered_map<uint64_t, uint64_t> dram_map;
-    const auto dram_map_bm_start = std::chrono::high_resolution_clock::now();
-
-    for (uint64_t i = 0; i < num_inserts; ++i) {
-        dram_map.insert(std::pair{i, 100 * i});
-    }
-
-    const auto dram_map_bm_end = std::chrono::high_resolution_clock::now();
-    const auto dram_map_bm_duration = std::chrono::duration_cast<std::chrono::microseconds>(dram_map_bm_end - dram_map_bm_start);
-
-//    std::cout << "DRAM MAP DURATION: " << dram_map_bm_duration.count() << " µs" << std::endl;
-
-    return {pmem_map_bm_duration.count(), dram_map_bm_duration.count()};
+    return pmem_map_bm_duration.count();
 }
