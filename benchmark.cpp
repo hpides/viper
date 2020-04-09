@@ -28,8 +28,8 @@ Benchmark::Benchmark(const std::string& pool_file) {
         });
     } else {
         root->pmem_map->runtime_initialize();
-        root->pmem_map->defragment();
         root->pmem_map->clear();
+        root->pmem_map->defragment();
     }
 }
 
@@ -39,8 +39,10 @@ Benchmark::~Benchmark() {
 
 std::pair<long, long> Benchmark::run(const uint64_t num_inserts) {
 //    std::cout << "Running PMEM BM..." << std::endl;
-
     persistent_ptr<pmem_map_t> pmem_map = pmem_pool_.root()->pmem_map;
+
+    pmem_map->clear();
+    pmem_map->defragment();
 
     const auto pmem_map_bm_start = std::chrono::high_resolution_clock::now();
 
