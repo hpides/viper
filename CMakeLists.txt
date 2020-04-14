@@ -16,16 +16,19 @@ else()
 endif()
 
 find_library(libpmemobj++ REQUIRED PATHS /usr/local/include)
+find_library(libpmemkv REQUIRED)
+find_library(tbb REQUIRED)
+find_library(memkind REQUIRED PATHS /usr/local/lib/)
 
-SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${PMEM_LIB_PATH}")
-set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PATH}:${PMEM_LIB_PATH}")
+SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${PMEM_LIB_PATH};/usr/local/lib")
+set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PATH}:${PMEM_LIB_PATH}:/usr/local/lib")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 #add_compile_options(-pthread -Wall -Wextra -pedantic -Werror -Wno-unused-parameter -Wno-dollar-in-identifier-extension -Wno-unknown-pragmas -Wno-subobject-linkage)
 
 
 add_library(nvm_kv_bm_lib benchmark.cpp benchmark.hpp)
-target_link_libraries(nvm_kv_bm_lib pmemobj)
+target_link_libraries(nvm_kv_bm_lib pmemobj tbb pmemkv /usr/local/lib/libmemkind.so.0)
 
 add_executable(nvm_kv_bm main.cpp)
 target_link_libraries(nvm_kv_bm nvm_kv_bm_lib)
