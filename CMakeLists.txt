@@ -26,9 +26,14 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 #add_compile_options(-pthread -Wall -Wextra -pedantic -Werror -Wno-unused-parameter -Wno-dollar-in-identifier-extension -Wno-unknown-pragmas -Wno-subobject-linkage)
 
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing benchmark's tests" FORCE)
+add_subdirectory(third_party/googlebench)
+add_subdirectory(third_party/googletest)
+
 
 add_library(nvm_kv_bm_lib benchmark.cpp benchmark.hpp)
-target_link_libraries(nvm_kv_bm_lib pmemobj tbb pmemkv /usr/local/lib/libmemkind.so.0)
+target_link_libraries(nvm_kv_bm_lib pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind.so.0)
+target_link_libraries(nvm_kv_bm_lib benchmark gtest)
 
 add_executable(nvm_kv_bm main.cpp)
 target_link_libraries(nvm_kv_bm nvm_kv_bm_lib)
