@@ -12,7 +12,7 @@ else()
     message("BUILDING RELEASE")
     find_library(libpmemobj REQUIRED)
     set(PMEM_LIB_PATH /usr/local/lib64/)
-    add_compile_options(-march=native -fopenmp-simd)
+    add_compile_options(-march=native)
 endif()
 
 find_library(libpmemobj++ REQUIRED PATHS /usr/local/include)
@@ -30,10 +30,12 @@ set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing benchmark's tests" FORC
 add_subdirectory(third_party/googlebench)
 add_subdirectory(third_party/googletest)
 
+add_subdirectory(src/)
 
-add_library(nvm_kv_bm_lib benchmark.cpp benchmark.hpp)
-target_link_libraries(nvm_kv_bm_lib pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind.so.0)
-target_link_libraries(nvm_kv_bm_lib benchmark gtest)
+add_executable(nvm_kv_bm benchmark.cpp)
+target_link_libraries(nvm_kv_bm pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind.so.0)
+target_link_libraries(nvm_kv_bm benchmark gtest)
 
-add_executable(nvm_kv_bm main.cpp)
-target_link_libraries(nvm_kv_bm nvm_kv_bm_lib)
+add_executable(playground playground.cpp)
+target_link_libraries(playground pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind.so.0)
+target_link_libraries(playground viper)
