@@ -27,7 +27,7 @@ Benchmark::Benchmark(const std::string& pool_file) : Benchmark() {
     }
 
 //    std::cout << "Creating filesystem pool, path=" << pool_file << ", size=" << POOL_SIZE << std::endl;
-    pmem_pool_ = pmem::obj::pool<BenchmarkRoot>::create(pool_file, "", POOL_SIZE, S_IRWXU);
+//    pmem_pool_ = pmem::obj::pool<BenchmarkRoot>::create(pool_file, "", POOL_SIZE, S_IRWXU);
 }
 
 Benchmark::~Benchmark() {

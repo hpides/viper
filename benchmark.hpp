@@ -24,8 +24,6 @@ struct BenchmarkRoot {
 };
 
 class Benchmark {
-    static constexpr uint64_t POOL_SIZE = 1024*1024*1024;  // 1GB
-
   public:
     explicit Benchmark();
     explicit Benchmark(const std::string& pool_file);
