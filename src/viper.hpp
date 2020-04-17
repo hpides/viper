@@ -38,10 +38,6 @@ struct ViperPageBlock {
      * making all pointers invalid.
      */
     std::array<VPage, num_pages> v_pages;
-
-    ViperPageBlock() {
-        // TODO: persist v_pages here
-    }
 };
 
 template <typename K, typename V>
@@ -55,7 +51,8 @@ struct ViperRoot {
     VPageBlocks v_page_blocks;
 
     void create_new_block() {
-        v_page_blocks.emplace_back();
+        pobj::persistent_ptr<VPageBlock> new_block = pobj::make_persistent<VPageBlock>();
+        v_page_blocks.push_back(new_block);
     }
 };
 
@@ -69,7 +66,7 @@ class Viper {
     using VRoot = internal::ViperRoot<K, V>;
 
   public:
-    Viper(std::string_view pool_file, uint64_t pool_size);
+    Viper(const std::string& pool_file, uint64_t pool_size);
     ~Viper();
 
     bool put(K key, V value);
@@ -79,21 +76,25 @@ class Viper {
   protected:
     MapType map_;
     pobj::pool<VRoot> v_pool_;
-
-
 };
 
 template <typename K, typename V>
-Viper<K, V>::Viper(const std::string_view pool_file, const uint64_t pool_size)
+Viper<K, V>::Viper(const std::string& pool_file, const uint64_t pool_size)
     : map_(VRoot::VPageBlock::num_slots_per_block) {
+
+    int sds_write_value = 0;
+    pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
 
     if (std::filesystem::exists(pool_file)) {
         std::cout << "Opening pool file " << pool_file << std::endl;
-        v_pool_ = pobj::pool<VRoot>::open({pool_file}, "");
+        v_pool_ = pobj::pool<VRoot>::open(pool_file, "");
         // TODO: build map here and stuff
     } else {
         std::cout << "Creating pool file " << pool_file << std::endl;
-        v_pool_ = pobj::pool<VRoot>::create({pool_file}, "", pool_size, S_IRWXU);
+        v_pool_ = pobj::pool<VRoot>::create(pool_file, "", pool_size, S_IRWXU);
+        pobj::transaction::run(v_pool_, [&] {
+           v_pool_.root()->create_new_block();
+        });
     }
 }
 
@@ -105,7 +106,7 @@ Viper<K, V>::~Viper() {
 
 template <typename K, typename V>
 bool Viper<K, V>::put(K key, V value) {
-
+    return false;
 }
 
 }  // namespace viper
