@@ -33,9 +33,9 @@ add_subdirectory(third_party/googletest)
 add_subdirectory(src/)
 
 add_executable(nvm_kv_bm benchmark.cpp)
-target_link_libraries(nvm_kv_bm pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind.so.0)
+target_link_libraries(nvm_kv_bm pmem pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind.so.0)
 target_link_libraries(nvm_kv_bm benchmark gtest)
 
 add_executable(playground playground.cpp)
-target_link_libraries(playground pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind.so.0)
+target_link_libraries(playground pmem pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind.so.0)
 target_link_libraries(playground viper)

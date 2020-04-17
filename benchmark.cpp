@@ -7,6 +7,7 @@
 #include <benchmark/benchmark.h>
 #include <tbb/concurrent_hash_map.h>
 #include <libpmempool.h>
+#include <libpmem.h>
 #include <libpmemobj++/pool.hpp>
 #include <libpmemobj++/persistent_ptr.hpp>
 #include <libpmemobj++/container/concurrent_hash_map.hpp>
@@ -170,11 +171,11 @@ class HybridMapFixture : public BasePmemFixture<HybridMapRoot> {
 
         for (int key = 0; key < num_prefill_inserts; ++key) {
             (*data_)[key] = key;
-            pmemobj_persist(pmem_pool_.handle(), data_.raw_ptr() + 10, sizeof(key));
             HybridMapType::accessor slot;
             map_->insert(slot, key);
             slot->second = key;
         }
+        data_.persist();
         map_initialized_ = true;
     }
 
@@ -382,12 +383,15 @@ BENCHMARK_DEFINE_F(HybridMapFixture, insert_empty)(benchmark::State& state) {
     std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
 
     for (auto _ : state) {
+        const ValueType* data_start = data_->data();
         for (int key = start_idx; key < end_idx; ++key) {
             // uint64_t key = uniform_distribution(rnd_engine_);
             // This is not correct because of race conditions.
             // But it's enough to get a feeling for the performance.
-            uint64_t pos = data_->size();
-            (*data_)[key] = key*100;
+            const uint64_t pos = key;
+            const ValueType value = key*100;
+            pmem_memmove_persist((void*) (data_start + key), &value, sizeof(ValueType));
+//            (*data_)[key] = key*100;
             map_->insert({key, pos});
         }
     }
@@ -412,12 +416,15 @@ BENCHMARK_DEFINE_F(HybridMapFixture, setup_and_insert)(benchmark::State& state) 
     std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
 
     for (auto _ : state) {
+        const ValueType* data_start = data_->data();
         for (int key = start_idx; key < end_idx; ++key) {
             // uint64_t key = uniform_distribution(rnd_engine_);
             // This is not correct because of race conditions.
             // But it's enough to get a feeling for the performance.
-            uint64_t pos = data_->size();
-            (*data_)[key] = key*100;
+            const uint64_t pos = key;
+            const ValueType value = key*100;
+            pmem_memmove_persist((void*) (data_start + key), &value, sizeof(ValueType));
+//            (*data_)[key] = key*100;
             map_->insert({key, pos});
         }
     }
@@ -450,53 +457,53 @@ BENCHMARK_DEFINE_F(HybridMapFixture, setup_and_find)(benchmark::State& state) {
     log_find_count(state, found_counter, num_finds_per_thread);
 }
 
-BENCHMARK_REGISTER_F(DramMapFixture, insert_empty)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Arg(NUM_INSERTS)
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(DramMapFixture, setup_and_insert)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_INSERTS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(DramMapFixture, setup_and_find)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_FINDS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(PmemMapFixture, insert_empty)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Arg(NUM_INSERTS)
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_insert)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_INSERTS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_find)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_FINDS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
+//BENCHMARK_REGISTER_F(DramMapFixture, insert_empty)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Arg(NUM_INSERTS)
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(DramMapFixture, setup_and_insert)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_INSERTS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(DramMapFixture, setup_and_find)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_FINDS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(PmemMapFixture, insert_empty)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Arg(NUM_INSERTS)
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_insert)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_INSERTS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_find)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_FINDS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
 
 BENCHMARK_REGISTER_F(HybridMapFixture, insert_empty)
     ->Repetitions(NUM_REPETITIONS)
