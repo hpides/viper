@@ -9,9 +9,14 @@ int main() {
 //    cout << "viper map size: " << sizeof(viper.map_) << std::endl;
 //    cout << "viper pool size: " << sizeof(viper.v_pool_) << std::endl;
 
-    viper.put(0, 0);
-    viper.put(1, 10);
-    viper.put(2, 20);
+    const int num_values = 100;
+    for (int i = 0; i < num_values; ++i) {
+        viper.put(i, i);
 
-    cout << viper.get(2) << endl;
+    }
+
+    for (int j = 0; j < num_values; ++j) {
+        cout << viper.get(j) << endl;
+    }
+
 }

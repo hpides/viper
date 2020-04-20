@@ -13,6 +13,8 @@
 #include <libpmemobj++/container/concurrent_hash_map.hpp>
 #include <libpmemobj++/container/vector.hpp>
 
+#include "src/viper.hpp"
+
 static constexpr char POOL_FILE_DIR[] = "/mnt/nvrams1/kv-bm";
 static const uint64_t BM_POOL_SIZE = (1024l*1024*1024) * 5;  // 5GB
 
@@ -186,32 +188,30 @@ class HybridMapFixture : public BasePmemFixture<HybridMapRoot> {
     bool map_initialized_ = false;
 };
 
-//template <class FixtureT>
-//void BM_insert_empty(benchmark::State& state) {
-//    FixtureT f;
-//    const uint64_t num_total_inserts = state.range(0);
-//
-//    if (state.thread_index == 0) {
-//        f.InitMap();
-//    }
-//
-//    const uint64_t num_inserts_per_thread = num_total_inserts / state.threads;
-//    const uint64_t start_idx = state.thread_index * num_inserts_per_thread;
-//    const uint64_t end_idx = start_idx + num_inserts_per_thread;
-//
-//    std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
-//
-//    for (auto _ : state) {
-//        for (int key = start_idx; key < end_idx; ++key) {
-//            // uint64_t key = uniform_distribution(rnd_engine_);
-//            f.insert(key, key*100);
-//        }
-//    }
-//
-//    if (state.thread_index == 0) {
-//        f.DeInitMap();
-//    }
-//}
+class ViperFixture : public BasePmemFixture<viper::ViperRoot<KeyType, ValueType>> {
+    using ViperRoot = viper::ViperRoot<KeyType, ValueType>;
+
+  public:
+    void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) {
+        if (viper_initialized_ && !re_init) {
+            return;
+        }
+
+        pmem::obj::transaction::run(pmem_pool_, [&] {
+            pmem_pool_.root()->create_new_block();
+        });
+        viper_ = std::make_unique<viper::Viper<KeyType, ValueType>>(pmem_pool_);
+
+        for (int key = 0; key < num_prefill_inserts; ++key) {
+            viper_->put(key, key);
+        }
+        viper_initialized_ = true;
+    }
+
+  protected:
+    std::unique_ptr<viper::Viper<KeyType, ValueType>> viper_;
+    bool viper_initialized_ = false;
+};
 
 BENCHMARK_DEFINE_F(DramMapFixture, insert_empty)(benchmark::State& state) {
     const uint64_t num_total_inserts = state.range(0);
@@ -457,53 +457,127 @@ BENCHMARK_DEFINE_F(HybridMapFixture, setup_and_find)(benchmark::State& state) {
     log_find_count(state, found_counter, num_finds_per_thread);
 }
 
-//BENCHMARK_REGISTER_F(DramMapFixture, insert_empty)
-//    ->Repetitions(NUM_REPETITIONS)
-//    ->Iterations(1)
-//    ->Unit(BM_TIME_UNIT)
-//    ->UseRealTime()
-//    ->Arg(NUM_INSERTS)
-//    ->ThreadRange(1, NUM_MAX_THREADS);
-//
-//BENCHMARK_REGISTER_F(DramMapFixture, setup_and_insert)
-//    ->Repetitions(NUM_REPETITIONS)
-//    ->Iterations(1)
-//    ->Unit(BM_TIME_UNIT)
-//    ->UseRealTime()
-//    ->Args({NUM_PREFILLS, NUM_INSERTS})
-//    ->ThreadRange(1, NUM_MAX_THREADS);
-//
-//BENCHMARK_REGISTER_F(DramMapFixture, setup_and_find)
-//    ->Repetitions(NUM_REPETITIONS)
-//    ->Iterations(1)
-//    ->Unit(BM_TIME_UNIT)
-//    ->UseRealTime()
-//    ->Args({NUM_PREFILLS, NUM_FINDS})
-//    ->ThreadRange(1, NUM_MAX_THREADS);
-//
-//BENCHMARK_REGISTER_F(PmemMapFixture, insert_empty)
-//    ->Repetitions(NUM_REPETITIONS)
-//    ->Iterations(1)
-//    ->Unit(BM_TIME_UNIT)
-//    ->UseRealTime()
-//    ->Arg(NUM_INSERTS)
-//    ->ThreadRange(1, NUM_MAX_THREADS);
-//
-//BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_insert)
-//    ->Repetitions(NUM_REPETITIONS)
-//    ->Iterations(1)
-//    ->Unit(BM_TIME_UNIT)
-//    ->UseRealTime()
-//    ->Args({NUM_PREFILLS, NUM_INSERTS})
-//    ->ThreadRange(1, NUM_MAX_THREADS);
-//
-//BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_find)
-//    ->Repetitions(NUM_REPETITIONS)
-//    ->Iterations(1)
-//    ->Unit(BM_TIME_UNIT)
-//    ->UseRealTime()
-//    ->Args({NUM_PREFILLS, NUM_FINDS})
-//    ->ThreadRange(1, NUM_MAX_THREADS);
+BENCHMARK_DEFINE_F(ViperFixture, insert_empty)(benchmark::State& state) {
+    const uint64_t num_total_inserts = state.range(0);
+
+    if (state.thread_index == 0) {
+        InitMap();
+    }
+
+    const uint64_t num_inserts_per_thread = num_total_inserts / state.threads;
+    const uint64_t start_idx = state.thread_index * num_inserts_per_thread;
+    const uint64_t end_idx = start_idx + num_inserts_per_thread;
+
+    std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
+
+    for (auto _ : state) {
+        for (int key = start_idx; key < end_idx; ++key) {
+            // uint64_t key = uniform_distribution(rnd_engine_);
+            const ValueType value = key*100;
+            viper_->put(key, value);
+        }
+    }
+
+    if (state.thread_index == 0) {
+        DeInitMap();
+    }
+}
+
+BENCHMARK_DEFINE_F(ViperFixture, setup_and_insert)(benchmark::State& state) {
+    const uint64_t num_total_prefill = state.range(0);
+    const uint64_t num_total_inserts = state.range(1);
+
+    if (state.thread_index == 0) {
+        InitMap(num_total_prefill);
+    }
+
+    const uint64_t num_inserts_per_thread = num_total_inserts / state.threads;
+    const uint64_t start_idx = (state.thread_index * num_inserts_per_thread) + num_total_prefill;
+    const uint64_t end_idx = start_idx + num_inserts_per_thread;
+
+    std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
+
+    for (auto _ : state) {
+        for (int key = start_idx; key < end_idx; ++key) {
+            // uint64_t key = uniform_distribution(rnd_engine_);
+            const ValueType value = key*100;
+            viper_->put(key, value);
+        }
+    }
+}
+
+BENCHMARK_DEFINE_F(ViperFixture, setup_and_find)(benchmark::State& state) {
+    const uint64_t num_total_prefills = state.range(0);
+    const uint64_t num_total_finds = state.range(1);
+
+    if (state.thread_index == 0) {
+        InitMap(num_total_prefills, /*re_init=*/false);
+    }
+
+    const uint64_t num_finds_per_thread = num_total_finds / state.threads;
+    const uint64_t start_idx = state.thread_index * num_finds_per_thread;
+    const uint64_t end_idx = start_idx + num_finds_per_thread;
+
+    std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_prefills * 1000);
+
+    int found_counter = 0;
+    for (auto _ : state) {
+        found_counter = 0;
+        for (int key = start_idx; key < end_idx; ++key) {
+            found_counter += (viper_->get(key) == key);
+        }
+    }
+
+    log_find_count(state, found_counter, num_finds_per_thread);
+}
+
+BENCHMARK_REGISTER_F(DramMapFixture, insert_empty)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Arg(NUM_INSERTS)
+    ->ThreadRange(1, NUM_MAX_THREADS);
+
+BENCHMARK_REGISTER_F(DramMapFixture, setup_and_insert)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Args({NUM_PREFILLS, NUM_INSERTS})
+    ->ThreadRange(1, NUM_MAX_THREADS);
+
+BENCHMARK_REGISTER_F(DramMapFixture, setup_and_find)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Args({NUM_PREFILLS, NUM_FINDS})
+    ->ThreadRange(1, NUM_MAX_THREADS);
+
+BENCHMARK_REGISTER_F(PmemMapFixture, insert_empty)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Arg(NUM_INSERTS)
+    ->ThreadRange(1, NUM_MAX_THREADS);
+
+BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_insert)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Args({NUM_PREFILLS, NUM_INSERTS})
+    ->ThreadRange(1, NUM_MAX_THREADS);
+
+BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_find)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Args({NUM_PREFILLS, NUM_FINDS})
+    ->ThreadRange(1, NUM_MAX_THREADS);
 
 BENCHMARK_REGISTER_F(HybridMapFixture, insert_empty)
     ->Repetitions(NUM_REPETITIONS)
@@ -528,5 +602,29 @@ BENCHMARK_REGISTER_F(HybridMapFixture, setup_and_find)
     ->UseRealTime()
     ->Args({NUM_PREFILLS, NUM_FINDS})
     ->ThreadRange(1, NUM_MAX_THREADS);
+
+BENCHMARK_REGISTER_F(ViperFixture, insert_empty)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Arg(1000)
+    ->ThreadRange(1, 1); //NUM_MAX_THREADS);
+
+BENCHMARK_REGISTER_F(ViperFixture, setup_and_insert)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Args({500, 1000})
+    ->ThreadRange(1, 1); //NUM_MAX_THREADS);
+
+BENCHMARK_REGISTER_F(ViperFixture, setup_and_find)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Args({1000, 100})
+    ->ThreadRange(1, 1); //NUM_MAX_THREADS);
 
 BENCHMARK_MAIN();
