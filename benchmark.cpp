@@ -141,7 +141,7 @@ class PmemMapFixture : public BasePmemFixture<PmemMapRoot> {
             pmem_pool_.root()->pmem_map = pmem::obj::make_persistent<PmemMapType>();
         });
         pmem_map_ = pmem_pool_.root()->pmem_map;
-        for (int key = 0; key < num_prefill_inserts; ++key) {
+        for (uint64_t key = 0; key < num_prefill_inserts; ++key) {
             PmemMapType::accessor result;
             pmem_map_->insert(result, key);
             result->second = key*100;
@@ -171,7 +171,7 @@ class HybridMapFixture : public BasePmemFixture<HybridMapRoot> {
         map_ = std::make_unique<HybridMapType>();
         data_ = pmem_pool_.root()->data;
 
-        for (int key = 0; key < num_prefill_inserts; ++key) {
+        for (uint64_t key = 0; key < num_prefill_inserts; ++key) {
             (*data_)[key] = key;
             HybridMapType::accessor slot;
             map_->insert(slot, key);
@@ -202,7 +202,7 @@ class ViperFixture : public BasePmemFixture<viper::ViperRoot<KeyType, ValueType>
         });
         viper_ = std::make_unique<viper::Viper<KeyType, ValueType>>(pmem_pool_);
 
-        for (int key = 0; key < num_prefill_inserts; ++key) {
+        for (uint64_t key = 0; key < num_prefill_inserts; ++key) {
             viper_->put(key, key);
         }
         viper_initialized_ = true;
@@ -227,7 +227,7 @@ BENCHMARK_DEFINE_F(DramMapFixture, insert_empty)(benchmark::State& state) {
     std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
 
     for (auto _ : state) {
-        for (int i = start_idx; i < end_idx; ++i) {
+        for (uint64_t i = start_idx; i < end_idx; ++i) {
             // uint64_t key = uniform_distribution(rnd_engine_);
             uint64_t key = i;
             DramMapType::accessor result;
@@ -252,7 +252,7 @@ BENCHMARK_DEFINE_F(DramMapFixture, setup_and_insert)(benchmark::State& state) {
     std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
 
     for (auto _ : state) {
-        for (int i = start_idx; i < end_idx; ++i) {
+        for (uint64_t i = start_idx; i < end_idx; ++i) {
             // uint64_t key = uniform_distribution(rnd_engine_);
             uint64_t key = i;
             DramMapType::accessor result;
@@ -279,7 +279,7 @@ BENCHMARK_DEFINE_F(DramMapFixture, setup_and_find)(benchmark::State& state) {
     int found_counter = 0;
     for (auto _ : state) {
         found_counter = 0;
-        for (int i = start_idx; i < end_idx; ++i) {
+        for (uint64_t i = start_idx; i < end_idx; ++i) {
             DramMapType::const_accessor result;
             const bool found = dram_map_->find(result, i);
             found_counter += found;
@@ -303,7 +303,7 @@ BENCHMARK_DEFINE_F(PmemMapFixture, insert_empty)(benchmark::State& state) {
     std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
 
     for (auto _ : state) {
-        for (int i = start_idx; i < end_idx; ++i) {
+        for (uint64_t i = start_idx; i < end_idx; ++i) {
             // uint64_t key = uniform_distribution(rnd_engine_);
             uint64_t key = i;
             PmemMapType::accessor result;
@@ -332,7 +332,7 @@ BENCHMARK_DEFINE_F(PmemMapFixture, setup_and_insert)(benchmark::State& state) {
     std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
 
     for (auto _ : state) {
-        for (int i = start_idx; i < end_idx; ++i) {
+        for (uint64_t i = start_idx; i < end_idx; ++i) {
             // uint64_t key = uniform_distribution(rnd_engine_);
             uint64_t key = i;
             PmemMapType::accessor result;
@@ -359,7 +359,7 @@ BENCHMARK_DEFINE_F(PmemMapFixture, setup_and_find)(benchmark::State& state) {
     int found_counter = 0;
     for (auto _ : state) {
         found_counter = 0;
-        for (int i = start_idx; i < end_idx; ++i) {
+        for (uint64_t i = start_idx; i < end_idx; ++i) {
             PmemMapType::const_accessor result;
             const bool found = pmem_map_->find(result, i);
             found_counter += found;
@@ -384,7 +384,7 @@ BENCHMARK_DEFINE_F(HybridMapFixture, insert_empty)(benchmark::State& state) {
 
     for (auto _ : state) {
         const ValueType* data_start = data_->data();
-        for (int key = start_idx; key < end_idx; ++key) {
+        for (uint64_t key = start_idx; key < end_idx; ++key) {
             // uint64_t key = uniform_distribution(rnd_engine_);
             // This is not correct because of race conditions.
             // But it's enough to get a feeling for the performance.
@@ -417,7 +417,7 @@ BENCHMARK_DEFINE_F(HybridMapFixture, setup_and_insert)(benchmark::State& state) 
 
     for (auto _ : state) {
         const ValueType* data_start = data_->data();
-        for (int key = start_idx; key < end_idx; ++key) {
+        for (uint64_t key = start_idx; key < end_idx; ++key) {
             // uint64_t key = uniform_distribution(rnd_engine_);
             // This is not correct because of race conditions.
             // But it's enough to get a feeling for the performance.
@@ -447,7 +447,7 @@ BENCHMARK_DEFINE_F(HybridMapFixture, setup_and_find)(benchmark::State& state) {
     int found_counter = 0;
     for (auto _ : state) {
         found_counter = 0;
-        for (int key = start_idx; key < end_idx; ++key) {
+        for (uint64_t key = start_idx; key < end_idx; ++key) {
             HybridMapType::const_accessor result;
             found_counter += map_->find(result, key);
             benchmark::DoNotOptimize((*data_)[result->second] == 0);
@@ -471,7 +471,7 @@ BENCHMARK_DEFINE_F(ViperFixture, insert_empty)(benchmark::State& state) {
     std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
 
     for (auto _ : state) {
-        for (int key = start_idx; key < end_idx; ++key) {
+        for (uint64_t key = start_idx; key < end_idx; ++key) {
             // uint64_t key = uniform_distribution(rnd_engine_);
             const ValueType value = key*100;
             viper_->put(key, value);
@@ -498,11 +498,16 @@ BENCHMARK_DEFINE_F(ViperFixture, setup_and_insert)(benchmark::State& state) {
     std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
 
     for (auto _ : state) {
-        for (int key = start_idx; key < end_idx; ++key) {
+        for (uint64_t key = start_idx; key < end_idx; ++key) {
             // uint64_t key = uniform_distribution(rnd_engine_);
             const ValueType value = key*100;
             viper_->put(key, value);
         }
+    }
+
+    if (viper_->count() != num_total_inserts + num_total_prefill) {
+        std::cout << "Did not insert all values! ("
+                  << viper_->count() << "/" << (num_total_inserts + num_total_prefill) << ")" << std::endl;
     }
 }
 
@@ -523,7 +528,7 @@ BENCHMARK_DEFINE_F(ViperFixture, setup_and_find)(benchmark::State& state) {
     int found_counter = 0;
     for (auto _ : state) {
         found_counter = 0;
-        for (int key = start_idx; key < end_idx; ++key) {
+        for (uint64_t key = start_idx; key < end_idx; ++key) {
             found_counter += (viper_->get(key) == key);
         }
     }
@@ -608,7 +613,7 @@ BENCHMARK_REGISTER_F(ViperFixture, insert_empty)
     ->Iterations(1)
     ->Unit(BM_TIME_UNIT)
     ->UseRealTime()
-    ->Arg(1000)
+    ->Arg(NUM_INSERTS)
     ->ThreadRange(1, 1); //NUM_MAX_THREADS);
 
 BENCHMARK_REGISTER_F(ViperFixture, setup_and_insert)
@@ -616,7 +621,7 @@ BENCHMARK_REGISTER_F(ViperFixture, setup_and_insert)
     ->Iterations(1)
     ->Unit(BM_TIME_UNIT)
     ->UseRealTime()
-    ->Args({500, 1000})
+    ->Args({NUM_PREFILLS, NUM_INSERTS})
     ->ThreadRange(1, 1); //NUM_MAX_THREADS);
 
 BENCHMARK_REGISTER_F(ViperFixture, setup_and_find)
@@ -624,7 +629,7 @@ BENCHMARK_REGISTER_F(ViperFixture, setup_and_find)
     ->Iterations(1)
     ->Unit(BM_TIME_UNIT)
     ->UseRealTime()
-    ->Args({1000, 100})
+    ->Args({NUM_PREFILLS, NUM_FINDS})
     ->ThreadRange(1, 1); //NUM_MAX_THREADS);
 
 BENCHMARK_MAIN();
