@@ -10,7 +10,7 @@
 #include <libpmemobj++/container/vector.hpp>
 #include <filesystem>
 #include <thread>
-#include <cmath>q
+#include <cmath>
 
 namespace viper {
 
