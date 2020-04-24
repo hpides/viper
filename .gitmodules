@@ -4,3 +4,6 @@
 [submodule "third_party/rocksdb"]
 	path = third_party/rocksdb
 	url = https://github.com/facebook/rocksdb.git
+[submodule "third_party/faster"]
+	path = third_party/faster
+	url = https://github.com/microsoft/faster.git

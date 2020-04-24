@@ -33,8 +33,12 @@ add_subdirectory(third_party/googlebench)
 add_subdirectory(third_party/rocksdb)
 include_directories(third_party/rocksdb/include)
 
+# FASTER
+include_directories(third_party/faster/cc/src)
+add_subdirectory(third_party/faster/cc)
+
 # VIPER
-add_compile_options(-pthread -Wall -Wextra -pedantic -Werror -Wno-unused-parameter -Wno-dollar-in-identifier-extension -Wno-unknown-pragmas -Wno-subobject-linkage)
+add_compile_options(-pthread) # -Wall -Wextra -pedantic -Werror -Wno-unused-parameter -Wno-dollar-in-identifier-extension -Wno-unknown-pragmas -Wno-subobject-linkage)
 add_subdirectory(src/)
 include_directories(src)
 
@@ -42,7 +46,7 @@ SET(LINK_LIBS pthread pmem pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind
 
 add_executable(nvm_kv_bm benchmark.cpp)
 target_link_libraries(nvm_kv_bm ${LINK_LIBS})
-target_link_libraries(nvm_kv_bm benchmark rocksdb)
+target_link_libraries(nvm_kv_bm benchmark rocksdb faster uuid aio)
 
 add_executable(playground playground.cpp)
 target_link_libraries(playground ${LINK_LIBS})

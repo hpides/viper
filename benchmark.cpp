@@ -17,9 +17,13 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "third_party/faster/cc/src/core/faster.h"
+#include "third_party/faster/cc/src/environment/file.h"
+#include "third_party/faster/cc/src/device/file_system_disk.h"
 
 static constexpr char POOL_FILE_DIR[] = "/mnt/nvrams1/kv-bm";
-static constexpr char ROCKSDB_FILE_DIR[] = "/tmp/rocksdb";
+//static constexpr char DB_FILE_DIR[] = "/mnt/nvrams1/dbfiles";
+static constexpr char DB_FILE_DIR[] = "/home/lawrence.benson/dbfiles";
 static const uint64_t BM_POOL_SIZE = (1024l*1024*1024) * 5;  // 5GB
 
 static constexpr uint64_t NUM_INSERTS = 10000000;
@@ -114,6 +118,33 @@ class BasePmemFixture : public BaseFixture {
     pmem::obj::pool<RootType> pmem_pool_;
     std::filesystem::path pool_file_;
     std::mutex pool_mutex_;
+};
+
+class FileBasedFixture : public BaseFixture {
+  public:
+    void SetUp(benchmark::State& state) override {
+        BaseFixture::SetUp(state);
+        {
+            std::scoped_lock lock(db_mutex_);
+            if (db_file_.empty()) {
+                db_file_ = random_file(DB_FILE_DIR);
+            }
+        }
+    }
+
+    void TearDown(benchmark::State& state) override {
+        {
+            std::scoped_lock lock(db_mutex_);
+            if (!db_file_.empty() && std::filesystem::exists(db_file_)) {
+                std::filesystem::remove_all(db_file_);
+                db_file_.clear();
+            }
+        }
+    }
+
+  protected:
+    std::filesystem::path db_file_;
+    std::mutex db_mutex_;
 };
 
 class DramMapFixture : public BaseFixture {
@@ -222,28 +253,8 @@ class ViperFixture : public BasePmemFixture<viper::ViperRoot<KeyType, ValueType>
     bool viper_initialized_ = false;
 };
 
-class RocksDbFixture : public BaseFixture {
+class RocksDbFixture : public FileBasedFixture {
   public:
-    void SetUp(benchmark::State& state) override {
-        BaseFixture::SetUp(state);
-        {
-            std::scoped_lock lock(db_mutex_);
-            if (db_file_.empty()) {
-                db_file_ = random_file(ROCKSDB_FILE_DIR);
-            }
-        }
-    }
-
-    void TearDown(benchmark::State& state) override {
-        {
-            std::scoped_lock lock(db_mutex_);
-            if (!db_file_.empty() && std::filesystem::exists(db_file_)) {
-                std::filesystem::remove_all(db_file_);
-                db_file_.clear();
-            }
-        }
-    }
-
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) {
         if (rocksdb_initialized_ && !re_init) {
             return;
@@ -272,10 +283,188 @@ class RocksDbFixture : public BaseFixture {
 
   protected:
     rocksdb::DB* db_;
-    std::filesystem::path db_file_;
-    std::mutex db_mutex_;
     bool rocksdb_initialized_;
+};
 
+class FasterFixture : public FileBasedFixture {
+  public:
+    void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) {
+        if (faster_initialized_ && !re_init) {
+            return;
+        }
+
+        db_ = std::make_unique<faster_t>((1L << 27), 17179869184, db_file_);
+
+        auto callback = [](IAsyncContext* ctxt, Status result) {
+            CallbackContext<UpsertContext> context{ctxt };
+            assert(result == Status::Ok);
+        };
+
+        db_->StartSession();
+
+        for (uint64_t key = 0; key < num_prefill_inserts; ++key) {
+            if (key % kRefreshInterval == 0) {
+                db_->Refresh();
+                if (key % kCompletePendingInterval == 0) {
+                    db_->CompletePending(false);
+                }
+            }
+
+            UpsertContext context{ key, key };
+            db_->Upsert(context, callback, 1);
+        }
+
+        db_->Refresh();
+        db_->CompletePending(true);
+        db_->StopSession();
+
+        faster_initialized_ = true;
+    }
+
+    void DeInitMap() {
+        db_ = nullptr;
+        faster_initialized_ = false;
+    }
+
+  protected:
+    class FasterKey {
+      public:
+        FasterKey(uint64_t key)
+            : key_{ key } {
+        }
+
+        inline static constexpr uint32_t size() {
+            return static_cast<uint32_t>(sizeof(FasterKey));
+        }
+        inline KeyHash GetHash() const {
+            return KeyHash{ Utility::GetHashCode(key_) };
+        }
+
+        inline bool operator==(const FasterKey& other) const {
+            return key_ == other.key_;
+        }
+        inline bool operator!=(const FasterKey& other) const {
+            return key_ != other.key_;
+        }
+
+      private:
+        uint64_t key_;
+    };
+
+    class FasterValue {
+      public:
+        FasterValue()
+            : value_{0 } {
+        }
+        FasterValue(const FasterValue& other)
+            : value_{other.value_ } {
+        }
+
+        inline static constexpr uint32_t size() {
+            return static_cast<uint32_t>(sizeof(FasterValue));
+        }
+
+        union {
+            uint64_t value_;
+            std::atomic<uint64_t> atomic_value_;
+        };
+    };
+
+    class UpsertContext : public IAsyncContext {
+      public:
+        typedef FasterKey key_t;
+        typedef FasterValue value_t;
+
+        UpsertContext(const FasterKey& key, uint64_t input)
+            : key_{ key }
+            , input_{ input } {
+        }
+
+        /// Copy (and deep-copy) constructor.
+        UpsertContext(const UpsertContext& other)
+            : key_{ other.key_ }
+            , input_{ other.input_ } {
+        }
+
+        /// The implicit and explicit interfaces require a key() accessor.
+        inline const FasterKey& key() const {
+            return key_;
+        }
+
+        inline static constexpr uint32_t value_size() {
+            return sizeof(value_t);
+        }
+        inline static constexpr uint32_t value_size(const FasterValue& old_value) {
+            return sizeof(value_t);
+        }
+
+        inline void Put(value_t& value) {
+            value.value_ = input_;
+        }
+        inline bool PutAtomic(value_t& value) {
+            value.atomic_value_.store(input_);
+            return true;
+        }
+
+      protected:
+        /// The explicit interface requires a DeepCopy_Internal() implementation.
+        Status DeepCopy_Internal(IAsyncContext*& context_copy) {
+            return IAsyncContext::DeepCopy_Internal(*this, context_copy);
+        }
+
+      private:
+        FasterKey key_;
+        uint64_t input_;
+    };
+
+/// Context to read the store (after recovery).
+    class ReadContext : public IAsyncContext {
+      public:
+        typedef FasterKey key_t;
+        typedef FasterValue value_t;
+
+        ReadContext(const FasterKey& key, uint64_t* result)
+            : key_{ key }
+            , result_{ result } {
+        }
+
+        /// Copy (and deep-copy) constructor.
+        ReadContext(const ReadContext& other)
+            : key_{ other.key_ }
+            , result_{ other.result_ } {
+        }
+
+        /// The implicit and explicit interfaces require a key() accessor.
+        inline const FasterKey& key() const {
+            return key_;
+        }
+
+        inline void Get(const value_t& value) {
+            *result_ = value.value_;
+        }
+        inline void GetAtomic(const value_t& value) {
+            *result_ = value.atomic_value_;
+        }
+
+      protected:
+        /// The explicit interface requires a DeepCopy_Internal() implementation.
+        Status DeepCopy_Internal(IAsyncContext*& context_copy) {
+            return IAsyncContext::DeepCopy_Internal(*this, context_copy);
+        }
+
+      private:
+        FasterKey key_;
+        uint64_t* result_;
+    };
+
+    typedef FASTER::environment::QueueIoHandler handler_t;
+    typedef FASTER::device::FileSystemDisk<handler_t, 1073741824ull> disk_t;
+    typedef FASTER::core::FasterKv<FasterKey, FasterValue, disk_t> faster_t;
+
+    std::unique_ptr<faster_t> db_;
+    bool faster_initialized_;
+    const uint64_t kRefreshInterval = 64;
+    const uint64_t kCompletePendingInterval = 1600;
 };
 
 BENCHMARK_DEFINE_F(DramMapFixture, insert_empty)(benchmark::State& state) {
@@ -604,17 +793,33 @@ BENCHMARK_DEFINE_F(ViperFixture, setup_and_find)(benchmark::State& state) {
 BENCHMARK_DEFINE_F(RocksDbFixture, insert_empty)(benchmark::State& state) {
     const uint64_t num_total_inserts = state.range(0);
 
-    if (state.thread_index == 0) {
+    if (state.thread_index == 1 || state.threads == 1) {
         InitMap();
+    } else {
+        std::this_thread::sleep_for(std::chrono::seconds{1});
     }
 
     const uint64_t num_inserts_per_thread = num_total_inserts / state.threads;
     const uint64_t start_idx = state.thread_index * num_inserts_per_thread;
     const uint64_t end_idx = start_idx + num_inserts_per_thread;
 
+    auto start = std::chrono::high_resolution_clock::now();
+    const auto& write_options = rocksdb::WriteOptions();
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
+        // uint64_t key = uniform_distribution(rnd_engine_);
+        const rocksdb::Slice db_key = std::to_string(key);
+        const rocksdb::Slice value = std::to_string(key*100);
+        db_->Put(write_options, db_key, value);
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::string msg = "Thread (" + std::to_string(state.thread_index) + ") took: "
+                        + std::to_string(duration) + " us (" + std::to_string(num_total_inserts) + " ops)\n";
+    std::cout << msg;
+
     std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
 
-    const auto& write_options = rocksdb::WriteOptions();
+//    const auto& write_options = rocksdb::WriteOptions();
     for (auto _ : state) {
         for (uint64_t key = start_idx; key < end_idx; ++key) {
             // uint64_t key = uniform_distribution(rnd_engine_);
@@ -677,6 +882,146 @@ BENCHMARK_DEFINE_F(RocksDbFixture, setup_and_find)(benchmark::State& state) {
             const rocksdb::Slice db_key = std::to_string(key);
             found_counter += db_->Get(read_options, db_key, &value).ok();
         }
+    }
+
+    log_find_count(state, found_counter, num_finds_per_thread);
+}
+
+BENCHMARK_DEFINE_F(FasterFixture, insert_empty)(benchmark::State& state) {
+    const uint64_t num_total_inserts = state.range(0);
+
+    if (state.thread_index == 1 || state.threads == 1) {
+        InitMap();
+    }
+
+    const uint64_t num_inserts_per_thread = num_total_inserts / state.threads;
+    const uint64_t start_idx = state.thread_index * num_inserts_per_thread;
+    const uint64_t end_idx = start_idx + num_inserts_per_thread;
+
+    std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
+
+    auto callback = [](IAsyncContext* ctxt, Status result) {
+        CallbackContext<UpsertContext> context{ctxt };
+        assert(result == Status::Ok);
+    };
+
+    while (!faster_initialized_) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+
+    for (auto _ : state) {
+        db_->StartSession();
+
+        for (uint64_t key = start_idx; key < end_idx; ++key) {
+            if (key % kRefreshInterval == 0) {
+                db_->Refresh();
+                if (key % kCompletePendingInterval == 0) {
+                    db_->CompletePending(false);
+                }
+            }
+
+            UpsertContext context{ key, key*100 };
+            db_->Upsert(context, callback, 1);
+        }
+
+        db_->Refresh();
+        db_->CompletePending(true);
+        db_->StopSession();
+    }
+
+    if (state.thread_index == 0) {
+        DeInitMap();
+    }
+}
+
+BENCHMARK_DEFINE_F(FasterFixture, setup_and_insert)(benchmark::State& state) {
+    const uint64_t num_total_prefill = state.range(0);
+    const uint64_t num_total_inserts = state.range(1);
+
+    if (state.thread_index == 1 || state.threads == 1) {
+        InitMap();
+    }
+
+    const uint64_t num_inserts_per_thread = num_total_inserts / state.threads;
+    const uint64_t start_idx = (state.thread_index * num_inserts_per_thread) + num_total_prefill;
+    const uint64_t end_idx = start_idx + num_inserts_per_thread;
+
+    std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_inserts * 1000);
+
+    auto callback = [](IAsyncContext* ctxt, Status result) {
+        CallbackContext<UpsertContext> context{ctxt };
+        assert(result == Status::Ok);
+    };
+
+    while (!faster_initialized_) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+
+    for (auto _ : state) {
+        db_->StartSession();
+
+        for (uint64_t key = start_idx; key < end_idx; ++key) {
+            if (key % kRefreshInterval == 0) {
+                db_->Refresh();
+                if (key % kCompletePendingInterval == 0) {
+                    db_->CompletePending(false);
+                }
+            }
+
+            UpsertContext context{ key, key*100 };
+            db_->Upsert(context, callback, 1);
+        }
+
+        db_->Refresh();
+        db_->CompletePending(true);
+        db_->StopSession();
+    }
+
+    if (state.thread_index == 0) {
+        DeInitMap();
+    }
+}
+
+BENCHMARK_DEFINE_F(FasterFixture, setup_and_find)(benchmark::State& state) {
+    const uint64_t num_total_prefills = state.range(0);
+    const uint64_t num_total_finds = state.range(1);
+
+    if (state.thread_index == 1 || state.threads == 1) {
+        InitMap(num_total_prefills, /*re_init=*/false);
+    }
+
+    const uint64_t num_finds_per_thread = num_total_finds / state.threads;
+    const uint64_t start_idx = state.thread_index * num_finds_per_thread;
+    const uint64_t end_idx = start_idx + num_finds_per_thread;
+
+    std::uniform_int_distribution<uint64_t> uniform_distribution(0, num_total_prefills * 1000);
+
+    auto callback = [](IAsyncContext* ctxt, Status result) {
+        CallbackContext<ReadContext> context{ctxt };
+        assert(result == Status::Ok);
+    };
+
+    int found_counter = 0;
+    for (auto _ : state) {
+        db_->StartSession();
+
+        found_counter = 0;
+        for (uint64_t key = start_idx; key < end_idx; ++key) {
+            if (key % kRefreshInterval == 0) {
+                db_->Refresh();
+                if (key % kCompletePendingInterval == 0) {
+                    db_->CompletePending(false);
+                }
+            }
+
+            ValueType result;
+            ReadContext context{key, &result};
+            found_counter += db_->Read(context, callback, key) == FASTER::core::Status::Ok;
+        }
+
+        db_->Refresh();
+        db_->CompletePending(true);
+        db_->StopSession();
     }
 
     log_find_count(state, found_counter, num_finds_per_thread);
@@ -778,14 +1123,38 @@ BENCHMARK_REGISTER_F(RocksDbFixture, setup_and_find)
     ->Args({NUM_PREFILLS, NUM_FINDS})
     ->ThreadRange(1, NUM_MAX_THREADS);
 
+BENCHMARK_REGISTER_F(FasterFixture, insert_empty)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Arg(NUM_INSERTS)
+    ->ThreadRange(1, NUM_MAX_THREADS);
+
+BENCHMARK_REGISTER_F(FasterFixture, setup_and_insert)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Args({NUM_PREFILLS, NUM_INSERTS})
+    ->ThreadRange(1, NUM_MAX_THREADS);
+
+BENCHMARK_REGISTER_F(FasterFixture, setup_and_find)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Args({NUM_PREFILLS, NUM_FINDS})
+    ->ThreadRange(1, NUM_MAX_THREADS);
+
 BENCHMARK_REGISTER_F(ViperFixture, insert_empty)
     ->Repetitions(NUM_REPETITIONS)
     ->Iterations(1)
     ->Unit(BM_TIME_UNIT)
     ->UseRealTime()
     ->Arg(NUM_INSERTS)
-//    ->ThreadRange(1, 1); //NUM_MAX_THREADS);
-    ->ThreadRange(1, NUM_MAX_THREADS);
+    ->ThreadRange(1, 1);
+//    ->ThreadRange(1, NUM_MAX_THREADS);
 
 BENCHMARK_REGISTER_F(ViperFixture, setup_and_insert)
     ->Repetitions(NUM_REPETITIONS)
@@ -793,8 +1162,8 @@ BENCHMARK_REGISTER_F(ViperFixture, setup_and_insert)
     ->Unit(BM_TIME_UNIT)
     ->UseRealTime()
     ->Args({NUM_PREFILLS, NUM_INSERTS})
-//    ->ThreadRange(1, 1); //NUM_MAX_THREADS);
-    ->ThreadRange(1, NUM_MAX_THREADS);
+    ->ThreadRange(1, 1);
+//    ->ThreadRange(1, NUM_MAX_THREADS);
 
 BENCHMARK_REGISTER_F(ViperFixture, setup_and_find)
     ->Repetitions(NUM_REPETITIONS)
@@ -802,6 +1171,7 @@ BENCHMARK_REGISTER_F(ViperFixture, setup_and_find)
     ->Unit(BM_TIME_UNIT)
     ->UseRealTime()
     ->Args({NUM_PREFILLS, NUM_FINDS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
+    ->ThreadRange(1, 1);
+//    ->ThreadRange(1, NUM_MAX_THREADS);
 
 BENCHMARK_MAIN();
