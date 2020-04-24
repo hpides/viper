@@ -50,7 +50,7 @@ struct ViperPage {
     using VEntry = std::pair<K, V>;
     static constexpr slot_size_t num_slots_per_page = get_num_slots_per_page<K, V>();
 
-    pobj::mutex page_lock;
+    pobj::shared_mutex page_lock;
     std::bitset<num_slots_per_page> free_slots;
     std::array<VEntry, num_slots_per_page> data;
 
@@ -67,15 +67,25 @@ struct LockedViperPage {
     LockedViperPage() = default;
 
     explicit LockedViperPage(VPage* v_page) : v_page{v_page} {
-        lock_guard_ = std::make_unique<std::lock_guard<pobj::mutex>>(v_page->page_lock);
+        page_lock_ = &(v_page->page_lock);
+        page_lock_->lock_shared();
+        is_locked_ = true;
+    }
+
+    ~LockedViperPage() {
+        free_page();
     }
 
     void free_page() {
-        lock_guard_ = nullptr;
+        if (is_locked_) {
+            page_lock_->unlock_shared();
+        }
+        is_locked_ = false;
     }
 
   protected:
-    std::unique_ptr<std::lock_guard<pobj::mutex>> lock_guard_;
+    pobj::shared_mutex* page_lock_;
+    bool is_locked_ = false;
 };
 
 template <typename VPage, page_size_t num_pages>
