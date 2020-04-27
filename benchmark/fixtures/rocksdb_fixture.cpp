@@ -26,6 +26,7 @@ void viper::kv_bm::RocksDbFixture::InitMap(uint64_t num_prefill_inserts, const b
 
 void viper::kv_bm::RocksDbFixture::DeInitMap() {
     delete db_;
+    rocksdb_initialized_ = false;
 }
 
 void viper::kv_bm::RocksDbFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
@@ -48,7 +49,8 @@ uint64_t viper::kv_bm::RocksDbFixture::setup_and_find(uint64_t start_idx, uint64
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         std::string value;
         const rocksdb::Slice db_key = std::to_string(key);
-        found_counter += db_->Get(read_options, db_key, &value).ok();
+        db_->Get(read_options, db_key, &value);
+        found_counter += value == db_key;
     }
     return found_counter;
 }

@@ -22,6 +22,12 @@ void viper::kv_bm::HybridMapFixture::InitMap(const uint64_t num_prefill_inserts,
     map_initialized_ = true;
 }
 
+void viper::kv_bm::HybridMapFixture::DeInitMap() {
+    map_ = nullptr;
+    data_ = nullptr;
+    map_initialized_ = false;
+}
+
 void viper::kv_bm::HybridMapFixture::insert_empty(const uint64_t start_idx, const uint64_t end_idx) {
     const ValueType* data_start = data_->data();
     for (uint64_t key = start_idx; key < end_idx; ++key) {
@@ -42,10 +48,11 @@ void viper::kv_bm::HybridMapFixture::setup_and_insert(const uint64_t start_idx, 
 
 uint64_t viper::kv_bm::HybridMapFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
     uint64_t found_counter = 0;
+    const ValueType* data_start = data_->data();
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         HybridMapType::const_accessor result;
-        found_counter += map_->find(result, key);
-        benchmark::DoNotOptimize((*data_)[result->second] == 0);
+        const bool found = map_->find(result, key);
+        found_counter += found && (*(data_start + result->second) == key);
     }
     return found_counter;
 }

@@ -31,9 +31,9 @@ class BaseFixture : public benchmark::Fixture {
     virtual void DeInitMap() {};
 
     // Benchmark methods. All pure virtual.
-    virtual void insert_empty(const uint64_t start_idx, const uint64_t end_idx) = 0;
-    virtual void setup_and_insert(const uint64_t start_idx, const uint64_t end_idx) = 0;
-    virtual uint64_t setup_and_find(const uint64_t start_idx, const uint64_t end_idx) = 0;
+    virtual void insert_empty(uint64_t start_idx, uint64_t end_idx) = 0;
+    virtual void setup_and_insert(uint64_t start_idx, uint64_t end_idx) = 0;
+    virtual uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) = 0;
 
     static void log_find_count(benchmark::State& state, const uint64_t num_found, const uint64_t num_expected);
 
@@ -63,16 +63,13 @@ class BasePmemFixture : public BaseFixture {
         {
             std::scoped_lock lock(pool_mutex_);
             if (!pool_file_.empty() && std::filesystem::exists(pool_file_)) {
+                pmem_pool_.close();
                 if (pmempool_rm(pool_file_.c_str(), PMEMPOOL_RM_FORCE | PMEMPOOL_RM_POOLSET_LOCAL) == -1) {
                     std::cout << pmempool_errormsg() << std::endl;
                 }
                 pool_file_.clear();
             }
         }
-    }
-
-    void DeInitMap() {
-        pmem_pool_.close();
     }
 
   protected:

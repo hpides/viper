@@ -31,6 +31,10 @@ include_directories(third_party/rocksdb/include)
 include_directories(third_party/faster/cc/src)
 add_subdirectory(third_party/faster/cc)
 
+# DASH
+add_subdirectory(third_party/dash)
+include_directories(third_party/dash/src)
+
 add_executable(nvm_kv_bm benchmark.cpp ${BENCHMARK_FILES})
 target_link_libraries(nvm_kv_bm ${LINK_LIBS})
 target_link_libraries(nvm_kv_bm benchmark rocksdb faster uuid aio)

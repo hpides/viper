@@ -84,11 +84,11 @@ inline void bm_setup_and_find(benchmark::State& state, BaseFixture& fixture) {
         found_counter = fixture.setup_and_find(start_idx, end_idx);
     }
 
-    fixture.log_find_count(state, found_counter, num_finds_per_thread);
-
     if (is_init_thread(state)) {
         fixture.DeInitMap();
     }
+
+    fixture.log_find_count(state, found_counter, num_finds_per_thread);
 }
 
 
@@ -227,7 +227,7 @@ BENCHMARK_REGISTER_F(HybridMapFixture, setup_and_insert)
     ->UseRealTime()
     ->Args({NUM_PREFILLS, NUM_INSERTS})
     ->ThreadRange(1, NUM_MAX_THREADS);
-
+//
 BENCHMARK_REGISTER_F(HybridMapFixture, setup_and_find)
     ->Repetitions(NUM_REPETITIONS)
     ->Iterations(1)
@@ -284,31 +284,31 @@ BENCHMARK_REGISTER_F(FasterFixture, setup_and_find)
     ->Args({NUM_PREFILLS, NUM_FINDS})
     ->ThreadRange(1, NUM_MAX_THREADS);
 
-BENCHMARK_REGISTER_F(ViperFixture, insert_empty)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Arg(NUM_INSERTS)
-    ->ThreadRange(1, 1);
-//    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(ViperFixture, setup_and_insert)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_INSERTS})
-    ->ThreadRange(1, 1);
-//    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(ViperFixture, setup_and_find)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_FINDS})
-    ->ThreadRange(1, 1);
-//    ->ThreadRange(1, NUM_MAX_THREADS);
+//BENCHMARK_REGISTER_F(ViperFixture, insert_empty)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Arg(NUM_INSERTS)
+//    ->ThreadRange(1, 1);
+////    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(ViperFixture, setup_and_insert)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_INSERTS})
+//    ->ThreadRange(1, 1);
+////    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(ViperFixture, setup_and_find)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_FINDS})
+//    ->ThreadRange(1, 1);
+////    ->ThreadRange(1, NUM_MAX_THREADS);
 
 BENCHMARK_MAIN();

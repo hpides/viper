@@ -23,6 +23,8 @@ class HybridMapFixture : public BasePmemFixture<HybridMapRoot> {
   public:
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) override;
 
+    void DeInitMap() override;
+
     void insert_empty(const uint64_t start_idx, const uint64_t end_idx) override final;
 
     void setup_and_insert(const uint64_t start_idx, const uint64_t end_idx) override final;

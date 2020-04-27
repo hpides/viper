@@ -29,10 +29,10 @@ void viper::kv_bm::DramMapFixture::setup_and_insert(uint64_t start_idx, uint64_t
 
 uint64_t viper::kv_bm::DramMapFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
     uint64_t found_counter = 0;
-    for (uint64_t i = start_idx; i < end_idx; ++i) {
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
         DramMapType::const_accessor result;
-        const bool found = dram_map_->find(result, i);
-        found_counter += found;
+        const bool found = dram_map_->find(result, key);
+        found_counter += found && result->second == key;
     }
     return found_counter;
 }
