@@ -24,30 +24,17 @@ SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${PMEM_LIB_
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PATH}:${PMEM_LIB_PATH}:/usr/local/lib")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
+SET(LINK_LIBS pthread pmem pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind.so.0)
+# Include viper sources
+include_directories(src)
 
-# GOOGLE BENCHMARK
-set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing benchmark's tests" FORCE)
-add_subdirectory(third_party/googlebench)
-
-# ROCKSDB
-add_subdirectory(third_party/rocksdb)
-include_directories(third_party/rocksdb/include)
-
-# FASTER
-include_directories(third_party/faster/cc/src)
-add_subdirectory(third_party/faster/cc)
+add_subdirectory(benchmark)
 
 # VIPER
 add_compile_options(-pthread) # -Wall -Wextra -pedantic -Werror -Wno-unused-parameter -Wno-dollar-in-identifier-extension -Wno-unknown-pragmas -Wno-subobject-linkage)
-add_subdirectory(src/)
-include_directories(src)
-
-SET(LINK_LIBS pthread pmem pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind.so.0)
-
-add_executable(nvm_kv_bm benchmark.cpp)
-target_link_libraries(nvm_kv_bm ${LINK_LIBS})
-target_link_libraries(nvm_kv_bm benchmark rocksdb faster uuid aio)
+add_subdirectory(src)
 
 add_executable(playground playground.cpp)
 target_link_libraries(playground ${LINK_LIBS})
 target_link_libraries(playground viper)
+

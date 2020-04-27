@@ -1,0 +1,112 @@
+#pragma once
+
+#include <iostream>
+#include <string>
+#include <filesystem>
+#include <random>
+#include <mutex>
+
+#include <benchmark/benchmark.h>
+#include <libpmempool.h>
+#include <libpmemobj++/pool.hpp>
+
+#include "../benchmark.hpp"
+
+namespace viper {
+namespace kv_bm {
+
+
+std::string random_file(const std::filesystem::path& base_dir);
+
+class BaseFixture : public benchmark::Fixture {
+  public:
+    void SetUp(benchmark::State& state) override {
+        std::random_device rnd{};
+        rnd_engine_ = std::default_random_engine(rnd());
+    }
+
+    void TearDown(benchmark::State& state) override {};
+
+    virtual void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) {};
+    virtual void DeInitMap() {};
+
+    // Benchmark methods. All pure virtual.
+    virtual void insert_empty(const uint64_t start_idx, const uint64_t end_idx) = 0;
+    virtual void setup_and_insert(const uint64_t start_idx, const uint64_t end_idx) = 0;
+    virtual uint64_t setup_and_find(const uint64_t start_idx, const uint64_t end_idx) = 0;
+
+    static void log_find_count(benchmark::State& state, const uint64_t num_found, const uint64_t num_expected);
+
+  protected:
+    std::default_random_engine rnd_engine_;
+};
+
+template <typename RootType>
+class BasePmemFixture : public BaseFixture {
+  public:
+    void SetUp(benchmark::State& state) override {
+        BaseFixture::SetUp(state);
+        int sds_write_value = 0;
+        pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
+
+        {
+            std::scoped_lock lock(pool_mutex_);
+            if (pool_file_.empty()) {
+                pool_file_ = random_file(POOL_FILE_DIR);
+                pmem_pool_ = pmem::obj::pool<RootType>::create(pool_file_, "", BM_POOL_SIZE, S_IRWXU);
+            }
+        }
+
+    }
+
+    void TearDown(benchmark::State& state) override {
+        {
+            std::scoped_lock lock(pool_mutex_);
+            if (!pool_file_.empty() && std::filesystem::exists(pool_file_)) {
+                if (pmempool_rm(pool_file_.c_str(), PMEMPOOL_RM_FORCE | PMEMPOOL_RM_POOLSET_LOCAL) == -1) {
+                    std::cout << pmempool_errormsg() << std::endl;
+                }
+                pool_file_.clear();
+            }
+        }
+    }
+
+    void DeInitMap() {
+        pmem_pool_.close();
+    }
+
+  protected:
+    pmem::obj::pool<RootType> pmem_pool_;
+    std::filesystem::path pool_file_;
+    std::mutex pool_mutex_;
+};
+
+class FileBasedFixture : public BaseFixture {
+  public:
+    void SetUp(benchmark::State& state) override {
+        BaseFixture::SetUp(state);
+        {
+            std::scoped_lock lock(db_mutex_);
+            if (db_file_.empty()) {
+                db_file_ = random_file(DB_FILE_DIR);
+            }
+        }
+    }
+
+    void TearDown(benchmark::State& state) override {
+        {
+            std::scoped_lock lock(db_mutex_);
+            if (!db_file_.empty() && std::filesystem::exists(db_file_)) {
+                std::filesystem::remove_all(db_file_);
+                db_file_.clear();
+            }
+        }
+    }
+
+  protected:
+    std::filesystem::path db_file_;
+    std::mutex db_mutex_;
+};
+
+}  // namespace kv_bm
+}  // namespace viper

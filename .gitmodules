@@ -1,9 +1,9 @@
 [submodule "third_party/googlebench"]
-	path = third_party/googlebench
+	path = benchmark/third_party/googlebench
 	url = https://github.com/google/benchmark.git
 [submodule "third_party/rocksdb"]
-	path = third_party/rocksdb
+	path = benchmark/third_party/rocksdb
 	url = https://github.com/facebook/rocksdb.git
 [submodule "third_party/faster"]
-	path = third_party/faster
+	path = benchmark/third_party/faster
 	url = https://github.com/microsoft/faster.git

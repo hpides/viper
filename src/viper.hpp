@@ -2,7 +2,7 @@
 
 #include <iostream>
 #include <tbb/concurrent_hash_map.h>
-#include <libpmemobj++/mutex.hpp>
+#include <libpmemobj++/shared_mutex.hpp>
 #include <bitset>
 #include <libpmem.h>
 #include <libpmemobj++/make_persistent_atomic.hpp>
@@ -35,7 +35,7 @@ template <typename K, typename V>
 constexpr slot_size_t get_num_slots_per_page() {
     const uint16_t entry_size = sizeof(K) + sizeof(V);
     assert(entry_size < PAGE_SIZE && "KV pair larger than single page!");
-    const uint16_t page_overhead = sizeof(pobj::mutex);
+    const uint16_t page_overhead = sizeof(pobj::shared_mutex);
 
     slot_size_t num_slots_per_page = 255;
     while ((num_slots_per_page * entry_size) + page_overhead + std::ceil(num_slots_per_page / 8) > PAGE_SIZE) {
