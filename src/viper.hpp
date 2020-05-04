@@ -27,7 +27,7 @@ static constexpr uint16_t MIN_PAGE_SIZE = PAGE_SIZE / 4; // 1kb
 static constexpr uint16_t MAX_PAGE_SIZE = PAGE_SIZE * 6; // 1kb
 static constexpr uint8_t NUM_DIMMS = 6;
 static constexpr double RESIZE_THRESHOLD = 0.75;
-static constexpr block_size_t NUM_BLOCKS_PER_CREATE = 100;
+static constexpr block_size_t NUM_BLOCKS_PER_CREATE = 1000;
 static constexpr slot_size_t BASE_NUM_SLOTS_PER_PAGE = 64;
 
 static constexpr version_lock_size_t LOCK_BIT = 0x8000000000000000;
@@ -160,10 +160,49 @@ class Viper {
     explicit Viper(const pobj::pool<ViperRoot<K, V>>& v_pool);
     ~Viper();
 
-    bool put(K key, V value);
-    V get(K key);
-    bool remove(K key);
-    size_t count();
+    class ConstAccessor {
+        friend class Viper<K, V>;
+        using MapType = tbb::concurrent_hash_map<K, internal::KeyValueOffset>;
+        using MapConstAccessor = typename MapType::const_accessor;
+
+      public:
+        ConstAccessor() = default;
+
+        const V& operator*() const { return *value_; }
+        const V* operator->() const { return value_; }
+
+        ConstAccessor(const ConstAccessor& other) = delete;
+        ConstAccessor& operator=(const ConstAccessor& other) = delete;
+        ConstAccessor(ConstAccessor&& other) noexcept = default;
+        ConstAccessor& operator=(ConstAccessor&& other) noexcept = default;
+        ~ConstAccessor() = default;
+
+      protected:
+        MapConstAccessor map_accessor_;
+        V* value_;
+    };
+
+    class Accessor : public ConstAccessor {
+        using MapAccessor = typename ConstAccessor::MapType::accessor;
+      public:
+        V& operator*() { return *value_; }
+        V* operator->() { return value_; }
+
+      protected:
+        MapAccessor map_accessor_;
+        V* value_;
+    };
+
+    bool put(const K& key, const V& value);
+    bool get(const K& key, Accessor& accessor);
+    bool get(const K& key, ConstAccessor& accessor) const;
+
+    template <typename UpdateFn>
+    bool update(const K& key, UpdateFn update_fn);
+
+    bool remove(const K& key);
+
+    size_t count() const;
 
   protected:
     Viper(const pobj::pool<ViperRoot<K, V>>& v_pool, bool owns_pool);
@@ -228,7 +267,7 @@ Viper<K, V>::~Viper() {
 }
 
 template <typename K, typename V>
-bool Viper<K, V>::put(K key, V value) {
+bool Viper<K, V>::put(const K& key, const V& value) {
     block_size_t block_number;
     page_size_t v_page_number;
     VPage* v_page;
@@ -315,34 +354,63 @@ bool Viper<K, V>::put(K key, V value) {
 }
 
 template <typename K, typename V>
-V Viper<K, V>::get(K key) {
-    typename MapType::const_accessor result;
+bool Viper<K, V>::get(const K& key, Accessor& accessor) {
+    auto& result = accessor.map_accessor_;
     const bool found = map_.find(result, key);
     if (!found) {
-        throw std::runtime_error("Key '" + std::to_string(key) + "' not found.");
+        return false;
     }
 
     const KVOffset kv_offset = result->second;
     const auto [block_number, page_number, slot_number] = kv_offset.get_offsets();
     // TODO: check how this is optimized by compiler
-    return blocks_[block_number]->v_pages[page_number].data[slot_number].second;
+    V* value = &blocks_[block_number]->v_pages[page_number].data[slot_number].second;
+    accessor.value_ = value;
+    return true;
 }
 
 template <typename K, typename V>
-size_t Viper<K, V>::count() {
-    return current_size_;
+bool Viper<K, V>::get(const K& key, ConstAccessor& accessor) const {
+    auto& result = accessor.map_accessor_;
+    const bool found = map_.find(result, key);
+    if (!found) {
+        return false;
+    }
+
+    const KVOffset kv_offset = result->second;
+    const auto [block_number, page_number, slot_number] = kv_offset.get_offsets();
+    // TODO: check how this is optimized by compiler
+    V* value = &blocks_[block_number]->v_pages[page_number].data[slot_number].second;
+    accessor.value_ = value;
+    return true;
+}
+
+template <typename K, typename V>
+template <typename UpdateFn>
+bool Viper<K, V>::update(const K& key, UpdateFn update_fn) {
+    typename MapType::accessor result;
+    const bool found = map_.find(result, key);
+    if (!found) {
+        return false;
+    }
+
+    update_fn(result->second);
+    return true;
+}
+
+template <typename K, typename V>
+size_t Viper<K, V>::count() const {
+    return current_size_.load();
 }
 
 template <typename K, typename V>
 block_size_t Viper<K, V>::get_next_block() {
     if (current_block_capacity_.load() == 0) {
         // No more capacity in current block
-        {
-            uint16_t expected_capacity = 0;
-            const bool swap_successful = current_block_capacity_.compare_exchange_strong(expected_capacity, capacity_per_block_);
-            if (swap_successful) {
-                ++current_block_;
-            }
+        uint16_t expected_capacity = 0;
+        const bool swap_successful = current_block_capacity_.compare_exchange_strong(expected_capacity, capacity_per_block_);
+        if (swap_successful) {
+            ++current_block_;
         }
     }
 
@@ -373,7 +441,6 @@ pobj::pool<ViperRoot<K, V>> Viper<K, V>::init_pool(const std::string& pool_file,
         return v_pool;
     }
 }
-
 template <typename K, typename V>
 void Viper<K, V>::add_v_page_blocks(const block_size_t num_blocks) {
     const block_size_t num_blocks_before = blocks_.size();

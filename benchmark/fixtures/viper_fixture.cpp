@@ -28,7 +28,9 @@ void viper::kv_bm::ViperFixture::setup_and_insert(uint64_t start_idx, uint64_t e
 uint64_t viper::kv_bm::ViperFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
     uint64_t found_counter = 0;
     for (uint64_t key = start_idx; key < end_idx; ++key) {
-        found_counter += (viper_->get(key) == key);
+        ViperT::ConstAccessor result;
+        const bool found = viper_->get(key, result);
+        found_counter += found && (*result == key);
     }
     return found_counter;
 }
