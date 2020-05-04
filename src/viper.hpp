@@ -27,7 +27,7 @@ static constexpr uint16_t MIN_PAGE_SIZE = PAGE_SIZE / 4; // 1kb
 static constexpr uint16_t MAX_PAGE_SIZE = PAGE_SIZE * 6; // 1kb
 static constexpr uint8_t NUM_DIMMS = 6;
 static constexpr double RESIZE_THRESHOLD = 0.75;
-static constexpr block_size_t NUM_BLOCKS_PER_CREATE = 10;
+static constexpr block_size_t NUM_BLOCKS_PER_CREATE = 100;
 static constexpr slot_size_t BASE_NUM_SLOTS_PER_PAGE = 64;
 
 static constexpr version_lock_size_t LOCK_BIT = 0x8000000000000000;
@@ -82,7 +82,7 @@ struct alignas(MIN_PAGE_SIZE) ViperPage {
 };
 
 template <typename VPage, page_size_t num_pages>
-struct alignas(PAGE_SIZE) ViperPageBlock {
+struct ViperPageBlock {
     static constexpr uint64_t num_slots_per_block = VPage::num_slots_per_page * num_pages;
     /**
      * Array to store all persistent ViperPages.
@@ -90,7 +90,7 @@ struct alignas(PAGE_SIZE) ViperPageBlock {
      * making all pointers invalid.
      */
     std::array<VPage, num_pages> v_pages;
-};
+} __attribute__((aligned(PAGE_SIZE)));
 
 class KeyValueOffset {
   public:
@@ -272,8 +272,9 @@ bool Viper<K, V>::put(K key, V value) {
     --current_block_capacity_;
 
     v_page->data[free_slot_idx] = {key, value};
-    const typename VPage::VEntry* entry_ptr = v_page->data.data() + free_slot_idx;
+    typename VPage::VEntry* entry_ptr = v_page->data.data() + free_slot_idx;
     pmemobj_persist(v_pool_.handle(), entry_ptr, sizeof(typename VPage::VEntry));
+
     free_slots->flip(free_slot_idx);
     pmemobj_persist(v_pool_.handle(), free_slots, sizeof(free_slots));
 
