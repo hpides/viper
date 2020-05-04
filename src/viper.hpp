@@ -2,7 +2,6 @@
 
 #include <iostream>
 #include <tbb/concurrent_hash_map.h>
-#include <libpmemobj++/shared_mutex.hpp>
 #include <bitset>
 #include <libpmem.h>
 #include <libpmemobj++/make_persistent_atomic.hpp>
