@@ -1,6 +1,8 @@
 #include "viper_fixture.hpp"
 
-void viper::kv_bm::ViperFixture::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
+namespace viper::kv_bm {
+
+void ViperFixture::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
     if (viper_initialized_ && !re_init) {
         return;
     }
@@ -12,17 +14,26 @@ void viper::kv_bm::ViperFixture::InitMap(uint64_t num_prefill_inserts, const boo
     }
     viper_initialized_ = true;
 }
-void viper::kv_bm::ViperFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
+
+void ViperFixture::DeInitMap() {
+    BaseFixture::DeInitMap();
+    viper_ = nullptr;
+    viper_initialized_ = false;
+}
+
+void ViperFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         // uint64_t key = uniform_distribution(rnd_engine_);
-        const ValueType value = key*100;
+        const ValueType value = key * 100;
         viper_->put(key, value);
     }
 }
-void viper::kv_bm::ViperFixture::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
+
+void ViperFixture::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
     insert_empty(start_idx, end_idx);
 }
-uint64_t viper::kv_bm::ViperFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
+
+uint64_t ViperFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
     uint64_t found_counter = 0;
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         ViperT::ConstAccessor result;
@@ -31,3 +42,5 @@ uint64_t viper::kv_bm::ViperFixture::setup_and_find(uint64_t start_idx, uint64_t
     }
     return found_counter;
 }
+
+}  // namespace viper::kv_bm

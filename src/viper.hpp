@@ -30,10 +30,11 @@ using version_lock_size_t = uint64_t;
 
 static constexpr uint16_t PAGE_SIZE = 4 * 1024; // 4kb
 static constexpr uint16_t MIN_PAGE_SIZE = PAGE_SIZE / 4; // 1kb
-static constexpr uint8_t NUM_DIMMS = 6;
+static constexpr uint8_t NUM_DIMMS = 24;
 static constexpr uint64_t VBLOCK_SIZE = PAGE_SIZE * NUM_DIMMS;
 static constexpr double RESIZE_THRESHOLD = 0.75;
-static constexpr block_size_t NUM_BLOCKS_PER_CREATE = 140000;
+//static constexpr block_size_t NUM_BLOCKS_PER_CREATE = 140000; // 6 dimms
+static constexpr block_size_t NUM_BLOCKS_PER_CREATE = 35000; // 24 dimms
 static constexpr slot_size_t BASE_NUM_SLOTS_PER_PAGE = 64;
 
 // Most significant bit of version_lock_size_t sized counter
@@ -257,6 +258,8 @@ class Viper {
 
     pobj_alloc_class_desc vblock_alloc_description_;
 
+#if defined(PRINT_LOOP)
+    std::atomic<size_t> page_find_counter_ = 0;
     std::atomic<uint64_t> loop_sum_ = 0;
     std::atomic<uint64_t> loop_counter_ = 0;
     std::atomic<uint64_t> loop5_counter_ = 0;
@@ -264,6 +267,8 @@ class Viper {
     std::atomic<uint64_t> loop100_counter_ = 0;
     std::atomic<uint64_t> loop100_sum_ = 0;
     uint64_t loop_max_ = 0;
+#endif
+
 #if defined(PAGE_QUEUE)
     tbb::concurrent_bounded_queue<std::tuple<block_size_t, page_size_t, VPage*>> page_queue_;
 #elif defined(RANDOM_BLOCK_PAGE) || defined(RANDOM_PAGE)
@@ -291,8 +296,6 @@ Viper<K, V, HC>::Viper(const pobj::pool<ViperRoot<K, V>>& v_pool, bool owns_pool
     vblock_alloc_description_{internal::VBLOCK_BASE_ALLOC_DESC} {
     // TODO: build map here and stuff
 
-    loop_counter_ = 0;
-
     pmemobj_ctl_set(v_pool_.handle(), internal::VBLOCK_ALLOC_SETTING, &vblock_alloc_description_);
 
     add_v_page_blocks(NUM_BLOCKS_PER_CREATE);
@@ -315,6 +318,7 @@ Viper<K, V, HC>::~Viper() {
     std::cout << "LOOP COUNTER 100: " << loop100_counter_.load() << std::endl;
     std::cout << "LOOP COUNTER 100 SUM: " << loop100_sum_.load() << std::endl;
     std::cout << "LOOP COUNTER MAX: " << loop_max_ << std::endl;
+    std::cout << "PAGE FIND COUNTER: " << page_find_counter_.load() << std::endl;
 #endif
     if (owns_pool_) {
         std::cout << "Closing pool file." << std::endl;
@@ -333,8 +337,11 @@ bool Viper<K, V, HC>::put(const K& key, const V& value) {
     std::bitset<VPage::num_slots_per_page> free_slot_checker;
     slot_size_t free_slot_idx;
 
+    size_t page_find_counter = 0;
+
     // Find free slot
     do {
+        page_find_counter++;
 
 #if defined(ROUND_ROBIN_PAGE)
         block_number = get_next_block();
@@ -360,17 +367,14 @@ bool Viper<K, V, HC>::put(const K& key, const V& value) {
         static_assert(false, "No page selection mode selected!");
 #endif
 
-// TODO
         uint64_t one_counter = 0;
-        bool in_loop = false;
 
-        // Lock v_page
+        // Lock v_page. We expect the lock bit to be unset.
         std::atomic<version_lock_size_t>& v_lock = v_page->version_lock;
-
-        // We expect the lock bit to be unset
         lock_value = v_lock.load() & ~LOCK_BIT;
 
 #if defined(PRINT_LOOP)
+        bool in_loop = false;
         std::stringbuf msg_buf;
         std::ostream msg{&msg_buf};
         msg << "THREAD: " << std::this_thread::get_id();
@@ -449,6 +453,10 @@ bool Viper<K, V, HC>::put(const K& key, const V& value) {
         free_slot_idx = free_slots->_Find_first();
         free_slot_checker = *free_slots;
 
+        if (free_slot_idx == 18) {
+            std::cout << "bad\n";
+        }
+
         // Always keep one slot free for updates
         if (free_slot_checker.reset(free_slot_idx).none()) {
             // Free lock on page and restart
@@ -468,6 +476,10 @@ bool Viper<K, V, HC>::put(const K& key, const V& value) {
 //    --(block_remaining_slots_[block_number][v_page_number]);
 #if defined(RANDOM_PAGE) || defined(ROUND_ROBIN_PAGE)
     --current_block_capacity_;
+#endif
+
+#if defined(PRINT_LOOP)
+    page_find_counter_.fetch_add(page_find_counter);
 #endif
 
 //    bool is_new_item = true;
