@@ -30,18 +30,15 @@ using version_lock_size_t = uint64_t;
 
 static constexpr uint16_t PAGE_SIZE = 4 * 1024; // 4kb
 static constexpr uint16_t MIN_PAGE_SIZE = PAGE_SIZE / 4; // 1kb
-static constexpr uint16_t MAX_PAGE_SIZE = PAGE_SIZE * 6; // 1kb
 static constexpr uint8_t NUM_DIMMS = 6;
 static constexpr uint64_t VBLOCK_SIZE = PAGE_SIZE * NUM_DIMMS;
 static constexpr double RESIZE_THRESHOLD = 0.75;
-static constexpr block_size_t NUM_BLOCKS_PER_CREATE = 10000;
+static constexpr block_size_t NUM_BLOCKS_PER_CREATE = 140000;
 static constexpr slot_size_t BASE_NUM_SLOTS_PER_PAGE = 64;
 
 // Most significant bit of version_lock_size_t sized counter
 static constexpr version_lock_size_t LOCK_BIT = 1ul << (sizeof(version_lock_size_t) * 8 - 1);
 static constexpr version_lock_size_t COUNTER_MASK = ~LOCK_BIT;
-
-static constexpr block_size_t NULL_BLOCK = std::numeric_limits<block_size_t>::max();
 
 namespace internal {
 
@@ -72,8 +69,11 @@ constexpr slot_size_t get_num_slots_per_page() {
 //    assert(num_slots_per_page > 0 && "Cannot fit KV pair into single page!");
 
     // Hard code for now based on 8 byte key + 8 byte value
-//    return 31;
-    return 63;
+    //    return 31;
+    //    return 63;
+
+    // Hard code for now based on 16 byte key + 200 byte value
+    return 18;
 }
 
 template <typename K, typename V>
@@ -81,17 +81,14 @@ struct alignas(MIN_PAGE_SIZE) ViperPage {
     using VEntry = std::pair<K, V>;
     static constexpr slot_size_t num_slots_per_page = get_num_slots_per_page<K, V>();
 
-
     std::atomic<version_lock_size_t> version_lock;
     std::bitset<num_slots_per_page> free_slots;
     std::array<VEntry, num_slots_per_page> data;
 
     ViperPage() {
-//        std::cout << "PAGE ADDR: " << this << std::endl;
-        const size_t page_size = sizeof(*this);
-//        static_assert(sizeof(*this) >= 1024, "VPage needs to be at least 1024 byte!");
-        static_assert(((page_size & (page_size - 1)) == 0), "VPage needs to be at least 1024 byte!");
-        static_assert(PAGE_SIZE % sizeof(*this) == 0, "VPage not page size conform!");
+        static constexpr size_t v_page_size = sizeof(*this);
+        static_assert(((v_page_size & (v_page_size - 1)) == 0), "VPage needs to be a power of 2!");
+        static_assert(PAGE_SIZE % v_page_size == 0, "VPage not page size conform!");
         version_lock = 0;
         free_slots.flip();
         assert(free_slots.all());
@@ -168,10 +165,10 @@ struct ViperRoot {
     }
 };
 
-template <typename K, typename V>
+template <typename K, typename V, typename HashCompare>
 class Viper {
     using KVOffset = internal::KeyValueOffset;
-    using MapType = tbb::concurrent_hash_map<K, KVOffset>;
+    using MapType = tbb::concurrent_hash_map<K, KVOffset, HashCompare>;
     using VPage = internal::ViperPage<K, V>;
     using VRoot = ViperRoot<K, V>;
     using VPageBlock = typename VRoot::VPageBlock;
@@ -179,13 +176,13 @@ class Viper {
 
   public:
     Viper(const std::string& pool_file, uint64_t pool_size);
-    explicit Viper(pobj::pool<ViperRoot<K, V>>&& v_pool);
-    explicit Viper(const pobj::pool<ViperRoot<K, V>>& v_pool);
+    explicit Viper(pobj::pool<VRoot>&& v_pool);
+    explicit Viper(const pobj::pool<VRoot>& v_pool);
     ~Viper();
 
     class ConstAccessor {
-        friend class Viper<K, V>;
-        using MapType = tbb::concurrent_hash_map<K, internal::KeyValueOffset>;
+        friend class Viper<K, V, HashCompare>;
+        using MapType = tbb::concurrent_hash_map<K, internal::KeyValueOffset, HashCompare>;
         using MapConstAccessor = typename MapType::const_accessor;
 
       public:
@@ -228,7 +225,7 @@ class Viper {
     size_t count() const;
 
   protected:
-    Viper(const pobj::pool<ViperRoot<K, V>>& v_pool, bool owns_pool);
+    Viper(const pobj::pool<VRoot>& v_pool, bool owns_pool);
     pobj::pool<VRoot> init_pool(const std::string& pool_file, uint64_t pool_size);
 
     inline block_size_t get_next_block();
@@ -236,7 +233,7 @@ class Viper {
     void add_v_page_blocks(block_size_t num_blocks = 1);
 
     pobj::pool<VRoot> v_pool_;
-    pobj::persistent_ptr<VRoot> v_root_;
+    VRoot* v_root_;
     MapType map_;
 
     const bool owns_pool_;
@@ -275,18 +272,18 @@ class Viper {
 #endif
 };
 
-template <typename K, typename V>
-Viper<K, V>::Viper(const std::string& pool_file, const uint64_t pool_size) : Viper{init_pool(pool_file, pool_size)} {}
+template <typename K, typename V, typename HC>
+Viper<K, V, HC>::Viper(const std::string& pool_file, const uint64_t pool_size) : Viper{init_pool(pool_file, pool_size)} {}
 
-template <typename K, typename V>
-Viper<K, V>::Viper(pobj::pool<ViperRoot<K, V>>&& v_pool) : Viper{v_pool, true} {}
+template <typename K, typename V, typename HC>
+Viper<K, V, HC>::Viper(pobj::pool<ViperRoot<K, V>>&& v_pool) : Viper{v_pool, true} {}
 
-template <typename K, typename V>
-Viper<K, V>::Viper(const pobj::pool<ViperRoot<K, V>>& v_pool) : Viper{v_pool, false} {}
+template <typename K, typename V, typename HC>
+Viper<K, V, HC>::Viper(const pobj::pool<ViperRoot<K, V>>& v_pool) : Viper{v_pool, false} {}
 
-template <typename K, typename V>
-Viper<K, V>::Viper(const pobj::pool<ViperRoot<K, V>>& v_pool, bool owns_pool) :
-    v_pool_{v_pool}, v_root_{v_pool_.root()}, map_{VRoot::VPageBlock::num_slots_per_block}, owns_pool_{owns_pool},
+template <typename K, typename V, typename HC>
+Viper<K, V, HC>::Viper(const pobj::pool<ViperRoot<K, V>>& v_pool, bool owns_pool) :
+    v_pool_{v_pool}, v_root_{v_pool_.root().get()}, map_{VRoot::VPageBlock::num_slots_per_block}, owns_pool_{owns_pool},
     num_slots_per_block_{VRoot::VPageBlock::num_slots_per_block}, num_pages_per_block_{VRoot::num_pages_per_block},
     capacity_per_block_{static_cast<uint16_t>(num_slots_per_block_ - num_pages_per_block_)}, current_block_{0},
     current_page_{0}, current_size_{0}, current_capacity_{0}, current_block_capacity_{capacity_per_block_},
@@ -308,8 +305,9 @@ Viper<K, V>::Viper(const pobj::pool<ViperRoot<K, V>>& v_pool, bool owns_pool) :
 #endif
 }
 
-template <typename K, typename V>
-Viper<K, V>::~Viper() {
+template <typename K, typename V, typename HC>
+Viper<K, V, HC>::~Viper() {
+#if defined(PRINT_LOOP)
     std::cout << "LOOP TIMES: " << loop_sum_.load() << std::endl;
     std::cout << "LOOP COUNTER: " << loop_counter_.load() << std::endl;
     std::cout << "LOOP COUNTER 5: " << loop5_counter_.load() << std::endl;
@@ -317,14 +315,15 @@ Viper<K, V>::~Viper() {
     std::cout << "LOOP COUNTER 100: " << loop100_counter_.load() << std::endl;
     std::cout << "LOOP COUNTER 100 SUM: " << loop100_sum_.load() << std::endl;
     std::cout << "LOOP COUNTER MAX: " << loop_max_ << std::endl;
+#endif
     if (owns_pool_) {
         std::cout << "Closing pool file." << std::endl;
         v_pool_.close();
     }
 }
 
-template <typename K, typename V>
-bool Viper<K, V>::put(const K& key, const V& value) {
+template <typename K, typename V, typename HC>
+bool Viper<K, V, HC>::put(const K& key, const V& value) {
     block_size_t block_number;
     page_size_t v_page_number;
     VPage* v_page;
@@ -521,8 +520,8 @@ bool Viper<K, V>::put(const K& key, const V& value) {
     return is_new_item;
 }
 
-template <typename K, typename V>
-bool Viper<K, V>::get(const K& key, Accessor& accessor) {
+template <typename K, typename V, typename HC>
+bool Viper<K, V, HC>::get(const K& key, Accessor& accessor) {
     auto& result = accessor.map_accessor_;
     const bool found = map_.find(result, key);
     if (!found) {
@@ -536,8 +535,8 @@ bool Viper<K, V>::get(const K& key, Accessor& accessor) {
     return true;
 }
 
-template <typename K, typename V>
-bool Viper<K, V>::get(const K& key, ConstAccessor& accessor) const {
+template <typename K, typename V, typename HC>
+bool Viper<K, V, HC>::get(const K& key, ConstAccessor& accessor) const {
     auto& result = accessor.map_accessor_;
     const bool found = map_.find(result, key);
     if (!found) {
@@ -551,9 +550,9 @@ bool Viper<K, V>::get(const K& key, ConstAccessor& accessor) const {
     return true;
 }
 
-template <typename K, typename V>
+template <typename K, typename V, typename HC>
 template <typename UpdateFn>
-bool Viper<K, V>::update(const K& key, UpdateFn update_fn) {
+bool Viper<K, V, HC>::update(const K& key, UpdateFn update_fn) {
     typename MapType::accessor result;
     const bool found = map_.find(result, key);
     if (!found) {
@@ -564,13 +563,13 @@ bool Viper<K, V>::update(const K& key, UpdateFn update_fn) {
     return true;
 }
 
-template <typename K, typename V>
-size_t Viper<K, V>::count() const {
+template <typename K, typename V, typename HC>
+size_t Viper<K, V, HC>::count() const {
     return current_size_; //.load();
 }
 
-template <typename K, typename V>
-block_size_t Viper<K, V>::get_next_block() {
+template <typename K, typename V, typename HC>
+block_size_t Viper<K, V, HC>::get_next_block() {
     if (current_block_capacity_.load(std::memory_order_acquire) == 0) {
         // No more capacity in current block
         uint16_t expected_capacity = 0;
@@ -583,15 +582,15 @@ block_size_t Viper<K, V>::get_next_block() {
     return current_block_.load(std::memory_order_acquire);
 }
 
-template <typename K, typename V>
-internal::ViperPage<K, V>* Viper<K, V>::get_v_page(const block_size_t block_number, const page_size_t page_number) {
+template <typename K, typename V, typename HC>
+internal::ViperPage<K, V>* Viper<K, V, HC>::get_v_page(const block_size_t block_number, const page_size_t page_number) {
     // TODO: check how this is optimized by compiler
     VPageBlock* next_v_block = v_blocks_[block_number];
     return &(next_v_block->v_pages[page_number]);
 }
 
-template <typename K, typename V>
-pobj::pool<ViperRoot<K, V>> Viper<K, V>::init_pool(const std::string& pool_file, const uint64_t pool_size) {
+template <typename K, typename V, typename HC>
+pobj::pool<ViperRoot<K, V>> Viper<K, V, HC>::init_pool(const std::string& pool_file, const uint64_t pool_size) {
     int sds_write_value = 0;
     pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
 
@@ -607,8 +606,8 @@ pobj::pool<ViperRoot<K, V>> Viper<K, V>::init_pool(const std::string& pool_file,
         return v_pool;
     }
 }
-template <typename K, typename V>
-void Viper<K, V>::add_v_page_blocks(const block_size_t num_blocks) {
+template <typename K, typename V, typename HC>
+void Viper<K, V, HC>::add_v_page_blocks(const block_size_t num_blocks) {
     const block_size_t num_blocks_before = v_blocks_.size();
     current_capacity_ += capacity_per_block_ * num_blocks;
     resize_at_ = current_capacity_ * resize_threshold_;
@@ -620,7 +619,7 @@ void Viper<K, V>::add_v_page_blocks(const block_size_t num_blocks) {
     const block_size_t num_total_blocks = num_blocks_before + num_blocks;
     for (block_size_t block_id = num_blocks_before; block_id < num_total_blocks; ++block_id) {
         pobj::transaction::run(v_pool_, [&] {
-            VPageBlock* new_block = v_pool_.root()->create_new_block();
+            VPageBlock* new_block = v_root_->create_new_block();
             v_blocks_.push_back(new_block);
         });
         block_remaining_slots_.emplace_back();

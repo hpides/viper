@@ -9,6 +9,7 @@
 #include <benchmark/benchmark.h>
 #include <libpmempool.h>
 #include <libpmemobj++/pool.hpp>
+#include <tbb/tbb_stddef.h>
 
 #include "../benchmark.hpp"
 
@@ -28,6 +29,15 @@ void set_cpu_affinity();
 void set_cpu_affinity(uint16_t thread_idx);
 
 std::string random_file(const std::filesystem::path& base_dir);
+
+struct TbbFixedKeyCompare {
+    // Use same impl as tbb_hasher
+    static const size_t hash_multiplier = tbb::internal::select_size_t_constant<2654435769U, 11400714819323198485ULL>::value;
+    static size_t hash(const BMKeyFixed a) {
+        return static_cast<size_t>(a.uuid[0]) * hash_multiplier;
+    }
+    static bool equal(const BMKeyFixed& a, const BMKeyFixed& b) { return a == b; }
+};
 
 class BaseFixture : public benchmark::Fixture {
   public:
@@ -71,18 +81,18 @@ class BasePmemFixture : public BaseFixture {
     }
 
 //    this is called and pool is closed but viper still points to something
-//    void TearDown(benchmark::State& state) override {
-//        {
-//            std::scoped_lock lock(pool_mutex_);
-//            if (!pool_file_.empty() && std::filesystem::exists(pool_file_)) {
-//                pmem_pool_.close();
-//                if (pmempool_rm(pool_file_.c_str(), PMEMPOOL_RM_FORCE | PMEMPOOL_RM_POOLSET_LOCAL) == -1) {
-//                    std::cout << pmempool_errormsg() << std::endl;
-//                }
-//                pool_file_.clear();
-//            }
-//        }
-//    }
+    void TearDown(benchmark::State& state) override {
+        {
+            std::scoped_lock lock(pool_mutex_);
+            if (!pool_file_.empty() && std::filesystem::exists(pool_file_)) {
+                pmem_pool_.close();
+                if (pmempool_rm(pool_file_.c_str(), PMEMPOOL_RM_FORCE | PMEMPOOL_RM_POOLSET_LOCAL) == -1) {
+                    std::cout << pmempool_errormsg() << std::endl;
+                }
+                pool_file_.clear();
+            }
+        }
+    }
 
   protected:
     pmem::obj::pool<RootType> pmem_pool_;

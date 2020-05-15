@@ -3,6 +3,15 @@
 #include "common_fixture.hpp"
 #include <libpmemobj++/container/concurrent_hash_map.hpp>
 
+namespace std {
+    template <>
+    struct hash<viper::kv_bm::BMKeyFixed> {
+        size_t operator()(const viper::kv_bm::BMKeyFixed& key) {
+            return std::hash<uint64_t>()(key.uuid[0]);
+        }
+    };
+}
+
 namespace viper {
 namespace kv_bm {
 

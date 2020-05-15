@@ -1,5 +1,6 @@
 #include "hybrid_map_fixture.hpp"
 #include <libpmemobj++/make_persistent.hpp>
+#include <libpmemobj++/make_persistent_array_atomic.hpp>
 
 void viper::kv_bm::HybridMapFixture::InitMap(const uint64_t num_prefill_inserts, const bool re_init) {
     if (map_initialized_ && !re_init) {
@@ -7,6 +8,9 @@ void viper::kv_bm::HybridMapFixture::InitMap(const uint64_t num_prefill_inserts,
     }
 
     pmem::obj::transaction::run(pmem_pool_, [&] {
+        if (pmem_pool_.root()->data != nullptr) {
+            pmem::obj::delete_persistent<HybridVectorType>(pmem_pool_.root()->data);
+        }
         pmem_pool_.root()->data = pmem::obj::make_persistent<HybridVectorType>();
     });
     map_ = std::make_unique<HybridMapType>();
@@ -38,7 +42,7 @@ void viper::kv_bm::HybridMapFixture::insert_empty(const uint64_t start_idx, cons
         pmem_memmove_persist((void*) (data_start + key), &entry, sizeof(entry));
         const uint64_t pos = key;
         typename HybridMapType::accessor accessor;
-        map_->insert(accessor, {key, pos});
+        map_->insert(accessor, {KeyType{key}, pos});
     }
 }
 
@@ -52,7 +56,7 @@ uint64_t viper::kv_bm::HybridMapFixture::setup_and_find(uint64_t start_idx, uint
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         HybridMapType::const_accessor result;
         const bool found = map_->find(result, key);
-        found_counter += found && ((data_start + result->second)->second == key*100);
+        found_counter += found && ((data_start + result->second)->second.data[0] == key);
     }
     return found_counter;
 }

@@ -80,10 +80,10 @@ uint64_t viper::kv_bm::FasterFixture::setup_and_find(uint64_t start_idx, uint64_
             }
         }
 
-        ValueType result;
+        FasterValue result;
         ReadContext context{key, &result};
         const bool found = db_->Read(context, callback, key) == FASTER::core::Status::Ok;
-        found_counter += found && (result == key);
+        found_counter += found && (result.value_.data[0] == key);
     }
 
     db_->Refresh();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common_fixture.hpp"
+#include "dram_map_fixture.hpp"
 #include "../benchmark.hpp"
 #include <tbb/concurrent_hash_map.h>
 #include <libpmemobj++/persistent_ptr.hpp>
@@ -11,7 +12,7 @@
 
 namespace viper::kv_bm {
 
-using HybridMapType = tbb::concurrent_hash_map<KeyType, Offset>;
+using HybridMapType = tbb::concurrent_hash_map<KeyType, size_t, TbbFixedKeyCompare>;
 using HybridVectorType = pmem::obj::array<std::pair<KeyType, ValueType>, MAX_DATA_SIZE>;
 
 struct HybridMapRoot {

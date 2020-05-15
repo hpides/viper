@@ -1,14 +1,12 @@
 #pragma once
 
 #include "common_fixture.hpp"
+#include "hybrid_map_fixture.hpp"
 #include <libpmemobj++/container/concurrent_hash_map.hpp>
 #include <libpmemlog.h>
 #include <tbb/concurrent_hash_map.h>
 
 namespace viper::kv_bm {
-
-using PmemMapType = pmem::obj::concurrent_hash_map<KeyType, ValueType>;
-using HybridMapType = tbb::concurrent_hash_map<KeyType, Offset>;
 
 
 class PmemLogFixture : public BaseFixture {

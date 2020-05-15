@@ -5,7 +5,7 @@ void viper::kv_bm::ViperFixture::InitMap(uint64_t num_prefill_inserts, const boo
         return;
     }
 
-    viper_ = std::make_unique<viper::Viper<KeyType, ValueType>>(pmem_pool_);
+    viper_ = std::make_unique<ViperT>(pmem_pool_);
 
     for (uint64_t key = 0; key < num_prefill_inserts; ++key) {
         viper_->put(key, key);
@@ -27,7 +27,7 @@ uint64_t viper::kv_bm::ViperFixture::setup_and_find(uint64_t start_idx, uint64_t
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         ViperT::ConstAccessor result;
         const bool found = viper_->get(key, result);
-        found_counter += found && (*result == key);
+        found_counter += found && (result->data[0] == key);
     }
     return found_counter;
 }

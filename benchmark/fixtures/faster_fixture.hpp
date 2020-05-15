@@ -26,23 +26,26 @@ class FasterFixture : public FileBasedFixture {
         FasterKey(uint64_t key)
             : key_{ key } {
         }
+        FasterKey(BMKeyFixed key)
+            : key_{ key } {
+        }
 
         inline static constexpr uint32_t size() {
             return static_cast<uint32_t>(sizeof(FasterKey));
         }
         inline KeyHash GetHash() const {
-            return KeyHash{ Utility::GetHashCode(key_) };
+            return KeyHash{ Utility::GetHashCode(key_.uuid[0]) };
         }
 
         inline bool operator==(const FasterKey& other) const {
             return key_ == other.key_;
         }
         inline bool operator!=(const FasterKey& other) const {
-            return key_ != other.key_;
+            return !(key_ == other.key_);
         }
 
       private:
-        uint64_t key_;
+        BMKeyFixed key_;
     };
 
     class FasterValue {
@@ -59,7 +62,7 @@ class FasterFixture : public FileBasedFixture {
         }
 
         union {
-            uint64_t value_;
+            BMValueFixed value_;
             std::atomic<uint64_t> atomic_value_;
         };
     };
@@ -117,9 +120,9 @@ class FasterFixture : public FileBasedFixture {
         typedef FasterKey key_t;
         typedef FasterValue value_t;
 
-        ReadContext(const FasterKey& key, uint64_t* result)
+        ReadContext(const FasterKey& key, value_t* result)
             : key_{ key }
-            , result_{ result } {
+            , result_{ &result->value_ } {
         }
 
         /// Copy (and deep-copy) constructor.
@@ -137,7 +140,7 @@ class FasterFixture : public FileBasedFixture {
             *result_ = value.value_;
         }
         inline void GetAtomic(const value_t& value) {
-            *result_ = value.atomic_value_;
+//            *result_ = value.atomic_value_;
         }
 
       protected:
@@ -148,7 +151,7 @@ class FasterFixture : public FileBasedFixture {
 
       private:
         FasterKey key_;
-        uint64_t* result_;
+        BMValueFixed* result_;
     };
 
     typedef FASTER::environment::QueueIoHandler handler_t;

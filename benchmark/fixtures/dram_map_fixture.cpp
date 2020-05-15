@@ -6,19 +6,21 @@ void viper::kv_bm::DramMapFixture::InitMap(uint64_t num_prefill_inserts, const b
     }
     dram_map_ = std::make_unique<DramMapType>();
     for (uint64_t i = 0; i < num_prefill_inserts; ++i) {
-        dram_map_->insert({i, i});
+        KeyType key{i};
+        ValueType value{i};
+        dram_map_->insert({key, value});
     }
     map_initialized_ = true;
 }
 
 void viper::kv_bm::DramMapFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
-    for (uint64_t i = start_idx; i < end_idx; ++i) {
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
         // uint64_t key = uniform_distribution(rnd_engine_);
-        uint64_t key = i;
         DramMapType::accessor result;
-        const bool new_insert = dram_map_->insert(result, {key, key * 100});
+        const ValueType value = key * 100;
+        const bool new_insert = dram_map_->insert(result, {key, value});
         if (!new_insert) {
-            result->second = key * 100;
+            result->second = value;
         }
     }
 }
@@ -32,7 +34,7 @@ uint64_t viper::kv_bm::DramMapFixture::setup_and_find(uint64_t start_idx, uint64
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         DramMapType::const_accessor result;
         const bool found = dram_map_->find(result, key);
-        found_counter += found && result->second == key;
+        found_counter += found && result->second.data[0] == key;
     }
     return found_counter;
 }

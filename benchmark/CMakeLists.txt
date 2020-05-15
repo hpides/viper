@@ -21,6 +21,7 @@ SET(
     fixtures/pmem_log_fixture.hpp
 #    fixtures/dash_fixture.cpp
 #    fixtures/dash_fixture.hpp
+    benchmark_data_types.hpp
 )
 
 # GOOGLE BENCHMARK

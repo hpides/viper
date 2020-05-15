@@ -11,7 +11,7 @@ void viper::kv_bm::PmemMapFixture::InitMap(uint64_t num_prefill_inserts, const b
     pmem_map_ = pmem_pool_.root()->pmem_map;
     for (uint64_t key = 0; key < num_prefill_inserts; ++key) {
         PmemMapType::accessor result;
-        pmem_map_->insert(result, key);
+        pmem_map_->insert(result, KeyType{key});
         result->second = key;
     }
     map_initialized_ = true;
@@ -39,7 +39,7 @@ uint64_t viper::kv_bm::PmemMapFixture::setup_and_find(uint64_t start_idx, uint64
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         PmemMapType::const_accessor result;
         const bool found = pmem_map_->find(result, key);
-        found_counter += found && (result->second == key);
+        found_counter += found && (result->second.data[0] == key);
     }
     return found_counter;
 }

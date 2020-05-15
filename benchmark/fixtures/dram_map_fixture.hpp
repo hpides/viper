@@ -7,7 +7,7 @@
 namespace viper {
 namespace kv_bm {
 
-using DramMapType = tbb::concurrent_hash_map<KeyType, ValueType>;
+using DramMapType = tbb::concurrent_hash_map<KeyType, ValueType, TbbFixedKeyCompare>;
 
 class DramMapFixture : public BaseFixture {
   public:

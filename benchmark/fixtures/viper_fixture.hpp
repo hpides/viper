@@ -7,9 +7,9 @@
 namespace viper {
 namespace kv_bm {
 
-class ViperFixture : public BasePmemFixture<viper::ViperRoot<KeyType, ValueType>> {
-    using ViperRoot = viper::ViperRoot<KeyType, ValueType>;
-    using ViperT = viper::Viper<KeyType, ValueType>;
+class ViperFixture : public BasePmemFixture<ViperRoot<KeyType, ValueType>> {
+//    using VRoot = ViperRoot<KeyType, ValueType, TbbFixedKeyCompare>;
+    using ViperT = Viper<KeyType, ValueType, TbbFixedKeyCompare>;
 
   public:
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) override;
