@@ -47,25 +47,27 @@ int main() {
                                              .header_type = pobj_header_type::POBJ_HEADER_NONE, .class_id = 200 };
     pmemobj_ctl_set(v_pool.handle(), "heap.alloc_class.200.desc", &alloc_description);
 
-    ViperT viper{std::move(v_pool)};
+    ViperT viper{v_pool};
     cout << "viper size: " << sizeof(viper) << std::endl;
 //    cout << "viper map size: " << sizeof(viper.map_) << std::endl;
 //    cout << "viper pool size: " << sizeof(viper.v_pool_) << std::endl;
 
-    const int num_values = 10000000;
+    auto v_client = viper.get_client();
+    const int num_values = 100;
     for (int i = 0; i < num_values; ++i) {
-        viper.put(i, i);
+        v_client.put(i, i);
     }
 
-    cout << "Size: " << viper.count() << endl;
+    cout << "Size: " << viper.get_size_estimate() << endl;
 
     uint64_t found_counter = 0;
     for (int key = 0; key < num_values; ++key) {
         ViperT::ConstAccessor result;
-        const bool found = viper.get(key, result);
+        const bool found = v_client.get(key, result);
         found_counter += found;
     }
     cout << "FOUND IN TOTAL: " << found_counter << "/" << num_values << endl;
 
-    pmempool_rm(pool_file, PMEMPOOL_RM_POOLSET_LOCAL | PMEMPOOL_RM_POOLSET_REMOTE);
+    v_pool.close();
+    pmempool_rm(pool_file.c_str(), PMEMPOOL_RM_POOLSET_LOCAL | PMEMPOOL_RM_POOLSET_REMOTE);
 }
