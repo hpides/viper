@@ -10,3 +10,6 @@
 [submodule "benchmark/third_party/dash"]
 	path = benchmark/third_party/dash
 	url = https://github.com/baotonglu/dash.git
+[submodule "benchmark/third_party/hdr_histogram"]
+	path = benchmark/third_party/hdr_histogram
+	url = https://github.com/HdrHistogram/HdrHistogram_c.git

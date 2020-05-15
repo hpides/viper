@@ -12,7 +12,7 @@ else()
     message("BUILDING RELEASE")
     find_library(libpmemobj REQUIRED)
     set(PMEM_LIB_PATH /usr/local/lib64/)
-    add_compile_options(-march=native)
+    add_compile_options(-march=native -mtune=native)
 endif()
 
 find_library(libpmemobj++ REQUIRED PATHS /usr/local/include)
@@ -24,7 +24,8 @@ SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${PMEM_LIB_
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PATH}:${PMEM_LIB_PATH}:/usr/local/lib")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
-SET(LINK_LIBS pthread pmem pmemobj tbb pmemkv pmempool /usr/local/lib/libmemkind.so.0)
+SET(LINK_LIBS pthread pmem pmemobj tbb pmemkv pmempool pmemlog /usr/local/lib/libmemkind.so.0)
+
 # Include viper sources
 include_directories(src)
 

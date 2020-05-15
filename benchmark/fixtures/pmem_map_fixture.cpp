@@ -18,13 +18,13 @@ void viper::kv_bm::PmemMapFixture::InitMap(uint64_t num_prefill_inserts, const b
 }
 
 void viper::kv_bm::PmemMapFixture::DeInitMap() {
+    pmem_map_ = nullptr;
     map_initialized_ = false;
 }
 
 void viper::kv_bm::PmemMapFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
-    for (uint64_t i = start_idx; i < end_idx; ++i) {
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
         // uint64_t key = uniform_distribution(rnd_engine_);
-        uint64_t key = i;
         PmemMapType::accessor result;
         pmem_map_->insert(result, key);
         result->second = key*100;

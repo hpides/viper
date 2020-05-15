@@ -7,21 +7,20 @@
 #include "benchmark.hpp"
 #include "fixtures/dram_map_fixture.hpp"
 #include "fixtures/pmem_map_fixture.hpp"
+#include "fixtures/pmem_log_fixture.hpp"
 #include "fixtures/hybrid_map_fixture.hpp"
 #include "fixtures/viper_fixture.hpp"
 #include "fixtures/rocksdb_fixture.hpp"
 #include "fixtures/faster_fixture.hpp"
+#include "fixtures/dash_fixture.hpp"
 
 
 using namespace viper::kv_bm;
 
-bool is_init_thread(const benchmark::State& state) {
-    // Use idx = 1 because 0 starts all threads first before continuing.
-    return state.threads == 1 || state.thread_index == 1;
-}
-
 inline void bm_insert_empty(benchmark::State& state, BaseFixture& fixture) {
     const uint64_t num_total_inserts = state.range(0);
+
+    set_cpu_affinity(state.thread_index);
 
     if (is_init_thread(state)) {
         fixture.InitMap();
@@ -37,6 +36,8 @@ inline void bm_insert_empty(benchmark::State& state, BaseFixture& fixture) {
         fixture.insert_empty(start_idx, end_idx);
     }
 
+    state.SetItemsProcessed(num_inserts_per_thread);
+
     if (is_init_thread(state)) {
         fixture.DeInitMap();
     }
@@ -45,6 +46,8 @@ inline void bm_insert_empty(benchmark::State& state, BaseFixture& fixture) {
 inline void bm_setup_and_insert(benchmark::State& state, BaseFixture& fixture) {
     const uint64_t num_total_prefill = state.range(0);
     const uint64_t num_total_inserts = state.range(1);
+
+    set_cpu_affinity(state.thread_index);
 
     if (is_init_thread(state)) {
         fixture.InitMap(num_total_prefill);
@@ -60,14 +63,19 @@ inline void bm_setup_and_insert(benchmark::State& state, BaseFixture& fixture) {
         fixture.setup_and_insert(start_idx, end_idx);
     }
 
+    state.SetItemsProcessed(num_inserts_per_thread);
+
     if (is_init_thread(state)) {
         fixture.DeInitMap();
     }
+
 }
 
 inline void bm_setup_and_find(benchmark::State& state, BaseFixture& fixture) {
     const uint64_t num_total_prefills = state.range(0);
     const uint64_t num_total_finds = state.range(1);
+
+    set_cpu_affinity(state.thread_index);
 
     if (is_init_thread(state)) {
         fixture.InitMap(num_total_prefills, /*re_init=*/false);
@@ -84,11 +92,13 @@ inline void bm_setup_and_find(benchmark::State& state, BaseFixture& fixture) {
         found_counter = fixture.setup_and_find(start_idx, end_idx);
     }
 
+    state.SetItemsProcessed(num_finds_per_thread);
+
     if (is_init_thread(state)) {
         fixture.DeInitMap();
     }
 
-    fixture.log_find_count(state, found_counter, num_finds_per_thread);
+    BaseFixture::log_find_count(state, found_counter, num_finds_per_thread);
 }
 
 
@@ -164,151 +174,210 @@ BENCHMARK_DEFINE_F(FasterFixture, setup_and_find)(benchmark::State& state) {
     bm_setup_and_find(state, *this);
 }
 
-BENCHMARK_REGISTER_F(DramMapFixture, insert_empty)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Arg(NUM_INSERTS)
-    ->ThreadRange(1, NUM_MAX_THREADS);
+BENCHMARK_DEFINE_F(PmemLogFixture, insert_empty)(benchmark::State& state) {
+    bm_insert_empty(state, *this);
+}
 
-BENCHMARK_REGISTER_F(DramMapFixture, setup_and_insert)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_INSERTS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
+BENCHMARK_DEFINE_F(PmemLogFixture, setup_and_insert)(benchmark::State& state) {
+    bm_setup_and_insert(state, *this);
+}
 
-BENCHMARK_REGISTER_F(DramMapFixture, setup_and_find)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_FINDS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
 
-BENCHMARK_REGISTER_F(PmemMapFixture, insert_empty)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Arg(NUM_INSERTS)
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_insert)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_INSERTS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_find)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_FINDS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(HybridMapFixture, insert_empty)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Arg(NUM_INSERTS)
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(HybridMapFixture, setup_and_insert)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_INSERTS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
+//BENCHMARK_DEFINE_F(DashLinearFixture, insert_empty)(benchmark::State& state) {
+//    bm_insert_empty(state, *this);
+//}
 //
-BENCHMARK_REGISTER_F(HybridMapFixture, setup_and_find)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_FINDS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(RocksDbFixture, insert_empty)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Arg(NUM_INSERTS)
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(RocksDbFixture, setup_and_insert)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_INSERTS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(RocksDbFixture, setup_and_find)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_FINDS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(FasterFixture, insert_empty)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Arg(NUM_INSERTS)
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(FasterFixture, setup_and_insert)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_INSERTS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(FasterFixture, setup_and_find)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_FINDS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-//BENCHMARK_REGISTER_F(ViperFixture, insert_empty)
+//BENCHMARK_DEFINE_F(DashLinearFixture, setup_and_insert)(benchmark::State& state) {
+//    bm_setup_and_insert(state, *this);
+//}
+//
+//BENCHMARK_DEFINE_F(DashLinearFixture, setup_and_find)(benchmark::State& state) {
+//    bm_setup_and_find(state, *this);
+//}
+//
+//BENCHMARK_REGISTER_F(DramMapFixture, insert_empty)
 //    ->Repetitions(NUM_REPETITIONS)
 //    ->Iterations(1)
 //    ->Unit(BM_TIME_UNIT)
 //    ->UseRealTime()
 //    ->Arg(NUM_INSERTS)
-//    ->ThreadRange(1, 1);
-////    ->ThreadRange(1, NUM_MAX_THREADS);
+//    ->ThreadRange(1, NUM_MAX_THREADS);
 //
+//BENCHMARK_REGISTER_F(DramMapFixture, setup_and_insert)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_INSERTS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(DramMapFixture, setup_and_find)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_FINDS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(PmemMapFixture, insert_empty)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Arg(NUM_INSERTS)
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_insert)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_INSERTS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(PmemMapFixture, setup_and_find)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_FINDS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(HybridMapFixture, insert_empty)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Arg(NUM_INSERTS)
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(HybridMapFixture, setup_and_insert)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_INSERTS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(HybridMapFixture, setup_and_find)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_FINDS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//
+//BENCHMARK_REGISTER_F(PmemLogFixture, insert_empty)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Arg(NUM_INSERTS)
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(PmemLogFixture, setup_and_insert)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_INSERTS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(RocksDbFixture, insert_empty)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Arg(NUM_INSERTS)
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(RocksDbFixture, setup_and_insert)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_INSERTS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(RocksDbFixture, setup_and_find)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_FINDS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(FasterFixture, insert_empty)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Arg(NUM_INSERTS)
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(FasterFixture, setup_and_insert)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_INSERTS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(FasterFixture, setup_and_find)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_FINDS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+
+//BENCHMARK_REGISTER_F(DashLinearFixture, insert_empty)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Arg(NUM_INSERTS)
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(DashLinearFixture, setup_and_insert)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_INSERTS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(DashLinearFixture, setup_and_find)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_FINDS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+
+BENCHMARK_REGISTER_F(ViperFixture, insert_empty)
+    ->Repetitions(NUM_REPETITIONS)
+    ->Iterations(1)
+    ->Unit(BM_TIME_UNIT)
+    ->UseRealTime()
+    ->Arg(NUM_INSERTS)
+    ->ThreadRange(1, NUM_MAX_THREADS);
+
 //BENCHMARK_REGISTER_F(ViperFixture, setup_and_insert)
 //    ->Repetitions(NUM_REPETITIONS)
 //    ->Iterations(1)
 //    ->Unit(BM_TIME_UNIT)
 //    ->UseRealTime()
 //    ->Args({NUM_PREFILLS, NUM_INSERTS})
-//    ->ThreadRange(1, 1);
-////    ->ThreadRange(1, NUM_MAX_THREADS);
-//
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+
 //BENCHMARK_REGISTER_F(ViperFixture, setup_and_find)
 //    ->Repetitions(NUM_REPETITIONS)
 //    ->Iterations(1)
 //    ->Unit(BM_TIME_UNIT)
 //    ->UseRealTime()
-//    ->Args({NUM_PREFILLS, NUM_FINDS})
+//    ->Args({100, 10})
 //    ->ThreadRange(1, 1);
-////    ->ThreadRange(1, NUM_MAX_THREADS);
 
 BENCHMARK_MAIN();

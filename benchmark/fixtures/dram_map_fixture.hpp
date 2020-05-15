@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common_fixture.hpp"
+#include "../benchmark.hpp"
 #include <tbb/concurrent_hash_map.h>
 
 namespace viper {

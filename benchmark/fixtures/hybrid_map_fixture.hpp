@@ -9,11 +9,10 @@
 #include <libpmemobj++/pool.hpp>
 #include <libpmem.h>
 
-namespace viper {
-namespace kv_bm {
+namespace viper::kv_bm {
 
 using HybridMapType = tbb::concurrent_hash_map<KeyType, Offset>;
-using HybridVectorType = pmem::obj::array<ValueType, MAX_DATA_SIZE>;
+using HybridVectorType = pmem::obj::array<std::pair<KeyType, ValueType>, MAX_DATA_SIZE>;
 
 struct HybridMapRoot {
     persistent_ptr<HybridVectorType> data;
@@ -37,5 +36,4 @@ class HybridMapFixture : public BasePmemFixture<HybridMapRoot> {
     bool map_initialized_ = false;
 };
 
-}  // namespace kv_bm
-}  // namespace viper
+}  // namespace viper::kv_bm

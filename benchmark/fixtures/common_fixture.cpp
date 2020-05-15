@@ -23,3 +23,35 @@ void viper::kv_bm::BaseFixture::log_find_count(benchmark::State& state, uint64_t
             + "/" + std::to_string(num_expected) + ")\n";
     }
 }
+
+bool viper::kv_bm::is_init_thread(const benchmark::State& state) {
+    // Use idx = 1 because 0 starts all threads first before continuing.
+    return state.threads == 1 || state.thread_index == 1;
+}
+
+void viper::kv_bm::set_cpu_affinity() {
+    const auto native_thread_handle = pthread_self();
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    for (int cpu : viper::kv_bm::CPUS) {
+        CPU_SET(cpu, &cpuset);
+    }
+    int rc = pthread_setaffinity_np(native_thread_handle, sizeof(cpu_set_t), &cpuset);
+    if (rc != 0) {
+        std::cerr << "Error calling pthread_setaffinity_np: " << rc << "\n";
+    }
+}
+
+void viper::kv_bm::set_cpu_affinity(uint16_t thread_idx) {
+    if (thread_idx >= viper::kv_bm::CPUS.size()) {
+        throw std::runtime_error("Thread index too high!");
+    }
+    const auto native_thread_handle = pthread_self();
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(viper::kv_bm::CPUS[thread_idx], &cpuset);
+    int rc = pthread_setaffinity_np(native_thread_handle, sizeof(cpu_set_t), &cpuset);
+    if (rc != 0) {
+        std::cerr << "Error calling pthread_setaffinity_np: " << rc << "\n";
+    }
+}

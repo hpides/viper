@@ -5,9 +5,6 @@ void viper::kv_bm::ViperFixture::InitMap(uint64_t num_prefill_inserts, const boo
         return;
     }
 
-    pmem::obj::transaction::run(pmem_pool_, [&] {
-        pmem_pool_.root()->create_new_block();
-    });
     viper_ = std::make_unique<viper::Viper<KeyType, ValueType>>(pmem_pool_);
 
     for (uint64_t key = 0; key < num_prefill_inserts; ++key) {

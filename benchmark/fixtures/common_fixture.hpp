@@ -15,6 +15,17 @@
 namespace viper {
 namespace kv_bm {
 
+static constexpr std::array CPUS {
+    0, 1, 2, 5, 6, 9, 10, 14, 15,  // NUMA NODE 1
+    3, 4, 7, 8, 11, 12, 13, 16, 17,  // NUMA NODE 2
+    36, 37, 38, 41, 42, 45, 46, 50, 51,  // NUMA NODE 1
+    39, 40, 43, 44, 47, 48, 49, 52, 53  // NUMA NODE 2
+};
+
+bool is_init_thread(const benchmark::State& state);
+
+void set_cpu_affinity();
+void set_cpu_affinity(uint16_t thread_idx);
 
 std::string random_file(const std::filesystem::path& base_dir);
 
@@ -53,24 +64,25 @@ class BasePmemFixture : public BaseFixture {
             std::scoped_lock lock(pool_mutex_);
             if (pool_file_.empty()) {
                 pool_file_ = random_file(POOL_FILE_DIR);
+                std::cout << "Working on NVM file " << pool_file_ << std::endl;
                 pmem_pool_ = pmem::obj::pool<RootType>::create(pool_file_, "", BM_POOL_SIZE, S_IRWXU);
             }
         }
-
     }
 
-    void TearDown(benchmark::State& state) override {
-        {
-            std::scoped_lock lock(pool_mutex_);
-            if (!pool_file_.empty() && std::filesystem::exists(pool_file_)) {
-                pmem_pool_.close();
-                if (pmempool_rm(pool_file_.c_str(), PMEMPOOL_RM_FORCE | PMEMPOOL_RM_POOLSET_LOCAL) == -1) {
-                    std::cout << pmempool_errormsg() << std::endl;
-                }
-                pool_file_.clear();
-            }
-        }
-    }
+//    this is called and pool is closed but viper still points to something
+//    void TearDown(benchmark::State& state) override {
+//        {
+//            std::scoped_lock lock(pool_mutex_);
+//            if (!pool_file_.empty() && std::filesystem::exists(pool_file_)) {
+//                pmem_pool_.close();
+//                if (pmempool_rm(pool_file_.c_str(), PMEMPOOL_RM_FORCE | PMEMPOOL_RM_POOLSET_LOCAL) == -1) {
+//                    std::cout << pmempool_errormsg() << std::endl;
+//                }
+//                pool_file_.clear();
+//            }
+//        }
+//    }
 
   protected:
     pmem::obj::pool<RootType> pmem_pool_;
