@@ -17,8 +17,16 @@ static constexpr uint64_t NUM_REPETITIONS = 1;
 static constexpr uint64_t NUM_MAX_THREADS = 36;
 static constexpr benchmark::TimeUnit BM_TIME_UNIT = benchmark::TimeUnit::kMicrosecond;
 
+struct ValuePlaceholder {
+    ValuePlaceholder() {}
+    ValuePlaceholder(uint64_t x) { data[0] = x; }
+    std::array<uint64_t, 1> data;
+};
+
 using KeyType = BMKeyFixed;
 using ValueType = BMValueFixed;
+//using KeyType = uint64_t;
+//using ValueType = ValuePlaceholder;
 using Offset = uint64_t;
 
 static constexpr char POOL_FILE_DIR[] = "/mnt/nvrams1/kv-bm";

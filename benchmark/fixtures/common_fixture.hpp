@@ -17,10 +17,16 @@ namespace viper {
 namespace kv_bm {
 
 static constexpr std::array CPUS {
-    0, 1, 2, 5, 6, 9, 10, 14, 15,  // NUMA NODE 1
-    3, 4, 7, 8, 11, 12, 13, 16, 17,  // NUMA NODE 2
-    36, 37, 38, 41, 42, 45, 46, 50, 51,  // NUMA NODE 1
-    39, 40, 43, 44, 47, 48, 49, 52, 53  // NUMA NODE 2
+    // CPU 1
+    0, 1, 2, 5, 6, 9, 10, 14, 15,       // NUMA NODE 0
+    3, 4, 7, 8, 11, 12, 13, 16, 17,     // NUMA NODE 1
+    36, 37, 38, 41, 42, 45, 46, 50, 51, // NUMA NODE 0
+    39, 40, 43, 44, 47, 48, 49, 52, 53, // NUMA NODE 1
+    // CPU 2
+    18, 19, 20, 23, 24, 27, 28, 32, 33, // NUMA NODE 2
+    21, 22, 25, 26, 29, 30, 31, 34, 35, // NUMA NODE 3
+    54, 55, 56, 59, 60, 63, 64, 68, 69, // NUMA NODE 2
+    57, 58, 61, 62, 65, 66, 67, 70, 71  // NUMA NODE 3
 };
 
 bool is_init_thread(const benchmark::State& state);
@@ -74,7 +80,7 @@ class BasePmemFixture : public BaseFixture {
             std::scoped_lock lock(pool_mutex_);
             if (pool_file_.empty()) {
                 pool_file_ = random_file(POOL_FILE_DIR);
-                std::cout << "Working on NVM file " << pool_file_ << std::endl;
+                // std::cout << "Working on NVM file " << pool_file_ << std::endl;
                 pmem_pool_ = pmem::obj::pool<RootType>::create(pool_file_, "", BM_POOL_SIZE, S_IRWXU);
             }
         }

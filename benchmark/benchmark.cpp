@@ -361,8 +361,8 @@ BENCHMARK_REGISTER_F(ViperFixture, insert_empty)
     ->Iterations(1)
     ->Unit(BM_TIME_UNIT)
     ->UseRealTime()
-    ->Arg(1000000)
-    ->ThreadRange(1, 1);
+    ->Arg(NUM_INSERTS)
+    ->ThreadRange(1, NUM_MAX_THREADS);
 
 //BENCHMARK_REGISTER_F(ViperFixture, setup_and_insert)
 //    ->Repetitions(NUM_REPETITIONS)
