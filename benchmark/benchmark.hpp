@@ -13,6 +13,7 @@ static constexpr uint64_t NUM_INSERTS = 10000000;
 static constexpr uint64_t NUM_PREFILLS = NUM_INSERTS;
 static constexpr uint64_t MAX_DATA_SIZE = NUM_PREFILLS + NUM_INSERTS;
 static constexpr uint64_t NUM_FINDS = NUM_INSERTS / 10;
+static constexpr uint64_t NUM_DELETES = NUM_INSERTS / 2;
 static constexpr uint64_t NUM_REPETITIONS = 1;
 static constexpr uint64_t NUM_MAX_THREADS = 36;
 static constexpr benchmark::TimeUnit BM_TIME_UNIT = benchmark::TimeUnit::kMicrosecond;

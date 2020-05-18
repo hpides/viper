@@ -61,6 +61,7 @@ class BaseFixture : public benchmark::Fixture {
     virtual void insert_empty(uint64_t start_idx, uint64_t end_idx) = 0;
     virtual void setup_and_insert(uint64_t start_idx, uint64_t end_idx) = 0;
     virtual uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) = 0;
+    virtual uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx) = 0;
 
     static void log_find_count(benchmark::State& state, const uint64_t num_found, const uint64_t num_expected);
 

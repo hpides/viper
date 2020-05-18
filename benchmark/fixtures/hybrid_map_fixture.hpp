@@ -25,11 +25,13 @@ class HybridMapFixture : public BasePmemFixture<HybridMapRoot> {
 
     void DeInitMap() override;
 
-    void insert_empty(const uint64_t start_idx, const uint64_t end_idx) override final;
+    void insert_empty(const uint64_t start_idx, const uint64_t end_idx) final;
 
-    void setup_and_insert(const uint64_t start_idx, const uint64_t end_idx) override final;
+    void setup_and_insert(const uint64_t start_idx, const uint64_t end_idx) final;
 
-    uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) override final;
+    uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) final;
+
+    uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx) final;
 
   protected:
     std::unique_ptr<HybridMapType> map_;

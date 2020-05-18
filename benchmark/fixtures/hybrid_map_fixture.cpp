@@ -1,8 +1,9 @@
 #include "hybrid_map_fixture.hpp"
 #include <libpmemobj++/make_persistent.hpp>
-#include <libpmemobj++/make_persistent_array_atomic.hpp>
 
-void viper::kv_bm::HybridMapFixture::InitMap(const uint64_t num_prefill_inserts, const bool re_init) {
+namespace viper::kv_bm {
+
+void HybridMapFixture::InitMap(const uint64_t num_prefill_inserts, const bool re_init) {
     if (map_initialized_ && !re_init) {
         return;
     }
@@ -26,13 +27,13 @@ void viper::kv_bm::HybridMapFixture::InitMap(const uint64_t num_prefill_inserts,
     map_initialized_ = true;
 }
 
-void viper::kv_bm::HybridMapFixture::DeInitMap() {
+void HybridMapFixture::DeInitMap() {
     map_ = nullptr;
     data_ = nullptr;
     map_initialized_ = false;
 }
 
-void viper::kv_bm::HybridMapFixture::insert_empty(const uint64_t start_idx, const uint64_t end_idx) {
+void HybridMapFixture::insert_empty(const uint64_t start_idx, const uint64_t end_idx) {
     const auto* data_start = data_->data();
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         // uint64_t key = uniform_distribution(rnd_engine_);
@@ -46,11 +47,11 @@ void viper::kv_bm::HybridMapFixture::insert_empty(const uint64_t start_idx, cons
     }
 }
 
-void viper::kv_bm::HybridMapFixture::setup_and_insert(const uint64_t start_idx, const uint64_t end_idx) {
+void HybridMapFixture::setup_and_insert(const uint64_t start_idx, const uint64_t end_idx) {
     return insert_empty(start_idx, end_idx);
 }
 
-uint64_t viper::kv_bm::HybridMapFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
+uint64_t HybridMapFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
     uint64_t found_counter = 0;
     const auto* data_start = data_->data();
     for (uint64_t key = start_idx; key < end_idx; ++key) {
@@ -60,3 +61,19 @@ uint64_t viper::kv_bm::HybridMapFixture::setup_and_find(uint64_t start_idx, uint
     }
     return found_counter;
 }
+
+uint64_t HybridMapFixture::setup_and_delete(uint64_t start_idx, uint64_t end_idx) {
+    uint64_t delete_counter = 0;
+    const auto* data_start = data_->data();
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
+        HybridMapType::const_accessor result;
+        const bool found = map_->find(result, key);
+        if (found) {
+            delete_counter += map_->erase(result);
+        }
+    }
+    return delete_counter;
+}
+
+
+}  // namespace viper::kv_bm

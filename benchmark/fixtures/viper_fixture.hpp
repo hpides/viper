@@ -22,6 +22,8 @@ class ViperFixture : public BasePmemFixture<ViperRoot<KeyType, ValueType>> {
 
     uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) final;
 
+    uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx) final;
+
   protected:
     std::unique_ptr<ViperT> viper_;
     bool viper_initialized_ = false;

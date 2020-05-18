@@ -17,9 +17,7 @@ SET(
     fixtures/rocksdb_fixture.hpp
     fixtures/faster_fixture.cpp
     fixtures/faster_fixture.hpp
-    fixtures/pmem_log_fixture.cpp
-    fixtures/pmem_log_fixture.hpp
-#    fixtures/dash_fixture.cpp
+        #    fixtures/dash_fixture.cpp
 #    fixtures/dash_fixture.hpp
     benchmark_data_types.hpp
 )

@@ -14,11 +14,13 @@ class FasterFixture : public FileBasedFixture {
 
     void DeInitMap();
 
-    void insert_empty(uint64_t start_idx, uint64_t end_idx) override final;
+    void insert_empty(uint64_t start_idx, uint64_t end_idx) final;
 
-    void setup_and_insert(uint64_t start_idx, uint64_t end_idx) override final;
+    void setup_and_insert(uint64_t start_idx, uint64_t end_idx) final;
 
-    uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) override final;
+    uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) final;
+
+    uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx) final;
 
   protected:
     class FasterKey {
@@ -141,6 +143,34 @@ class FasterFixture : public FileBasedFixture {
         }
         inline void GetAtomic(const value_t& value) {
 //            *result_ = value.atomic_value_;
+        }
+
+      protected:
+        /// The explicit interface requires a DeepCopy_Internal() implementation.
+        Status DeepCopy_Internal(IAsyncContext*& context_copy) {
+            return IAsyncContext::DeepCopy_Internal(*this, context_copy);
+        }
+
+      private:
+        FasterKey key_;
+        BMValueFixed* result_;
+    };
+
+    class DeleteContext : public IAsyncContext {
+      public:
+        typedef FasterKey key_t;
+        typedef FasterValue value_t;
+
+        DeleteContext(const FasterKey& key) : key_{key} {}
+
+        DeleteContext(const DeleteContext& other) : key_{other.key_} {}
+
+        inline const FasterKey& key() const {
+            return key_;
+        }
+
+        inline uint32_t value_size() const {
+            return sizeof(value_t);
         }
 
       protected:

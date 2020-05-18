@@ -2,7 +2,9 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
-void viper::kv_bm::RocksDbFixture::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
+namespace viper::kv_bm {
+
+void RocksDbFixture::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
     if (rocksdb_initialized_ && !re_init) {
         return;
     }
@@ -24,12 +26,12 @@ void viper::kv_bm::RocksDbFixture::InitMap(uint64_t num_prefill_inserts, const b
     rocksdb_initialized_ = true;
 }
 
-void viper::kv_bm::RocksDbFixture::DeInitMap() {
+void RocksDbFixture::DeInitMap() {
     delete db_;
     rocksdb_initialized_ = false;
 }
 
-void viper::kv_bm::RocksDbFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
+void RocksDbFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
     const rocksdb::WriteOptions write_options{};
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         // uint64_t key = uniform_distribution(rnd_engine_);
@@ -39,11 +41,11 @@ void viper::kv_bm::RocksDbFixture::insert_empty(uint64_t start_idx, uint64_t end
     }
 }
 
-void viper::kv_bm::RocksDbFixture::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
+void RocksDbFixture::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
     insert_empty(start_idx, end_idx);
 }
 
-uint64_t viper::kv_bm::RocksDbFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
+uint64_t RocksDbFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
     uint64_t found_counter = 0;
     const rocksdb::ReadOptions read_options{};
     for (uint64_t key = start_idx; key < end_idx; ++key) {
@@ -54,3 +56,15 @@ uint64_t viper::kv_bm::RocksDbFixture::setup_and_find(uint64_t start_idx, uint64
     }
     return found_counter;
 }
+
+uint64_t RocksDbFixture::setup_and_delete(uint64_t start_idx, uint64_t end_idx) {
+    uint64_t delete_counter = 0;
+    const rocksdb::WriteOptions delete_options{};
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
+        const rocksdb::Slice db_key = std::to_string(key);
+        delete_counter += db_->Delete(delete_options, db_key).ok();
+    }
+    return delete_counter;
+}
+
+}  // namespace viper::kv_bm

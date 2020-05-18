@@ -1,6 +1,8 @@
 #include "pmem_map_fixture.hpp"
 
-void viper::kv_bm::PmemMapFixture::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
+namespace viper::kv_bm {
+
+void PmemMapFixture::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
     if (map_initialized_ && !re_init) {
         return;
     }
@@ -17,12 +19,12 @@ void viper::kv_bm::PmemMapFixture::InitMap(uint64_t num_prefill_inserts, const b
     map_initialized_ = true;
 }
 
-void viper::kv_bm::PmemMapFixture::DeInitMap() {
+void PmemMapFixture::DeInitMap() {
     pmem_map_ = nullptr;
     map_initialized_ = false;
 }
 
-void viper::kv_bm::PmemMapFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
+void PmemMapFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         // uint64_t key = uniform_distribution(rnd_engine_);
         PmemMapType::accessor result;
@@ -31,10 +33,11 @@ void viper::kv_bm::PmemMapFixture::insert_empty(uint64_t start_idx, uint64_t end
     }
 }
 
-void viper::kv_bm::PmemMapFixture::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
+void PmemMapFixture::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
     insert_empty(start_idx, end_idx);
 }
-uint64_t viper::kv_bm::PmemMapFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
+
+uint64_t PmemMapFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
     uint64_t found_counter = 0;
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         PmemMapType::const_accessor result;
@@ -43,3 +46,14 @@ uint64_t viper::kv_bm::PmemMapFixture::setup_and_find(uint64_t start_idx, uint64
     }
     return found_counter;
 }
+
+uint64_t PmemMapFixture::setup_and_delete(uint64_t start_idx, uint64_t end_idx) {
+    uint64_t delete_counter = 0;
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
+        delete_counter += pmem_map_->erase(key);
+    }
+    return delete_counter;
+}
+
+
+}  // namespace viper::kv_bm

@@ -38,3 +38,11 @@ uint64_t viper::kv_bm::DramMapFixture::setup_and_find(uint64_t start_idx, uint64
     }
     return found_counter;
 }
+uint64_t viper::kv_bm::DramMapFixture::setup_and_delete(uint64_t start_idx, uint64_t end_idx) {
+    uint64_t delete_counter = 0;
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
+        DramMapType::const_accessor result;
+        delete_counter += dram_map_->erase(key);
+    }
+    return delete_counter;
+}

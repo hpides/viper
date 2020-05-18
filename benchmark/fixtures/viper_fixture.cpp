@@ -46,4 +46,13 @@ uint64_t ViperFixture::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
     return found_counter;
 }
 
+uint64_t ViperFixture::setup_and_delete(uint64_t start_idx, uint64_t end_idx) {
+    auto v_client = viper_->get_client();
+    uint64_t delete_counter = 0;
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
+        delete_counter += v_client.remove(key);
+    }
+    return delete_counter;
+}
+
 }  // namespace viper::kv_bm
