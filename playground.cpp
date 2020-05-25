@@ -40,25 +40,22 @@ int main() {
     pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
 
     std::string pool_file = "/mnt/nvrams1/viper.file";
-    std::cout << "Creating pool file " << pool_file << std::endl;
-    pmem::obj::pool<ViperRoot<VKey, VValue>> v_pool = pmem::obj::pool<ViperRoot<VKey, VValue>>::create(pool_file, "", POOL_SIZE, S_IRWXU);
 
-    pobj_alloc_class_desc alloc_description{ .unit_size = 24576, .alignment = 24576, .units_per_block = 1,
-                                             .header_type = pobj_header_type::POBJ_HEADER_NONE, .class_id = 200 };
-    pmemobj_ctl_set(v_pool.handle(), "heap.alloc_class.200.desc", &alloc_description);
+    if (std::filesystem::exists(pool_file)) {
+        std::cout << "Deleting pool file " << pool_file << std::endl;
+        pmempool_rm(pool_file.c_str(), PMEMPOOL_RM_POOLSET_LOCAL | PMEMPOOL_RM_POOLSET_REMOTE);
+    }
 
-    ViperT viper{v_pool};
-    cout << "viper size: " << sizeof(viper) << std::endl;
+    ViperT viper{pool_file, POOL_SIZE};
+//    cout << "viper size: " << sizeof(viper) << std::endl;
 //    cout << "viper map size: " << sizeof(viper.map_) << std::endl;
 //    cout << "viper pool size: " << sizeof(viper.v_pool_) << std::endl;
 
     auto v_client = viper.get_client();
-    const int num_values = 100;
+    const int num_values = 10;
     for (int i = 0; i < num_values; ++i) {
         v_client.put(i, i);
     }
-
-    cout << "Size: " << viper.get_size_estimate() << endl;
 
     uint64_t found_counter = 0;
     for (int key = 0; key < num_values; ++key) {
@@ -67,7 +64,4 @@ int main() {
         found_counter += found;
     }
     cout << "FOUND IN TOTAL: " << found_counter << "/" << num_values << endl;
-
-    v_pool.close();
-    pmempool_rm(pool_file.c_str(), PMEMPOOL_RM_POOLSET_LOCAL | PMEMPOOL_RM_POOLSET_REMOTE);
 }

@@ -13,13 +13,12 @@
 
 #include "../benchmark.hpp"
 
-namespace viper {
-namespace kv_bm {
+namespace viper::kv_bm {
 
 static constexpr std::array CPUS {
     // CPU 1
-    0, 1, 2, 5, 6, 9, 10, 14, 15,       // NUMA NODE 0
-    3, 4, 7, 8, 11, 12, 13, 16, 17,     // NUMA NODE 1
+     0,  1,  2,  5,  6,  9, 10, 14, 15, // NUMA NODE 0
+     3,  4,  7,  8, 11, 12, 13, 16, 17, // NUMA NODE 1
     36, 37, 38, 41, 42, 45, 46, 50, 51, // NUMA NODE 0
     39, 40, 43, 44, 47, 48, 49, 52, 53, // NUMA NODE 1
     // CPU 2
@@ -134,5 +133,4 @@ class FileBasedFixture : public BaseFixture {
     std::mutex db_mutex_;
 };
 
-}  // namespace kv_bm
-}  // namespace viper
+}  // namespace viper::kv_bm
