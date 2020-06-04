@@ -431,7 +431,7 @@ BENCHMARK_REGISTER_F(ViperFixture, insert_empty)
     ->UseRealTime()
     ->Arg(NUM_INSERTS)
     ->ThreadRange(1, NUM_MAX_THREADS);
-//
+
 //BENCHMARK_REGISTER_F(ViperFixture, setup_and_insert)
 //    ->Repetitions(NUM_REPETITIONS)
 //    ->Iterations(1)
@@ -439,21 +439,21 @@ BENCHMARK_REGISTER_F(ViperFixture, insert_empty)
 //    ->UseRealTime()
 //    ->Args({NUM_PREFILLS, NUM_INSERTS})
 //    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(ViperFixture, setup_and_find)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_FINDS})
-    ->ThreadRange(1, NUM_MAX_THREADS);
-
-BENCHMARK_REGISTER_F(ViperFixture, setup_and_delete)
-    ->Repetitions(NUM_REPETITIONS)
-    ->Iterations(1)
-    ->Unit(BM_TIME_UNIT)
-    ->UseRealTime()
-    ->Args({NUM_PREFILLS, NUM_DELETES})
-    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(ViperFixture, setup_and_find)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_FINDS})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
+//
+//BENCHMARK_REGISTER_F(ViperFixture, setup_and_delete)
+//    ->Repetitions(NUM_REPETITIONS)
+//    ->Iterations(1)
+//    ->Unit(BM_TIME_UNIT)
+//    ->UseRealTime()
+//    ->Args({NUM_PREFILLS, NUM_DELETES})
+//    ->ThreadRange(1, NUM_MAX_THREADS);
 
 BENCHMARK_MAIN();

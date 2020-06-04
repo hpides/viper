@@ -30,6 +30,7 @@ using ValueType = BMValueFixed;
 //using ValueType = ValuePlaceholder;
 using Offset = uint64_t;
 
+static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.0";
 static constexpr char POOL_FILE_DIR[] = "/mnt/nvrams1/kv-bm";
 //static constexpr char DB_FILE_DIR[] = "/mnt/nvrams1/dbfiles";
 static constexpr char DB_FILE_DIR[] = "/home/lawrence.benson/dbfiles";

@@ -7,7 +7,7 @@
 namespace viper {
 namespace kv_bm {
 
-class ViperFixture : public BasePmemFixture<ViperRoot<KeyType, ValueType>> {
+class ViperFixture : public BaseFixture {
 //    using VRoot = ViperRoot<KeyType, ValueType, TbbFixedKeyCompare>;
     using ViperT = Viper<KeyType, ValueType, TbbFixedKeyCompare>;
 
@@ -27,6 +27,7 @@ class ViperFixture : public BasePmemFixture<ViperRoot<KeyType, ValueType>> {
   protected:
     std::unique_ptr<ViperT> viper_;
     bool viper_initialized_ = false;
+    std::string pool_file_;
 };
 
 }  // namespace kv_bm
