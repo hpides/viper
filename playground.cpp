@@ -3,7 +3,7 @@
 
 using namespace std;
 using namespace viper;
-const uint64_t POOL_SIZE = 1024l * 1024 * 1024 * 10;
+const uint64_t POOL_SIZE = 1024l * 1024 * 1024 * 1;
 
 struct VKey {
     VKey() {}

@@ -10,6 +10,8 @@
 #include <cmath>
 #include <linux/mman.h>
 #include <sys/mman.h>
+#include <atomic>
+#include <assert.h>
 
 namespace viper {
 
@@ -23,10 +25,14 @@ static constexpr uint16_t PAGE_SIZE = 4 * 1024; // 4kb
 static constexpr uint16_t MIN_PAGE_SIZE = PAGE_SIZE / 4; // 1kb
 static constexpr uint8_t NUM_DIMMS = 6;
 static constexpr double RESIZE_THRESHOLD = 0.75;
+static constexpr size_t DAX_ALIGNMENT = 1024l * 1024l * 1024l;
 
 // Most significant bit of version_lock_t sized counter
 static constexpr version_lock_t LOCK_BIT = 1ul << (sizeof(version_lock_t) * 8 - 1);
 static constexpr version_lock_t COUNTER_MASK = ~LOCK_BIT;
+
+static constexpr auto VIPER_MAP_PROT = PROT_WRITE | PROT_READ | PROT_EXEC;
+static constexpr auto VIPER_MAP_FLAGS = MAP_SHARED | MAP_SYNC;
 
 namespace internal {
 
@@ -127,14 +133,21 @@ struct alignas(PAGE_SIZE) ViperPageBlock {
 } // namespace internal
 
 struct ViperFileMetadata {
+    const size_t block_offset;
     const size_t block_size;
     block_size_t num_allocated_blocks;
 };
 
-struct ViperBase {
+struct ViperFileMapping {
     const size_t mapped_size;
-    const size_t block_offset;
+    void* const start_addr;
+};
+
+struct ViperBase {
+    const int file_descriptor;
+    size_t total_mapped_size;
     ViperFileMetadata* const v_metadata;
+    std::vector<ViperFileMapping> v_mappings;
 };
 
 template <typename K, typename V, typename HashCompare>
@@ -148,7 +161,7 @@ class Viper {
     using VPageBlock = internal::ViperPageBlock<VPage, num_pages_per_block>;
 
   public:
-    Viper(const std::string& pool_file, uint64_t pool_size);
+    Viper(const std::string& pool_file, uint64_t initial_pool_size);
     Viper(const std::string& pool_file);
     explicit Viper(ViperBase v_base);
     ~Viper();
@@ -249,6 +262,7 @@ class Viper {
     void remove_client(Client* client);
 
     void recover_database();
+    void allocate_v_page_blocks();
     void add_v_page_blocks();
     void trigger_resize();
 
@@ -270,8 +284,8 @@ class Viper {
 };
 
 template <typename K, typename V, typename HC>
-Viper<K, V, HC>::Viper(const std::string& pool_file, const uint64_t pool_size)
-    : Viper{init_pool(pool_file, pool_size, true), true} {}
+Viper<K, V, HC>::Viper(const std::string& pool_file, const uint64_t initial_pool_size)
+    : Viper{init_pool(pool_file, initial_pool_size, true), true} {}
 
 template <typename K, typename V, typename HC>
 Viper<K, V, HC>::Viper(const std::string& pool_file)
@@ -292,6 +306,10 @@ Viper<K, V, HC>::Viper(ViperBase v_base, const bool owns_pool) :
 
     std::srand(std::time(nullptr));
 
+    if (v_base_.v_mappings.empty()) {
+        throw new std::runtime_error("Need to have at least one memory section mapped.");
+    }
+
     if (v_base_.v_metadata->num_allocated_blocks == 0) {
         // New database
         add_v_page_blocks();
@@ -304,7 +322,11 @@ template <typename K, typename V, typename HC>
 Viper<K, V, HC>::~Viper() {
     if (owns_pool_) {
         std::cout << "Closing pool file." << std::endl;
-        munmap(v_base_.v_metadata, v_base_.mapped_size);
+        munmap(v_base_.v_metadata, v_base_.v_metadata->block_offset);
+        for (const ViperFileMapping mapping : v_base_.v_mappings) {
+            munmap(mapping.start_addr, mapping.mapped_size);
+        }
+        close(v_base_.file_descriptor);
     }
 }
 
@@ -315,12 +337,6 @@ size_t Viper<K, V, HC>::get_size_estimate() const {
 
 template <typename K, typename V, typename HC>
 ViperBase Viper<K, V, HC>::init_pool(const std::string& pool_file, uint64_t pool_size, bool is_new_pool) {
-    int sds_write_value = 0;
-    pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
-
-//    pmem_addr = pmem_map_file(pool_file.c_str(), pool_size, PMEM_FILE_CREATE | huge_tables,
-//                              S_IRWXU, &mapped_size, &is_pmem);
-
     std::cout << (is_new_pool ? "Creating" : "Opening") << " pool file " << pool_file << std::endl;
 
     const int fd = open(pool_file.c_str(), O_RDWR, 0666);
@@ -335,43 +351,68 @@ ViperBase Viper<K, V, HC>::init_pool(const std::string& pool_file, uint64_t pool
         }
         const ViperFileMetadata* metadata = static_cast<ViperFileMetadata*>(metadata_addr);
         if (metadata->num_allocated_blocks > 0 && metadata->block_size > 0) {
-            pool_size = (metadata->num_allocated_blocks * metadata->block_size) + PAGE_SIZE;
+            pool_size = (metadata->num_allocated_blocks * metadata->block_size) + metadata->block_offset;
         } else {
             is_new_pool = true;
         }
         munmap(metadata_addr, PAGE_SIZE);
     }
 
-    const auto protection = PROT_WRITE | PROT_READ | PROT_EXEC;
-    const auto args = MAP_SHARED | MAP_SYNC;
-    void* pmem_addr = mmap(nullptr, pool_size, protection, args, fd, 0);
+    if (pool_size % DAX_ALIGNMENT != 0) {
+        throw std::runtime_error("Pool needs to be allocated in 1 GB chunks.");
+    }
 
+    const size_t raw_block_space = pool_size - PAGE_SIZE;
+    const size_t num_block_in_pool_size = raw_block_space / sizeof(VPageBlock);
+    std::cout << "Allocating " << num_block_in_pool_size << " blocks in "
+              << (pool_size / DAX_ALIGNMENT) << " GiB." << std::endl;
+
+    if (pool_size < PAGE_SIZE || num_block_in_pool_size == 0) {
+        throw std::runtime_error("Pool too small: " + std::to_string(pool_size));
+    }
+
+    void* pmem_addr = mmap(nullptr, pool_size, VIPER_MAP_PROT, VIPER_MAP_FLAGS, fd, 0);
     if (pmem_addr == nullptr) {
         throw std::runtime_error("Cannot mmap pool file: " + pool_file + " | " + std::strerror(errno));
     }
 
     if (is_new_pool) {
-        ViperFileMetadata v_metadata{ .block_size = sizeof(VPageBlock), .num_allocated_blocks = 0 };
+        ViperFileMetadata v_metadata{ .block_offset = PAGE_SIZE, .block_size = sizeof(VPageBlock),
+                                      .num_allocated_blocks = 0 };
         pmem_memcpy_persist(pmem_addr, &v_metadata, sizeof(v_metadata));
     }
 
-    return ViperBase{ .mapped_size = pool_size, .block_offset = PAGE_SIZE,
-                      .v_metadata = static_cast<ViperFileMetadata*>(pmem_addr) };
+    void* block_start_addr = reinterpret_cast<char*>(pmem_addr) + PAGE_SIZE;
+    ViperFileMapping initial_mapping{ .mapped_size = raw_block_space, .start_addr = block_start_addr };
+    return ViperBase{ .file_descriptor = fd, .total_mapped_size = pool_size,
+                      .v_metadata = static_cast<ViperFileMetadata*>(pmem_addr),
+                      .v_mappings = {initial_mapping} };
 }
+
+template <typename K, typename V, typename HC>
+void Viper<K, V, HC>::allocate_v_page_blocks() {
+    const size_t offset = v_base_.total_mapped_size;
+    const int fd = v_base_.file_descriptor;
+    void* pmem_addr = mmap(nullptr, DAX_ALIGNMENT, VIPER_MAP_PROT, VIPER_MAP_FLAGS, fd, offset);
+    if (pmem_addr == nullptr) {
+        throw std::runtime_error(std::string("Cannot mmap extra memory: ") + std::strerror(errno));
+    }
+    v_base_.v_mappings.push_back({DAX_ALIGNMENT, pmem_addr});
+    v_base_.total_mapped_size += DAX_ALIGNMENT;
+}
+
 template <typename K, typename V, typename HC>
 void Viper<K, V, HC>::add_v_page_blocks() {
-    // Cast for pointer arithmetic
-    char* file_start = reinterpret_cast<char*>(v_base_.v_metadata);
-    char* raw_block_start = file_start + v_base_.block_offset;
-    VPageBlock* start_block = reinterpret_cast<VPageBlock*>(raw_block_start);
+    const ViperFileMapping latest_mapping = v_base_.v_mappings.back();
+    VPageBlock* start_block = reinterpret_cast<VPageBlock*>(latest_mapping.start_addr);
+    const block_size_t num_blocks_to_map = latest_mapping.mapped_size / sizeof(VPageBlock);
 
-    const block_size_t num_blocks_to_map = (v_base_.mapped_size - v_base_.block_offset) / sizeof(VPageBlock);
     v_blocks_.reserve(v_blocks_.size() + num_blocks_to_map);
     for (block_size_t block_offset = 0; block_offset < num_blocks_to_map; ++block_offset) {
         v_blocks_.push_back(start_block + block_offset);
     }
 
-    v_base_.v_metadata->num_allocated_blocks = num_blocks_to_map;
+    v_base_.v_metadata->num_allocated_blocks += num_blocks_to_map;
     pmem_persist(v_base_.v_metadata, sizeof(ViperFileMetadata));
 
     current_capacity_ += num_slots_per_block_ * num_blocks_to_map;
@@ -465,8 +506,9 @@ void Viper<K, V, HC>::trigger_resize() {
             CPU_ZERO(&cpuset);
             CPU_SET(71, &cpuset);
             pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-//            add_v_page_blocks(NUM_BLOCKS_PER_CREATE);
+            allocate_v_page_blocks();
             add_v_page_blocks();
+            is_resizing_.store(false, std::memory_order_release);
         });
         resize_thread_->detach();
     }
