@@ -409,11 +409,7 @@ void Viper<K, V, HC>::get_block_based_access(Client* client) {
         client_page = v_block_page.get_page_number();
 
         const block_size_t new_block = client_block + 1;
-
-        // Still resizing, need to wait for new blocks.
-        while (new_block >= v_blocks_.size()) {
-            std::cout << "WAITING\n";
-        }
+        assert(new_block < v_blocks_.size());
 
         // Chose random offset to evenly distribute load on all DIMMs
         const page_size_t new_page = rand() % num_pages_per_block;
