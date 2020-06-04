@@ -7,7 +7,7 @@ void ViperFixture::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
         return;
     }
 
-    pool_file_ = random_file(POOL_FILE_DIR);
+    pool_file_ = VIPER_POOL_FILE;
     viper_ = std::make_unique<ViperT>(pool_file_, BM_POOL_SIZE);
     auto v_client = viper_->get_client();
 
@@ -21,7 +21,7 @@ void ViperFixture::DeInitMap() {
     BaseFixture::DeInitMap();
     viper_ = nullptr;
     viper_initialized_ = false;
-    pmempool_rm(pool_file_.c_str(), PMEMPOOL_RM_FORCE | PMEMPOOL_RM_POOLSET_LOCAL);
+//    pmempool_rm(pool_file_.c_str(), PMEMPOOL_RM_FORCE | PMEMPOOL_RM_POOLSET_LOCAL);
 }
 
 void ViperFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {

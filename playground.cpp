@@ -1,7 +1,5 @@
-#include <libpmempool.h>
 #include "src/viper.hpp"
 #include <iostream>
-#include <libpmemobj++/make_persistent_array.hpp>
 
 using namespace std;
 using namespace viper;
@@ -36,23 +34,12 @@ struct VKeyCompare {
 using ViperT = Viper<VKey, VValue, VKeyCompare>;
 
 int main() {
-    int sds_write_value = 0;
-    pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
-
-    std::string pool_file = "/mnt/nvrams1/viper.file";
-
-    if (std::filesystem::exists(pool_file)) {
-        std::cout << "Deleting pool file " << pool_file << std::endl;
-        pmempool_rm(pool_file.c_str(), PMEMPOOL_RM_POOLSET_LOCAL | PMEMPOOL_RM_POOLSET_REMOTE);
-    }
+    const std::string pool_file = "/dev/dax0.0";
 
     ViperT viper{pool_file, POOL_SIZE};
-//    cout << "viper size: " << sizeof(viper) << std::endl;
-//    cout << "viper map size: " << sizeof(viper.map_) << std::endl;
-//    cout << "viper pool size: " << sizeof(viper.v_pool_) << std::endl;
 
     auto v_client = viper.get_client();
-    const int num_values = 10;
+    const int num_values = 10000000;
     for (int i = 0; i < num_values; ++i) {
         v_client.put(i, i);
     }
