@@ -16,6 +16,7 @@ static constexpr uint64_t NUM_FINDS = NUM_INSERTS / 10;
 static constexpr uint64_t NUM_DELETES = NUM_INSERTS / 2;
 static constexpr uint64_t NUM_REPETITIONS = 1;
 static constexpr uint64_t NUM_MAX_THREADS = 36;
+static constexpr uint64_t NUM_UTIL_THREADS = 64;
 static constexpr benchmark::TimeUnit BM_TIME_UNIT = benchmark::TimeUnit::kMicrosecond;
 
 struct ValuePlaceholder {

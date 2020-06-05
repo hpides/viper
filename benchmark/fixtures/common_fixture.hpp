@@ -35,6 +35,8 @@ void set_cpu_affinity(uint16_t thread_idx);
 
 std::string random_file(const std::filesystem::path& base_dir);
 
+void zero_block_device(const std::string& block_dev, size_t length);
+
 struct TbbFixedKeyCompare {
     // Use same impl as tbb_hasher
     static const size_t hash_multiplier = tbb::internal::select_size_t_constant<2654435769U, 11400714819323198485ULL>::value;
