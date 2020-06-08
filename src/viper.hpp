@@ -30,9 +30,6 @@ using version_lock_t = uint64_t;
 static constexpr uint16_t PAGE_SIZE = 4 * 1024; // 4kb
 static constexpr uint16_t MIN_PAGE_SIZE = PAGE_SIZE / 4; // 1kb
 static constexpr uint8_t NUM_DIMMS = 6;
-static constexpr double RESIZE_THRESHOLD = 0.75;
-static constexpr size_t DAX_ALIGNMENT = 1024l * 1024l * 1024l;
-static constexpr uint8_t NUM_RECOVERY_THREADS = 64;
 static constexpr size_t ONE_GB = 1024l * 1024 * 1024;
 
 // Most significant bit of version_lock_t sized counter
@@ -41,6 +38,12 @@ static constexpr version_lock_t COUNTER_MASK = ~LOCK_BIT;
 
 static constexpr auto VIPER_MAP_PROT = PROT_WRITE | PROT_READ | PROT_EXEC;
 static constexpr auto VIPER_MAP_FLAGS = MAP_SHARED | MAP_SYNC;
+
+struct ViperConfig {
+    double resize_threshold = 0.85;
+    uint8_t num_recovery_threads = 64;
+    size_t dax_alignment = ONE_GB;
+};
 
 namespace internal {
 
@@ -172,9 +175,11 @@ class Viper {
     using VPageBlock = internal::ViperPageBlock<VPage, num_pages_per_block>;
 
   public:
-    Viper(const std::string& pool_file, uint64_t initial_pool_size);
-    Viper(const std::string& pool_file);
-    explicit Viper(ViperBase v_base);
+    static std::unique_ptr<Viper<K, V, HashCompare>> create(const std::string& pool_file, uint64_t initial_pool_size,
+                                                            ViperConfig v_config = ViperConfig{});
+    static std::unique_ptr<Viper<K, V, HashCompare>> open(const std::string& pool_file, ViperConfig v_config = ViperConfig{});
+    static std::unique_ptr<Viper<K, V, HashCompare>> open(ViperBase v_base, ViperConfig v_config = ViperConfig{});
+    Viper(ViperBase v_base, bool owns_pool, ViperConfig v_config);
     ~Viper();
 
     class ConstAccessor {
@@ -264,8 +269,8 @@ class Viper {
     size_t get_size_estimate() const;
 
   protected:
-    Viper(ViperBase v_base, bool owns_pool);
-    ViperBase init_pool(const std::string& pool_file, uint64_t pool_size, bool is_new_pool);
+    static ViperBase init_pool(const std::string& pool_file, uint64_t pool_size,
+                               bool is_new_pool, ViperConfig v_config);
 
     void get_new_access_information(Client* client);
     // void get_dimm_based_access(Client* client);
@@ -293,23 +298,29 @@ class Viper {
     std::atomic<bool> is_resizing_;
     std::atomic<bool> is_v_blocks_resizing_;
     std::unique_ptr<std::thread> resize_thread_;
+    const uint8_t num_recovery_threads_;
 };
 
 template <typename K, typename V, typename HC>
-Viper<K, V, HC>::Viper(const std::string& pool_file, const uint64_t initial_pool_size)
-    : Viper{init_pool(pool_file, initial_pool_size, true), true} {}
+std::unique_ptr<Viper<K, V, HC>> Viper<K, V, HC>::create(const std::string& pool_file, uint64_t initial_pool_size,
+                                                         ViperConfig v_config) {
+    return std::make_unique<Viper<K, V, HC>>(init_pool(pool_file, initial_pool_size, true, v_config), true, v_config);
+}
 
 template <typename K, typename V, typename HC>
-Viper<K, V, HC>::Viper(const std::string& pool_file)
-    : Viper{init_pool(pool_file, 0, false), true} {}
+std::unique_ptr<Viper<K, V, HC>> Viper<K, V, HC>::open(const std::string& pool_file, ViperConfig v_config) {
+    return std::make_unique<Viper<K, V, HC>>(init_pool(pool_file, 0, false, v_config), true, v_config);
+}
 
 template <typename K, typename V, typename HC>
-Viper<K, V, HC>::Viper(ViperBase v_base) : Viper{v_base, false} {}
+std::unique_ptr<Viper<K, V, HC>> Viper<K, V, HC>::open(ViperBase v_base, ViperConfig v_config) {
+    return std::make_unique<Viper<K, V, HC>>(v_base, false, v_config);
+}
 
 template <typename K, typename V, typename HC>
-Viper<K, V, HC>::Viper(ViperBase v_base, const bool owns_pool) :
+Viper<K, V, HC>::Viper(ViperBase v_base, const bool owns_pool, const ViperConfig v_config) :
     v_base_{v_base}, map_{}, owns_pool_{owns_pool}, num_slots_per_block_{VPageBlock::num_slots_per_block},
-    resize_threshold_{RESIZE_THRESHOLD} {
+    resize_threshold_{v_config.resize_threshold}, num_recovery_threads_{v_config.num_recovery_threads} {
 
     current_block_page_ = 0;
     current_size_ = 0;
@@ -352,15 +363,16 @@ size_t Viper<K, V, HC>::get_size_estimate() const {
 }
 
 template <typename K, typename V, typename HC>
-ViperBase Viper<K, V, HC>::init_pool(const std::string& pool_file, uint64_t pool_size, bool is_new_pool) {
+ViperBase Viper<K, V, HC>::init_pool(const std::string& pool_file, uint64_t pool_size,
+                                     bool is_new_pool, ViperConfig v_config) {
     DEBUG_LOG((is_new_pool ? "Creating" : "Opening") << " pool file " << pool_file);
 
-    const int fd = open(pool_file.c_str(), O_RDWR);
+    const int fd = ::open(pool_file.c_str(), O_RDWR);
     if (fd < 0) {
         throw std::runtime_error("Cannot open dax device: " + pool_file + " | " + std::strerror(errno));
     }
 
-    size_t alloc_size = DAX_ALIGNMENT;
+    size_t alloc_size = v_config.dax_alignment;
     if (!is_new_pool) {
         void* metadata_addr = mmap(nullptr, alloc_size, PROT_READ, MAP_SHARED, fd, 0);
         if (metadata_addr == nullptr) {
@@ -477,10 +489,10 @@ void Viper<K, V, HC>::recover_database() {
     DEBUG_LOG("Re-inserting values from " << num_used_blocks << " blocks.");
 
     std::vector<std::thread> recovery_threads;
-    recovery_threads.reserve(NUM_RECOVERY_THREADS);
+    recovery_threads.reserve(num_recovery_threads_);
 
     std::vector<std::vector<KVOffset>> duplicate_entries;
-    duplicate_entries.resize(NUM_RECOVERY_THREADS);
+    duplicate_entries.resize(num_recovery_threads_);
 
     auto recover = [&](const size_t thread_num, const block_size_t start_block, const block_size_t end_block) {
         std::vector<KVOffset>& duplicates = duplicate_entries[thread_num];
@@ -523,9 +535,9 @@ void Viper<K, V, HC>::recover_database() {
     };
 
     // We give each thread + 1 blocks to avoid leaving out blocks at the end.
-    const block_size_t num_blocks_per_thread = (num_used_blocks / NUM_RECOVERY_THREADS) + 1;
+    const block_size_t num_blocks_per_thread = (num_used_blocks / num_recovery_threads_) + 1;
 
-    for (size_t thread_num = 0; thread_num < NUM_RECOVERY_THREADS; ++thread_num) {
+    for (size_t thread_num = 0; thread_num < num_recovery_threads_; ++thread_num) {
         const block_size_t start_block = thread_num * num_blocks_per_thread;
         const block_size_t end_block = std::min(start_block + num_blocks_per_thread, num_used_blocks);
         recovery_threads.emplace_back(recover, thread_num, start_block, end_block);
@@ -649,7 +661,6 @@ template <typename K, typename V, typename HC>
 typename Viper<K, V, HC>::ConstClient Viper<K, V, HC>::get_const_client() const {
     return ConstClient{*this};
 }
-
 template <typename K, typename V, typename HC>
 void Viper<K, V, HC>::remove_client(Viper::Client* client) {
     client->info_sync(true);
