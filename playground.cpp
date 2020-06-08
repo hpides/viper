@@ -67,8 +67,8 @@ int main() {
 
     {
         zero_block_device(pool_file, POOL_SIZE * 3);
-        ViperT viper = ViperT::create(pool_file, POOL_SIZE);
-        auto v_client = viper.get_client();
+        auto viper = ViperT::create(pool_file, POOL_SIZE);
+        auto v_client = viper->get_client();
 
         for (int i = 0; i < num_values; ++i) {
             v_client.put(i, i);
@@ -84,8 +84,8 @@ int main() {
     }
 
     {
-        ViperT viper = ViperT::open(pool_file);
-        auto v_client = viper.get_const_client();
+        auto viper = ViperT::open(pool_file);
+        auto v_client = viper->get_const_client();
 
         uint64_t found_counter = 0;
         for (int key = 0; key < num_values; ++key) {

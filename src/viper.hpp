@@ -28,8 +28,8 @@ using slot_size_t = uint8_t;
 using version_lock_t = uint64_t;
 
 static constexpr uint16_t PAGE_SIZE = 4 * 1024; // 4kb
-static constexpr uint16_t MIN_PAGE_SIZE = PAGE_SIZE / 4; // 1kb
 static constexpr uint8_t NUM_DIMMS = 6;
+static constexpr size_t BLOCK_SIZE = NUM_DIMMS * PAGE_SIZE;
 static constexpr size_t ONE_GB = 1024l * 1024 * 1024;
 
 // Most significant bit of version_lock_t sized counter
@@ -49,27 +49,26 @@ namespace internal {
 
 template <typename K, typename V>
 constexpr slot_size_t get_num_slots_per_page() {
-//    const uint32_t entry_size = sizeof(K) + sizeof(V);
-//    uint16_t current_page_size = MIN_PAGE_SIZE;
-//    slot_size_t num_slots_per_page = 64;
-//    const uint16_t page_overhead = sizeof(version_lock_t) + sizeof(std::bitset<BASE_NUM_SLOTS_PER_PAGE>);
-//
-//    while ((entry_size * num_slots_per_page) - 16 > current_page_size) {
-//        current_page_size *= 2;
-//    }
-//    assert(current_page_size <= MAX_PAGE_SIZE && "Cannot fit 64 KV pairs into single page!");
-//
-//    while ((num_slots_per_page * entry_size) + page_overhead + std::ceil(num_slots_per_page / 8) > PAGE_SIZE) {
-//        num_slots_per_page--;
-//    }
-//    assert(num_slots_per_page > 0 && "Cannot fit KV pair into single page!");
+    const uint32_t entry_size = sizeof(K) + sizeof(V);
+    uint16_t current_page_size = PAGE_SIZE;
 
-    // Hard code for now based on 8 byte key + 8 byte value
-    //    return 31;
-    //    return 63;
+    const uint16_t page_overhead = sizeof(version_lock_t) + 1;
+    while (entry_size + page_overhead > current_page_size && current_page_size <= BLOCK_SIZE) {
+        current_page_size += PAGE_SIZE;
+    }
 
-    // Hard code for now based on 16 byte key + 200 byte value
-    return 18;
+    page_size_t num_pages_per_block = current_page_size / PAGE_SIZE;
+    if (num_pages_per_block == 4 || num_pages_per_block == 5) {
+        num_pages_per_block = 6;
+        current_page_size = BLOCK_SIZE;
+    }
+
+    slot_size_t num_slots_per_page = current_page_size / entry_size;
+    if ((num_slots_per_page * entry_size) + sizeof(version_lock_t) + std::ceil(num_slots_per_page / 8) > current_page_size) {
+        num_slots_per_page--;
+    }
+    assert(num_slots_per_page > 0 && "Cannot fit KV pair into single page!");
+    return num_slots_per_page;
 }
 
 class KeyValueOffset {
@@ -113,7 +112,7 @@ class KeyValueOffset {
 };
 
 template <typename K, typename V>
-struct alignas(MIN_PAGE_SIZE) ViperPage {
+struct alignas(PAGE_SIZE) ViperPage {
     using VEntry = std::pair<K, V>;
     static constexpr slot_size_t num_slots_per_page = get_num_slots_per_page<K, V>();
 
@@ -171,7 +170,8 @@ class Viper {
     using KVOffset = internal::KeyValueOffset;
     using MapType = tbb::concurrent_hash_map<K, KVOffset, HashCompare>;
     static constexpr uint64_t v_page_size = sizeof(VPage);
-    static constexpr page_size_t num_pages_per_block = NUM_DIMMS * (PAGE_SIZE / v_page_size);
+    static_assert(BLOCK_SIZE % v_page_size == 0, "Page needs to fit into block.");
+    static constexpr page_size_t num_pages_per_block = BLOCK_SIZE / v_page_size;
     using VPageBlock = internal::ViperPageBlock<VPage, num_pages_per_block>;
 
   public:
