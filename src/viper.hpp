@@ -43,6 +43,8 @@ struct ViperConfig {
     double resize_threshold = 0.85;
     uint8_t num_recovery_threads = 64;
     size_t dax_alignment = ONE_GB;
+    bool force_dimm_based = false;
+    bool force_block_based = false;
 };
 
 namespace internal {
@@ -273,7 +275,7 @@ class Viper {
                                bool is_new_pool, ViperConfig v_config);
 
     void get_new_access_information(Client* client);
-    // void get_dimm_based_access(Client* client);
+    void get_dimm_based_access(Client* client);
     void get_block_based_access(Client* client);
     void remove_client(Client* client);
 
@@ -284,6 +286,7 @@ class Viper {
 
     ViperBase v_base_;
     const bool owns_pool_;
+    ViperConfig v_config_;
 
     MapType map_;
 
@@ -298,6 +301,7 @@ class Viper {
     std::atomic<bool> is_resizing_;
     std::atomic<bool> is_v_blocks_resizing_;
     std::unique_ptr<std::thread> resize_thread_;
+    std::atomic<uint8_t> num_active_clients_;
     const uint8_t num_recovery_threads_;
 };
 
@@ -319,13 +323,19 @@ std::unique_ptr<Viper<K, V, HC>> Viper<K, V, HC>::open(ViperBase v_base, ViperCo
 
 template <typename K, typename V, typename HC>
 Viper<K, V, HC>::Viper(ViperBase v_base, const bool owns_pool, const ViperConfig v_config) :
-    v_base_{v_base}, map_{}, owns_pool_{owns_pool}, num_slots_per_block_{VPageBlock::num_slots_per_block},
-    resize_threshold_{v_config.resize_threshold}, num_recovery_threads_{v_config.num_recovery_threads} {
+    v_base_{v_base}, map_{}, owns_pool_{owns_pool}, v_config_{v_config},
+    num_slots_per_block_{VPageBlock::num_slots_per_block}, resize_threshold_{v_config.resize_threshold},
+    num_recovery_threads_{v_config.num_recovery_threads} {
 
     current_block_page_ = 0;
     current_size_ = 0;
     current_capacity_ = 0;
     is_resizing_ = false;
+    num_active_clients_ = 0;
+
+    if (v_config_.force_block_based && v_config_.force_dimm_based) {
+        throw std::runtime_error("Cannot force both block- and dimm-based.");
+    }
 
     std::srand(std::time(nullptr));
 
@@ -563,7 +573,14 @@ void Viper<K, V, HC>::get_new_access_information(Client* client) {
         trigger_resize();
     }
 
-    return get_block_based_access(client);
+    const uint8_t switch_size = 2 * NUM_DIMMS;
+    const bool is_dimm_based = (num_active_clients_ < switch_size && !v_config_.force_block_based)
+                                || v_config_.force_dimm_based;
+    if (is_dimm_based) {
+        return get_dimm_based_access(client);
+    } else {
+        return get_block_based_access(client);
+    }
 }
 
 template <typename K, typename V, typename HC>
@@ -599,35 +616,39 @@ void Viper<K, V, HC>::get_block_based_access(Client* client) {
     v_base_.v_metadata->num_used_blocks++;
 }
 
-//template <typename K, typename V, typename HC>
-//void Viper<K, V, HC>::get_dimm_based_access(Client* client) {
-//    const block_size_t block_stride = 600;
-//
-//    offset_size_t raw_block_page = current_block_page_.load(std::memory_order_acquire);
-//    KVOffset new_offset{};
-//    block_size_t client_block;
-//    page_size_t client_page;
-//    do {
-//        const KVOffset v_block_page = KVOffset{raw_block_page};
-//        client_block = v_block_page.get_block_number();
-//        client_page = v_block_page.get_page_number();
-//
-//        block_size_t new_block = client_block;
-//        page_size_t new_page = client_page + 1;
-//        if (new_page == num_pages_per_block) {
-//            new_block++;
-//            new_page = 0;
-//        }
-//        new_offset = KVOffset{new_block, new_page, 0};
-//    } while (!current_block_page_.compare_exchange_weak(raw_block_page, new_offset.get_raw_offset()));
-//
-//    client->strategy_ = Client::PageStrategy::DimmBased;
-//    client->v_block_number_ = client_block;
-//    client->end_v_block_number_ = client_block + block_stride - 1;
-//    client->v_page_number_ = client_page;
-//    client->v_block_ = v_blocks_[client_block];
-//    client->v_page_ = &(client->v_block_->v_pages[client_page]);
-//}
+template <typename K, typename V, typename HC>
+void Viper<K, V, HC>::get_dimm_based_access(Client* client) {
+    const block_size_t block_stride = 6;
+
+    offset_size_t raw_block_page = current_block_page_.load(std::memory_order_acquire);
+    KVOffset new_offset{};
+    block_size_t client_block;
+    page_size_t client_page;
+    do {
+        const KVOffset v_block_page = KVOffset{raw_block_page};
+        client_block = v_block_page.get_block_number();
+        client_page = v_block_page.get_page_number();
+
+        block_size_t new_block = client_block;
+        page_size_t new_page = client_page + 1;
+        if (new_page == num_pages_per_block) {
+            new_block++;
+            new_page = 0;
+        }
+        new_offset = KVOffset{new_block, new_page, 0};
+    } while (!current_block_page_.compare_exchange_weak(raw_block_page, new_offset.get_raw_offset()));
+
+    client->strategy_ = Client::PageStrategy::DimmBased;
+    client->v_block_number_ = client_block;
+    client->end_v_block_number_ = client_block + block_stride - 1;
+    client->v_page_number_ = client_page;
+
+    while (is_v_blocks_resizing_.load(std::memory_order_acquire)) {
+        // Wait for vector's memmove to complete. Otherwise we might encounter a segfault.
+    }
+    client->v_block_ = v_blocks_[client_block];
+    client->v_page_ = &(client->v_block_->v_pages[client_page]);
+}
 
 template <typename K, typename V, typename HC>
 void Viper<K, V, HC>::trigger_resize() {
@@ -653,6 +674,7 @@ void Viper<K, V, HC>::trigger_resize() {
 template <typename K, typename V, typename HC>
 typename Viper<K, V, HC>::Client Viper<K, V, HC>::get_client() {
     Client client{*this};
+    ++num_active_clients_;
     get_new_access_information(&client);
     return client;
 }
@@ -664,6 +686,7 @@ typename Viper<K, V, HC>::ConstClient Viper<K, V, HC>::get_const_client() const 
 template <typename K, typename V, typename HC>
 void Viper<K, V, HC>::remove_client(Viper::Client* client) {
     client->info_sync(true);
+    --num_active_clients_;
 }
 
 template <typename K, typename V, typename HC>
