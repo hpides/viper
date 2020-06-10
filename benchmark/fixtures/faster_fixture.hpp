@@ -8,18 +8,14 @@
 namespace viper {
 namespace kv_bm {
 
-class FasterFixture : public FileBasedFixture {
+class FasterFixture : public BaseFixture {
   public:
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true);
-
     void DeInitMap();
 
     void insert_empty(uint64_t start_idx, uint64_t end_idx) final;
-
     void setup_and_insert(uint64_t start_idx, uint64_t end_idx) final;
-
     uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) final;
-
     uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx) final;
 
   protected:
@@ -189,6 +185,8 @@ class FasterFixture : public FileBasedFixture {
     typedef FASTER::core::FasterKv<FasterKey, FasterValue, disk_t> faster_t;
 
     std::unique_ptr<faster_t> db_;
+    std::filesystem::path base_dir_;
+    std::filesystem::path db_dir_;
     bool faster_initialized_;
     const uint64_t kRefreshInterval = 64;
     const uint64_t kCompletePendingInterval = 1600;

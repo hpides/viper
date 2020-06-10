@@ -58,6 +58,8 @@ class BaseFixture : public benchmark::Fixture {
     virtual void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) {};
     virtual void DeInitMap() {};
 
+    void prefill(size_t num_prefills);
+
     // Benchmark methods. All pure virtual.
     virtual void insert_empty(uint64_t start_idx, uint64_t end_idx) = 0;
     virtual void setup_and_insert(uint64_t start_idx, uint64_t end_idx) = 0;
@@ -107,33 +109,6 @@ class BasePmemFixture : public BaseFixture {
     pmem::obj::pool<RootType> pmem_pool_;
     std::filesystem::path pool_file_;
     std::mutex pool_mutex_;
-};
-
-class FileBasedFixture : public BaseFixture {
-  public:
-    void SetUp(benchmark::State& state) override {
-        BaseFixture::SetUp(state);
-        {
-            std::scoped_lock lock(db_mutex_);
-            if (db_file_.empty()) {
-                db_file_ = random_file(DB_FILE_DIR);
-            }
-        }
-    }
-
-    void TearDown(benchmark::State& state) override {
-        {
-            std::scoped_lock lock(db_mutex_);
-            if (!db_file_.empty() && std::filesystem::exists(db_file_)) {
-                std::filesystem::remove_all(db_file_);
-                db_file_.clear();
-            }
-        }
-    }
-
-  protected:
-    std::filesystem::path db_file_;
-    std::mutex db_mutex_;
 };
 
 }  // namespace viper::kv_bm

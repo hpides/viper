@@ -1,12 +1,21 @@
 #pragma once
 
 #include "common_fixture.hpp"
-#include "rocksdb/db.h"
+#include <libpmemkv.hpp>
+
+namespace std {
+template <>
+struct hash<viper::kv_bm::BMKeyFixed> {
+    size_t operator()(const viper::kv_bm::BMKeyFixed& key) {
+        return std::hash<uint64_t>()(key.uuid[0]);
+    }
+};
+}
 
 namespace viper {
 namespace kv_bm {
 
-class RocksDbFixture : public BaseFixture {
+class PmemKVFixture : public BaseFixture {
   public:
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) override;
 
@@ -20,23 +29,10 @@ class RocksDbFixture : public BaseFixture {
 
     uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx) final;
 
-    virtual std::string get_base_dir() = 0;
-
   protected:
-    rocksdb::DB* db_;
-    std::filesystem::path base_dir_;
-    std::filesystem::path db_dir_;
-    bool rocksdb_initialized_;
-};
-
-class DiskRocksDbFixture : public RocksDbFixture {
-  public:
-    std::string get_base_dir() override;
-};
-
-class PmemRocksDbFixture : public RocksDbFixture {
-  public:
-    std::string get_base_dir() override;
+    std::unique_ptr<pmem::kv::db> pmem_db_;
+    std::string pool_file_;
+    bool db_initialized_ = false;
 };
 
 }  // namespace kv_bm

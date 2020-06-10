@@ -13,6 +13,7 @@ class ViperFixture : public BaseFixture {
 
   public:
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) override;
+    void InitMap(const uint64_t num_prefill_inserts, ViperConfig v_config);
 
     void DeInitMap() override;
 

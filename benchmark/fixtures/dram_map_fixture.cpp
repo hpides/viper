@@ -5,11 +5,7 @@ void viper::kv_bm::DramMapFixture::InitMap(uint64_t num_prefill_inserts, const b
         return;
     }
     dram_map_ = std::make_unique<DramMapType>();
-    for (uint64_t i = 0; i < num_prefill_inserts; ++i) {
-        KeyType key{i};
-        ValueType value{i};
-        dram_map_->insert({key, value});
-    }
+    prefill(num_prefill_inserts);
     map_initialized_ = true;
 }
 
@@ -17,7 +13,7 @@ void viper::kv_bm::DramMapFixture::insert_empty(uint64_t start_idx, uint64_t end
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         // uint64_t key = uniform_distribution(rnd_engine_);
         DramMapType::accessor result;
-        const ValueType value = key * 100;
+        const ValueType value = key;
         const bool new_insert = dram_map_->insert(result, {key, value});
         if (!new_insert) {
             result->second = value;

@@ -1,2 +1,5 @@
 cmake-*/
-benchmark-runs/
+results/
+.ipynb_checkpoints/
+venv/
+charts/

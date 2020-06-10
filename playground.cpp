@@ -63,11 +63,13 @@ void zero_block_device(const std::string& block_dev, size_t length) {
 
 int main() {
     const std::string pool_file = "/dev/dax0.0";
-    const int num_values = 10000000;
+    const int num_values = 10000;
 
     {
+        ViperConfig config{};
+        config.force_dimm_based = true;
         zero_block_device(pool_file, POOL_SIZE * 3);
-        auto viper = ViperT::create(pool_file, POOL_SIZE);
+        auto viper = ViperT::create(pool_file, POOL_SIZE, config);
         auto v_client = viper->get_client();
 
         for (int i = 0; i < num_values; ++i) {
@@ -84,20 +86,40 @@ int main() {
     }
 
     {
-        auto viper = ViperT::open(pool_file);
-        auto v_client = viper->get_const_client();
+        ViperConfig config{};
+        config.force_block_based = true;
+        zero_block_device(pool_file, POOL_SIZE * 3);
+        auto viper = ViperT::create(pool_file, POOL_SIZE, config);
+        auto v_client = viper->get_client();
+
+        for (int i = 0; i < num_values; ++i) {
+            v_client.put(i, i);
+        }
 
         uint64_t found_counter = 0;
         for (int key = 0; key < num_values; ++key) {
             ViperT::ConstAccessor result;
             const bool found = v_client.get(key, result);
             found_counter += found;
-            if (!found) {
-                std::cout << "NOT FOUND: " << key << std::endl;
-            }
         }
         cout << "FOUND IN TOTAL: " << found_counter << "/" << num_values << endl;
     }
+
+//    {
+//        auto viper = ViperT::open(pool_file);
+//        auto v_client = viper->get_const_client();
+//
+//        uint64_t found_counter = 0;
+//        for (int key = 0; key < num_values; ++key) {
+//            ViperT::ConstAccessor result;
+//            const bool found = v_client.get(key, result);
+//            found_counter += found;
+//            if (!found) {
+//                std::cout << "NOT FOUND: " << key << std::endl;
+//            }
+//        }
+//        cout << "FOUND IN TOTAL: " << found_counter << "/" << num_values << endl;
+//    }
 
 
 }

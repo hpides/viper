@@ -7,27 +7,12 @@ void FasterFixture::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
         return;
     }
 
-    db_ = std::make_unique<faster_t>((1L << 27), 17179869184, db_file_);
-
-    auto callback = [](IAsyncContext* ctxt, Status result) {
-        CallbackContext<UpsertContext> context{ctxt};
-        assert(result == Status::Ok);
-    };
+    base_dir_ = DB_NVM_DIR;
+    db_dir_ = random_file(base_dir_);
+    db_ = std::make_unique<faster_t>((1L << 27), 17179869184, db_dir_);
 
     db_->StartSession();
-
-    for (uint64_t key = 0; key < num_prefill_inserts; ++key) {
-        if (key % kRefreshInterval == 0) {
-            db_->Refresh();
-            if (key % kCompletePendingInterval == 0) {
-                db_->CompletePending(false);
-            }
-        }
-
-        UpsertContext context{key, key};
-        db_->Upsert(context, callback, 1);
-    }
-
+    prefill(num_prefill_inserts);
     db_->Refresh();
     db_->CompletePending(true);
     db_->StopSession();
@@ -37,6 +22,7 @@ void FasterFixture::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
 void FasterFixture::DeInitMap() {
     db_ = nullptr;
     faster_initialized_ = false;
+    std::filesystem::remove_all(db_dir_);
 }
 void FasterFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
     auto callback = [](IAsyncContext* ctxt, Status result) {
@@ -54,7 +40,7 @@ void FasterFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
             }
         }
 
-        UpsertContext context{key, key * 100};
+        UpsertContext context{key, key};
         db_->Upsert(context, callback, 1);
     }
 

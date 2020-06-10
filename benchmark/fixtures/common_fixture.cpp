@@ -23,9 +23,33 @@ std::string random_file(const std::filesystem::path& base_dir) {
 void BaseFixture::log_find_count(benchmark::State& state, uint64_t num_found, uint64_t num_expected) {
     state.counters["found"] = num_found;
     if (num_found != num_expected) {
-        std::cout << "DID NOT FIND ALL ENTRIES (" + std::to_string(num_found)
+        std::cerr << "DID NOT FIND ALL ENTRIES (" + std::to_string(num_found)
             + "/" + std::to_string(num_expected) + ")\n";
     }
+}
+
+void BaseFixture::prefill(const size_t num_prefills) {
+    cpu_set_t cpuset_before;
+    pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
+    set_cpu_affinity();
+
+    std::vector<std::thread> prefill_threads{};
+    const size_t num_prefills_per_thread = (num_prefills / NUM_UTIL_THREADS) + 1;
+
+    for (size_t thread_num = 0; thread_num < NUM_UTIL_THREADS; ++thread_num) {
+        const size_t start_key = thread_num * num_prefills_per_thread;
+        const size_t end_key = std::min(start_key + num_prefills_per_thread, num_prefills);
+        prefill_threads.emplace_back([&](const size_t start, const size_t end) {
+            set_cpu_affinity(thread_num);
+            this->insert_empty(start, end);
+        }, start_key, end_key);
+    }
+
+    for (std::thread& thread : prefill_threads) {
+        thread.join();
+    }
+
+    set_cpu_affinity(CPU_ISSET(0, &cpuset_before) ? 0 : 1);
 }
 
 bool is_init_thread(const benchmark::State& state) {

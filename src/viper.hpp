@@ -573,10 +573,7 @@ void Viper<K, V, HC>::get_new_access_information(Client* client) {
         trigger_resize();
     }
 
-    const uint8_t switch_size = 2 * NUM_DIMMS;
-    const bool is_dimm_based = (num_active_clients_ < switch_size && !v_config_.force_block_based)
-                                || v_config_.force_dimm_based;
-    if (is_dimm_based) {
+    if (v_config_.force_dimm_based) {
         return get_dimm_based_access(client);
     } else {
         return get_block_based_access(client);
@@ -703,7 +700,7 @@ bool Viper<K, V, HC>::Client::put(const K& key, const V& value) {
     std::bitset<VPage::num_slots_per_page>* free_slots = &v_page_->free_slots;
     const slot_size_t free_slot_idx = free_slots->_Find_first();
 
-    if (free_slot_idx == free_slots->size()) {
+    if (free_slot_idx == free_slots->size() || free_slot_idx == 64) {
         // Page is full. Free lock on page and restart.
         v_lock.store(lock_value & ~LOCK_BIT, std::memory_order_release);
         update_access_information();
