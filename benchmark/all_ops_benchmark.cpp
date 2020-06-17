@@ -32,8 +32,8 @@
 #define BM_DELETE(fixture) DEFINE_BM(fixture, delete)->Args({NUM_PREFILLS, NUM_DELETES})
 
 #define ALL_BMS(fixture) \
-            BM_FIND(fixture); \
             BM_INSERT(fixture); \
+            BM_FIND(fixture); \
             BM_UPDATE(fixture); \
             BM_DELETE(fixture)
 
@@ -148,11 +148,11 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
 }
 
 ALL_BMS(PmemKVFixture);
-ALL_BMS(ViperFixture);
+//ALL_BMS(ViperFixture);
 //ALL_BMS(FasterFixture);
-ALL_BMS(DiskRocksDbFixture);
-ALL_BMS(PmemRocksDbFixture);
-ALL_BMS(DramMapFixture);
+//ALL_BMS(DiskRocksDbFixture);
+//ALL_BMS(PmemRocksDbFixture);
+//ALL_BMS(DramMapFixture);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];

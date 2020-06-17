@@ -38,6 +38,14 @@ class BMValueFixed {
         data.fill(value_placeholder);
     }
 
+    BMValueFixed& operator=(const BMValueFixed& other) {
+        this->data = other.data;
+        return *this;
+    }
+
+    BMValueFixed(const std::array<uint64_t, 25>& data) : data(data) {}
+    BMValueFixed(const BMValueFixed& other) : data(other.data) {}
+
     BMValueFixed() {}
 
     // 200 byte

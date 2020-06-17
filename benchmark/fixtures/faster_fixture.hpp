@@ -9,6 +9,10 @@ namespace viper {
 namespace kv_bm {
 
 class FasterFixture : public BaseFixture {
+    static constexpr size_t LOG_FILE_SIZE = (1024l * 1024 * 1024) * 1;  // 1 GiB;
+    static constexpr size_t LOG_MEMORY_SIZE = (1024l * 1024 * 1024) * 4;  // 1 GiB;
+    static constexpr size_t INITIAL_MAP_SIZE = 1L << 23;
+
   public:
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true);
     void DeInitMap();
@@ -49,20 +53,17 @@ class FasterFixture : public BaseFixture {
     class FasterValue {
       public:
         FasterValue()
-            : value_{0 } {
+            : value_{} {
         }
         FasterValue(const FasterValue& other)
-            : value_{other.value_ } {
+            : value_{other.value_} {
         }
 
         inline static constexpr uint32_t size() {
             return static_cast<uint32_t>(sizeof(FasterValue));
         }
 
-        union {
-            BMValueFixed value_;
-            std::atomic<uint64_t> atomic_value_;
-        };
+        BMValueFixed value_;
     };
 
     class UpsertContext : public IAsyncContext {
@@ -97,7 +98,7 @@ class FasterFixture : public BaseFixture {
             value.value_ = input_;
         }
         inline bool PutAtomic(value_t& value) {
-            value.atomic_value_.store(input_);
+            value.value_ = input_;
             return true;
         }
 
@@ -138,7 +139,7 @@ class FasterFixture : public BaseFixture {
             *result_ = value.value_;
         }
         inline void GetAtomic(const value_t& value) {
-//            *result_ = value.atomic_value_;
+            *result_ = value.value_;
         }
 
       protected:
@@ -181,7 +182,7 @@ class FasterFixture : public BaseFixture {
     };
 
     typedef FASTER::environment::QueueIoHandler handler_t;
-    typedef FASTER::device::FileSystemDisk<handler_t, 1073741824ull> disk_t;
+    typedef FASTER::device::FileSystemDisk<handler_t, LOG_FILE_SIZE> disk_t;
     typedef FASTER::core::FasterKv<FasterKey, FasterValue, disk_t> faster_t;
 
     std::unique_ptr<faster_t> db_;

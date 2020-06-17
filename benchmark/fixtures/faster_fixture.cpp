@@ -9,7 +9,9 @@ void FasterFixture::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
 
     base_dir_ = DB_NVM_DIR;
     db_dir_ = random_file(base_dir_);
-    db_ = std::make_unique<faster_t>((1L << 27), 17179869184, db_dir_);
+    std::filesystem::create_directory(db_dir_);
+//    db_ = std::make_unique<faster_t>((1L << 27), (17179869184 / LOG_SIZE) * 15, db_dir_);
+    db_ = std::make_unique<faster_t>(INITIAL_MAP_SIZE, LOG_MEMORY_SIZE, db_dir_);
 
     db_->StartSession();
     prefill(num_prefill_inserts);
@@ -32,6 +34,17 @@ void FasterFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
 
     db_->StartSession();
 
+    auto hybrid_log_persistence_callback = [](Status result, uint64_t persistent_serial_num) {
+        if(result != Status::Ok) {
+            printf("Thread %" PRIu32 " reports checkpoint failed.\n",
+                   Thread::id());
+        } else {
+            printf("Thread %" PRIu32 " reports persistence until %" PRIu64 "\n",
+                   Thread::id(), persistent_serial_num);
+        }
+    };
+
+
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         if (key % kRefreshInterval == 0) {
             db_->Refresh();
@@ -42,6 +55,11 @@ void FasterFixture::insert_empty(uint64_t start_idx, uint64_t end_idx) {
 
         UpsertContext context{key, key};
         db_->Upsert(context, callback, 1);
+//        Guid token;
+//        if(db_->Checkpoint(nullptr, hybrid_log_persistence_callback, token)) {
+//            printf("Thread %" PRIu32 " calling Checkpoint(), token = %s\n",
+//                   Thread::id(), token.ToString().c_str());
+//        }
     }
 
     db_->Refresh();

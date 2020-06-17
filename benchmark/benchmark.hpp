@@ -9,8 +9,8 @@
 
 namespace viper::kv_bm {
 
-static constexpr uint64_t NUM_PREFILLS = 100000; //100'000'000;
-static constexpr uint64_t NUM_INSERTS = 100000; //100'000'000;
+static constexpr uint64_t NUM_PREFILLS = 100'000;
+static constexpr uint64_t NUM_INSERTS = 100'000;
 static constexpr uint64_t NUM_UPDATES = NUM_INSERTS;
 static constexpr uint64_t NUM_FINDS = NUM_INSERTS / 2;
 static constexpr uint64_t NUM_DELETES = NUM_INSERTS / 2;
@@ -32,7 +32,8 @@ using ValueType = BMValueFixed;
 //using ValueType = ValuePlaceholder;
 using Offset = uint64_t;
 
-static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.0";
+//static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.0";
+static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.4";
 static constexpr char POOL_FILE_DIR[] = "/mnt/nvram-gp/kv-bm";
 static constexpr char DB_NVM_DIR[] = "/mnt/nvram-gp/dbfiles";
 static constexpr char DB_FILE_DIR[] = "/home/lawrence.benson/dbfiles";
