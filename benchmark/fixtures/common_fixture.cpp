@@ -41,7 +41,7 @@ void BaseFixture::prefill(const size_t num_prefills) {
         const size_t end_key = std::min(start_key + num_prefills_per_thread, num_prefills);
         prefill_threads.emplace_back([&](const size_t start, const size_t end) {
             set_cpu_affinity(thread_num);
-            this->insert_empty(start, end);
+            this->insert(start, end);
         }, start_key, end_key);
     }
 

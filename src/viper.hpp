@@ -223,6 +223,7 @@ class Viper {
         bool get(const K& key, ConstAccessor& accessor) const;
       protected:
         explicit ConstClient(const ViperT& viper);
+        inline const V* get_const_value_from_offset(KVOffset offset) const;
         const ViperT& const_viper_;
     };
 
@@ -245,6 +246,7 @@ class Viper {
         Client(ViperT& viper);
         inline void update_access_information();
         inline void info_sync(bool force = false);
+        inline V* get_value_from_offset(KVOffset offset);
         void free_occupied_slot(block_size_t block_number, page_size_t page_number, slot_size_t slot_number);
 
         enum PageStrategy : uint8_t { BlockBased, DimmBased };
@@ -539,7 +541,7 @@ void Viper<K, V, HC>::recover_database() {
             for (const KVOffset offset : duplicates) {
                 const auto[block, page, slot] = offset.get_offsets();
                 v_blocks_[block]->v_pages[page].free_slots.set(slot);
-                DEBUG_LOG("DUP KEY: " << v_blocks_[block]->v_pages[page].data[slot].first.uuid[0]);
+                DEBUG_LOG("DUP KEY: " << v_blocks_[block]->v_pages[page].data[slot].first.data[0]);
             }
         }
     };
@@ -756,9 +758,7 @@ bool Viper<K, V, HC>::Client::get(const K& key, Viper::Accessor& accessor) {
     }
 
     const KVOffset kv_offset = result->second;
-    const auto [block_number, page_number, slot_number] = kv_offset.get_offsets();
-    // TODO: check how this is optimized by compiler
-    accessor.value_ = &(viper_.v_blocks_[block_number]->v_pages[page_number].data[slot_number].second);
+    accessor.value_ = get_value_from_offset(kv_offset);
     return true;
 }
 
@@ -771,9 +771,7 @@ bool Viper<K, V, HC>::ConstClient::get(const K& key, Viper::ConstAccessor& acces
     }
 
     const KVOffset kv_offset = result->second;
-    const auto [block_number, page_number, slot_number] = kv_offset.get_offsets();
-    // TODO: check how this is optimized by compiler
-    accessor.value_ = &(const_viper_.v_blocks_[block_number]->v_pages[page_number].data[slot_number].second);
+    accessor.value_ = get_const_value_from_offset(kv_offset);
     return true;
 }
 
@@ -791,7 +789,9 @@ bool Viper<K, V, HC>::Client::update(const K& key, UpdateFn update_fn) {
         return false;
     }
 
-    update_fn(result->second);
+    const KVOffset kv_offset = result->second;
+    V* value = get_value_from_offset(kv_offset);
+    update_fn(value);
     return true;
 }
 
@@ -882,6 +882,18 @@ Viper<K, V, HC>::Client::Client(ViperT& viper) : ConstClient{viper}, viper_{vipe
 template <typename K, typename V, typename HC>
 Viper<K, V, HC>::Client::~Client() {
     viper_.remove_client(this);
+}
+
+template <typename K, typename V, typename HC>
+const V* Viper<K, V, HC>::ConstClient::get_const_value_from_offset(Viper::KVOffset offset) const {
+    const auto [block, page, slot] = offset.get_offsets();
+    return &(const_viper_.v_blocks_[block]->v_pages[page].data[slot].second);
+}
+
+template <typename K, typename V, typename HC>
+V* Viper<K, V, HC>::Client::get_value_from_offset(Viper::KVOffset offset) {
+    const auto [block, page, slot] = offset.get_offsets();
+    return &(viper_.v_blocks_[block]->v_pages[page].data[slot].second);
 }
 
 }  // namespace viper

@@ -37,13 +37,14 @@ std::string random_file(const std::filesystem::path& base_dir);
 
 void zero_block_device(const std::string& block_dev, size_t length);
 
+template <typename KeyT>
 struct TbbFixedKeyCompare {
     // Use same impl as tbb_hasher
     static const size_t hash_multiplier = tbb::internal::select_size_t_constant<2654435769U, 11400714819323198485ULL>::value;
-    static size_t hash(const BMKeyFixed a) {
-        return static_cast<size_t>(a.uuid[0]) * hash_multiplier;
+    static size_t hash(const KeyT& a) {
+        return static_cast<size_t>(a.data[0]) * hash_multiplier;
     }
-    static bool equal(const BMKeyFixed& a, const BMKeyFixed& b) { return a == b; }
+    static bool equal(const KeyT& a, const KeyT& b) { return a == b; }
 };
 
 class BaseFixture : public benchmark::Fixture {
@@ -61,8 +62,8 @@ class BaseFixture : public benchmark::Fixture {
     void prefill(size_t num_prefills);
 
     // Benchmark methods. All pure virtual.
-    virtual void insert_empty(uint64_t start_idx, uint64_t end_idx) = 0;
-    virtual void setup_and_insert(uint64_t start_idx, uint64_t end_idx) = 0;
+    virtual uint64_t setup_and_insert(uint64_t start_idx, uint64_t end_idx) = 0;
+    virtual uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx) = 0;
     virtual uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) = 0;
     virtual uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx) = 0;
 //    virtual uint64_t setup_and_recover() {};
@@ -70,6 +71,8 @@ class BaseFixture : public benchmark::Fixture {
     static void log_find_count(benchmark::State& state, const uint64_t num_found, const uint64_t num_expected);
 
   protected:
+    virtual uint64_t insert(uint64_t start_idx, uint64_t end_idx) = 0;
+
     std::default_random_engine rnd_engine_;
 };
 
@@ -84,7 +87,7 @@ class BasePmemFixture : public BaseFixture {
         {
             std::scoped_lock lock(pool_mutex_);
             if (pool_file_.empty()) {
-                pool_file_ = random_file(POOL_FILE_DIR);
+                pool_file_ = random_file(DB_NVM_DIR);
                 // std::cout << "Working on NVM file " << pool_file_ << std::endl;
                 pmem_pool_ = pmem::obj::pool<RootType>::create(pool_file_, "", BM_POOL_SIZE, S_IRWXU);
             }

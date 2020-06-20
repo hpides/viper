@@ -3,10 +3,8 @@ SET(
 
         benchmark.cpp
         benchmark.hpp
-        benchmark_data_types.hpp
         fixtures/common_fixture.cpp
         fixtures/common_fixture.hpp
-        fixtures/viper_fixture.cpp
         fixtures/viper_fixture.hpp
 )
 
@@ -14,13 +12,9 @@ SET(
         ALL_SYSTEMS_BENCHMARK_FILES
 
         ${BASE_BENCHMARK_FILES}
-        fixtures/rocksdb_fixture.cpp
         fixtures/rocksdb_fixture.hpp
-        fixtures/faster_fixture.cpp
         fixtures/faster_fixture.hpp
-        fixtures/pmem_kv_fixture.cpp
         fixtures/pmem_kv_fixture.hpp
-        fixtures/dram_map_fixture.cpp
         fixtures/dram_map_fixture.hpp
 )
 

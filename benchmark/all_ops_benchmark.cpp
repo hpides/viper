@@ -17,25 +17,26 @@
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
-            ->ThreadRange(1, NUM_MAX_THREADS) \
-            ->Threads(9)->Threads(18)->Threads(24)
+            ->Threads(36)
+//            ->ThreadRange(1, NUM_MAX_THREADS) \
+//            ->Threads(9)->Threads(18)->Threads(24)
 
 #define DEFINE_BM(fixture, method) \
-            BENCHMARK_DEFINE_F(fixture, method)(benchmark::State& state) { \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, method, KeyType16, ValueType200)(benchmark::State& state) { \
                 bm_##method(state, *this); \
             } \
             BENCHMARK_REGISTER_F(fixture, method) GENERAL_ARGS
 
 #define BM_INSERT(fixture) DEFINE_BM(fixture, insert)->Args({NUM_PREFILLS, NUM_INSERTS})
-#define BM_UPDATE(fixture) DEFINE_BM(fixture, update)->Args({NUM_PREFILLS, NUM_UPDATES})
 #define BM_FIND(fixture)   DEFINE_BM(fixture, get)->Args({NUM_PREFILLS, NUM_FINDS})
+#define BM_UPDATE(fixture) DEFINE_BM(fixture, update)->Args({NUM_PREFILLS, NUM_UPDATES})
 #define BM_DELETE(fixture) DEFINE_BM(fixture, delete)->Args({NUM_PREFILLS, NUM_DELETES})
 
 #define ALL_BMS(fixture) \
             BM_INSERT(fixture); \
-            BM_FIND(fixture); \
-            BM_UPDATE(fixture); \
-            BM_DELETE(fixture)
+            BM_UPDATE(fixture);
+//            BM_FIND(fixture); \
+//            BM_DELETE(fixture)
 
 using namespace viper::kv_bm;
 
@@ -53,8 +54,9 @@ void bm_insert(benchmark::State& state, BaseFixture& fixture) {
     const uint64_t start_idx = (state.thread_index * num_inserts_per_thread) + num_total_prefill;
     const uint64_t end_idx = std::min(start_idx + num_inserts_per_thread, num_total_prefill + num_total_inserts);
 
+    uint64_t insert_counter = 0;
     for (auto _ : state) {
-        fixture.setup_and_insert(start_idx, end_idx);
+        insert_counter = fixture.setup_and_insert(start_idx, end_idx);
     }
 
     state.SetItemsProcessed(num_inserts_per_thread);
@@ -63,6 +65,7 @@ void bm_insert(benchmark::State& state, BaseFixture& fixture) {
         fixture.DeInitMap();
     }
 
+    BaseFixture::log_find_count(state, insert_counter, end_idx - start_idx);
 }
 
 void bm_update(benchmark::State& state, BaseFixture& fixture) {
@@ -79,9 +82,9 @@ void bm_update(benchmark::State& state, BaseFixture& fixture) {
     const uint64_t start_idx = state.thread_index * num_updates_per_thread;
     const uint64_t end_idx = start_idx + num_updates_per_thread;
 
+    uint64_t update_counter = 0;
     for (auto _ : state) {
-        // TODO: change to update!
-        fixture.insert_empty(start_idx, end_idx);
+        update_counter = fixture.setup_and_update(start_idx, end_idx);
     }
 
     state.SetItemsProcessed(num_updates_per_thread);
@@ -89,6 +92,8 @@ void bm_update(benchmark::State& state, BaseFixture& fixture) {
     if (is_init_thread(state)) {
         fixture.DeInitMap();
     }
+
+    BaseFixture::log_find_count(state, update_counter, end_idx - start_idx);
 }
 
 void bm_get(benchmark::State& state, BaseFixture& fixture) {
@@ -148,14 +153,16 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
 }
 
 ALL_BMS(PmemKVFixture);
-//ALL_BMS(ViperFixture);
-//ALL_BMS(FasterFixture);
-//ALL_BMS(DiskRocksDbFixture);
-//ALL_BMS(PmemRocksDbFixture);
-//ALL_BMS(DramMapFixture);
+ALL_BMS(ViperFixture);
+ALL_BMS(DiskFasterFixture);
+ALL_BMS(PmemFasterFixture);
+ALL_BMS(DiskRocksDbFixture);
+ALL_BMS(PmemRocksDbFixture);
+ALL_BMS(DramMapFixture);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
-    const std::string arg = get_output_file("all_ops/all_ops");
-    return bm_main({exec_name, arg});
+//    const std::string arg = get_output_file("all_ops/all_ops");
+//    return bm_main({exec_name, arg});
+    return bm_main({exec_name});
 }
