@@ -7,19 +7,20 @@
 
 namespace viper::kv_bm {
 
-static constexpr double SCALE_FACTOR = 0.01;
+static constexpr double SCALE_FACTOR = 0.1;
 static constexpr uint64_t NUM_BASE_PREFILLS = 100'000'000;
-static constexpr uint64_t NUM_BASE_INSERTS = 100'000'000;
+static constexpr uint64_t NUM_BASE_OPS = 50'000'000;
+static constexpr uint64_t NUM_OPS = NUM_BASE_OPS * SCALE_FACTOR;
 
 static constexpr uint64_t NUM_PREFILLS = NUM_BASE_PREFILLS * SCALE_FACTOR;
-static constexpr uint64_t NUM_INSERTS = NUM_BASE_INSERTS * SCALE_FACTOR;
-static constexpr uint64_t NUM_UPDATES = NUM_PREFILLS / 2;
-static constexpr uint64_t NUM_FINDS = NUM_PREFILLS / 2;
-static constexpr uint64_t NUM_DELETES = NUM_PREFILLS / 2;
+static constexpr uint64_t NUM_INSERTS = NUM_OPS;
+static constexpr uint64_t NUM_UPDATES = NUM_OPS;
+static constexpr uint64_t NUM_FINDS = NUM_OPS;
+static constexpr uint64_t NUM_DELETES = NUM_OPS;
 static constexpr uint64_t MAX_DATA_SIZE = NUM_PREFILLS + NUM_INSERTS;
 static constexpr uint64_t NUM_REPETITIONS = 1;
 static constexpr uint64_t NUM_MAX_THREADS = 36;
-static constexpr uint64_t NUM_UTIL_THREADS = 64;
+static constexpr uint64_t NUM_UTIL_THREADS = 36;
 static constexpr benchmark::TimeUnit BM_TIME_UNIT = benchmark::TimeUnit::kMicrosecond;
 
 template <typename T, size_t N>
@@ -35,14 +36,6 @@ struct BMRecord {
 
     inline bool operator==(const BMRecord& other) const {
         return data == other.data;
-    }
-
-    std::string to_str() {
-        std::string bytes{};
-        bytes.resize(total_size);
-        const char* raw = static_cast<const char*>(static_cast<const void*>(data.data()));
-        std::copy(raw, raw + total_size, bytes.data());
-        return bytes;
     }
 
     BMRecord<T, N>& from_str(const std::string& bytes) {
@@ -71,7 +64,7 @@ using ValueType200 = BMRecord<uint64_t, 25>;
 using ValueType900 = BMRecord<uint32_t, 225>;
 
 static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.2";
-static constexpr char DB_NVM_DIR[] = "/mnt/nvram-gp/dbfiles";
+static constexpr char DB_NVM_DIR[] = "/mnt/nvram-viper/dbfiles";
 static constexpr char DB_FILE_DIR[] = "/home/lawrence.benson/dbfiles";
 static constexpr char RESULT_FILE_DIR[] = "/home/lawrence.benson/clion/viper/results/";
 static constexpr char CONFIG_DIR[] = "/home/lawrence.benson/clion/viper/benchmark/config/";

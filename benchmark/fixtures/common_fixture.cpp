@@ -29,6 +29,10 @@ void BaseFixture::log_find_count(benchmark::State& state, uint64_t num_found, ui
 }
 
 void BaseFixture::prefill(const size_t num_prefills) {
+#ifndef NDEBUG
+    std::cout << "START PREFILL." << std::endl;
+#endif
+    const auto start = std::chrono::high_resolution_clock::now();
     cpu_set_t cpuset_before;
     pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
     set_cpu_affinity();
@@ -50,6 +54,9 @@ void BaseFixture::prefill(const size_t num_prefills) {
     }
 
     set_cpu_affinity(CPU_ISSET(0, &cpuset_before) ? 0 : 1);
+    const auto end = std::chrono::high_resolution_clock::now();
+    const auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
+    std::cout << "PREFILL DURATION: " << duration << " s." << std::endl;
 }
 
 bool is_init_thread(const benchmark::State& state) {

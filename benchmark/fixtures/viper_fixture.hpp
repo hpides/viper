@@ -20,9 +20,9 @@ class ViperFixture : public BaseFixture {
     uint64_t insert(uint64_t start_idx, uint64_t end_idx) final;
 
     uint64_t setup_and_insert(uint64_t start_idx, uint64_t end_idx) final;
-    uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) final;
-    uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx) final;
-    uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx) final;
+    uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) final;
+    uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) final;
+    uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) final;
 
   protected:
     std::unique_ptr<ViperT> viper_;
@@ -82,10 +82,15 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_insert(uint64_t start_idx, uint64
 }
 
 template <typename KeyT, typename ValueT>
-uint64_t ViperFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
+uint64_t ViperFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
     const auto v_client = viper_->get_const_client();
     uint64_t found_counter = 0;
-    for (uint64_t key = start_idx; key < end_idx; ++key) {
+    for (uint64_t i = 0; i < num_finds; ++i) {
+        const uint64_t key = distrib(rnd_engine);
         typename ViperT::ConstAccessor result;
         const KeyT db_key{key};
         const bool found = v_client.get(db_key, result);
@@ -95,10 +100,15 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t
 }
 
 template <typename KeyT, typename ValueT>
-uint64_t ViperFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_t end_idx) {
+uint64_t ViperFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
     auto v_client = viper_->get_client();
     uint64_t delete_counter = 0;
-    for (uint64_t key = start_idx; key < end_idx; ++key) {
+    for (uint64_t i = 0; i < num_deletes; ++i) {
+        const uint64_t key = distrib(rnd_engine);
         const KeyT db_key{key};
         delete_counter += v_client.remove(db_key);
     }
@@ -106,7 +116,11 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64
 }
 
 template <typename KeyT, typename ValueT>
-uint64_t ViperFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_t end_idx) {
+uint64_t ViperFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
     auto v_client = viper_->get_client();
     uint64_t update_counter = 0;
 
@@ -115,7 +129,8 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64
         pmem_persist(value, sizeof(uint64_t));
     };
 
-    for (uint64_t key = start_idx; key < end_idx; ++key) {
+    for (uint64_t i = 0; i < num_updates; ++i) {
+        const uint64_t key = distrib(rnd_engine);
         const KeyT db_key{key};
         update_counter += v_client.update(db_key, update_fn);
     }

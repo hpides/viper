@@ -10,8 +10,11 @@ namespace kv_bm {
 
 template <typename KeyT, typename ValueT>
 class FasterFixture : public BaseFixture {
+    static constexpr size_t data_size_max_ = MAX_DATA_SIZE * (sizeof(KeyT) + sizeof(ValueT));
     static constexpr size_t LOG_FILE_SEGMENT_SIZE = (1024l * 1024 * 1024) * 1;  // 1 GiB;
-    static constexpr size_t LOG_MEMORY_SIZE = (1024l * 1024 * 1024) * 4;  // 4 GiB;
+    static constexpr size_t LOG_MEMORY_SIZE = (1024l * 1024 * 1024) * 10;  // 4 GiB;
+    static constexpr size_t NVM_LOG_SIZE = 10 * (1024l * 1024 * 1024);
+
     static constexpr size_t INITIAL_MAP_SIZE = 1L << 22;
 
   public:
@@ -20,11 +23,12 @@ class FasterFixture : public BaseFixture {
 
     uint64_t insert(uint64_t start_idx, uint64_t end_idx) final;
     uint64_t setup_and_insert(uint64_t start_idx, uint64_t end_idx) final;
-    uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) final;
-    uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx) final;
-    uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx) final;
+    uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) final;
+    uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) final;
+    uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) final;
 
     virtual std::string get_base_dir() = 0;
+    virtual bool is_nvm_log() { return false; };
 
   protected:
     class FasterKey {
@@ -77,21 +81,22 @@ class FasterFixture : public BaseFixture {
         typedef FasterKey key_t;
         typedef FasterValue value_t;
 
-        UpsertContext(const FasterKey& key, uint64_t input)
-            : key_{ key }
-            , input_{ input } {
+        UpsertContext(const FasterKey& key, uint64_t input, bool is_nvm)
+            : UpsertContext{ key, input, is_nvm, nullptr } {
         }
 
         /// Copy (and deep-copy) constructor.
         UpsertContext(const UpsertContext& other)
             : key_{ other.key_ }
             , input_{ other.input_ }
+            , is_nvm_{ other.is_nvm_ }
             , success_counter_{ other.success_counter_ } {
         }
 
-        UpsertContext(const FasterKey& key, uint64_t input, uint64_t* success_counter)
+        UpsertContext(const FasterKey& key, uint64_t input, bool is_nvm, uint64_t* success_counter)
             : key_{ key }
             , input_{ input }
+            , is_nvm_{ is_nvm }
             , success_counter_{ success_counter } {}
 
         /// The implicit and explicit interfaces require a key() accessor.
@@ -108,9 +113,15 @@ class FasterFixture : public BaseFixture {
 
         inline void Put(value_t& value) {
             value.value_ = input_;
+            if (is_nvm_) {
+                pmem_persist(&value.value_, sizeof(value.value_));
+            }
         }
         inline bool PutAtomic(value_t& value) {
             value.value_ = input_;
+            if (is_nvm_) {
+                pmem_persist(&value.value_, sizeof(value.value_));
+            }
             return true;
         }
 
@@ -123,6 +134,7 @@ class FasterFixture : public BaseFixture {
       private:
         FasterKey key_;
         uint64_t input_;
+        bool is_nvm_;
         uint64_t* success_counter_;
     };
 
@@ -131,15 +143,17 @@ class FasterFixture : public BaseFixture {
         typedef FasterKey key_t;
         typedef FasterValue value_t;
 
-        RmwContext(const FasterKey& key) : RmwContext{ key, nullptr } {}
+        RmwContext(const FasterKey& key, bool is_nvm) : RmwContext{ key, is_nvm, nullptr } {}
 
         /// Copy (and deep-copy) constructor.
         RmwContext(const RmwContext& other)
         : key_{ other.key_ }
+        , is_nvm_{ other.is_nvm_ }
         , success_counter_{ other.success_counter_ } {}
 
-        RmwContext(const FasterKey& key, uint64_t* success_counter)
+        RmwContext(const FasterKey& key, bool is_nvm, uint64_t* success_counter)
         : key_{ key }
+        , is_nvm_{ is_nvm }
         , success_counter_{ success_counter } {}
 
         /// The implicit and explicit interfaces require a key() accessor.
@@ -156,13 +170,22 @@ class FasterFixture : public BaseFixture {
 
         inline void RmwInitial(FasterValue& value) {
             value.value_ = key_.key().data[0];
+            if (is_nvm_) {
+                pmem_persist(&value.value_, sizeof(value.value_));
+            }
         }
         inline void RmwCopy(const FasterValue& old_value, FasterValue& value) {
             value.value_ = old_value.value_;
             value.value_.update_value();
+            if (is_nvm_) {
+                pmem_persist(&value.value_, sizeof(value.value_));
+            }
         }
         inline bool RmwAtomic(FasterValue& value) {
             value.value_.update_value();
+            if (is_nvm_) {
+                pmem_persist(&value.value_, sizeof(value.value_));
+            }
             return true;
         }
 
@@ -178,6 +201,7 @@ class FasterFixture : public BaseFixture {
 
       private:
         FasterKey key_;
+        bool is_nvm_;
         uint64_t* success_counter_;
     };
 
@@ -286,15 +310,22 @@ class FasterFixture : public BaseFixture {
 };
 
 template <typename KeyT = KeyType16, typename ValueT = ValueType200>
-class DiskFasterFixture : public FasterFixture<KeyT, ValueT> {
+class DiskHybridFasterFixture : public FasterFixture<KeyT, ValueT> {
   public:
     std::string get_base_dir() override;
 };
 
 template <typename KeyT = KeyType16, typename ValueT = ValueType200>
-class PmemFasterFixture : public FasterFixture<KeyT, ValueT> {
+class PmemHybridFasterFixture : public FasterFixture<KeyT, ValueT> {
   public:
     std::string get_base_dir() override;
+};
+
+template <typename KeyT = KeyType16, typename ValueT = ValueType200>
+class NvmFasterFixture : public FasterFixture<KeyT, ValueT> {
+  public:
+    std::string get_base_dir() override;
+    bool is_nvm_log() override;
 };
 
 template <typename KeyT, typename ValueT>
@@ -303,27 +334,29 @@ void FasterFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const bo
         return;
     }
 
-    base_dir_ = DB_NVM_DIR;
+    const bool is_nvm = is_nvm_log();
+    base_dir_ = get_base_dir();
     db_dir_ = random_file(base_dir_);
     std::filesystem::create_directory(db_dir_);
 
+
     // Make sure this is a power of two
-//    const size_t initial_map_size = 1UL << ((size_t) std::log2(INITIAL_MAP_SIZE * SCALE_FACTOR - 1) + 1);
-    const size_t initial_map_size = INITIAL_MAP_SIZE;
+//    size_t initial_map_size = 1UL << ((size_t) std::log2(INITIAL_MAP_SIZE * SCALE_FACTOR - 1) + 1);
+    size_t initial_map_size = INITIAL_MAP_SIZE;
 
     // Make sure this is a multiple of 32 MiB
+
     const size_t page_size = PersistentMemoryMalloc<disk_t>::kPageSize;
-//    const size_t log_memory_size = (size_t)((LOG_MEMORY_SIZE * SCALE_FACTOR) / page_size) * page_size;
-    const size_t log_memory_size = LOG_MEMORY_SIZE;
+//    size_t log_memory_size = (size_t)((LOG_MEMORY_SIZE * SCALE_FACTOR) / page_size) * page_size;
+    size_t log_memory_size = LOG_MEMORY_SIZE;
 
-    db_ = std::make_unique<faster_t>(initial_map_size, log_memory_size, db_dir_);
+    if (is_nvm) {
+        log_memory_size = (size_t)(NVM_LOG_SIZE / page_size) * page_size;
+    }
 
-    db_->StartSession();
+    db_ = std::make_unique<faster_t>(initial_map_size, log_memory_size, db_dir_, is_nvm);
+
     prefill(num_prefill_inserts);
-    db_->Refresh();
-    db_->CompletePending(true);
-    db_->StopSession();
-
     faster_initialized_ = true;
 }
 
@@ -346,6 +379,8 @@ uint64_t FasterFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_id
 
     db_->StartSession();
 
+    const bool is_nvm = is_nvm_log();
+
     for (uint64_t key = start_idx; key < end_idx; ++key) {
         if (key % kRefreshInterval == 0) {
             db_->Refresh();
@@ -354,7 +389,7 @@ uint64_t FasterFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_id
             }
         }
 
-        UpsertContext context{key, key};
+        UpsertContext context{key, key, is_nvm};
         insert_counter += db_->Upsert(context, callback, 1) == Status::Ok;
     }
 
@@ -370,7 +405,7 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_insert(uint64_t start_idx, uint6
 }
 
 template <typename KeyT, typename ValueT>
-uint64_t FasterFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
+uint64_t FasterFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
     auto callback = [](IAsyncContext* ctxt, Status result) {
         CallbackContext<ReadContext> context{ctxt};
         const uint64_t key = context->key().key().data[0];
@@ -381,17 +416,22 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_
     uint64_t found_counter = 0;
     db_->StartSession();
 
-    for (uint64_t key = start_idx; key < end_idx; ++key) {
-        if (key % kRefreshInterval == 0) {
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
+    for (uint64_t i = 0; i < num_finds; ++i) {
+        if (i % kRefreshInterval == 0) {
             db_->Refresh();
-            if (key % kCompletePendingInterval == 0) {
+            if (i % kCompletePendingInterval == 0) {
                 db_->CompletePending(false);
             }
         }
 
+        const uint64_t key = distrib(rnd_engine);
         FasterValue result;
-        ReadContext context{key, &result};
-        const bool found = db_->Read(context, callback, key) == FASTER::core::Status::Ok;
+        ReadContext context{key, &result, &found_counter};
+        const bool found = db_->Read(context, callback, i) == FASTER::core::Status::Ok;
         found_counter += found && (result.value_.data[0] == key);
     }
 
@@ -403,7 +443,7 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_
 }
 
 template <typename KeyT, typename ValueT>
-uint64_t FasterFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_t end_idx) {
+uint64_t FasterFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
     auto callback = [](IAsyncContext* ctxt, Status result) {
         CallbackContext<DeleteContext> context{ctxt};
         *context->getSuccessCounter() += result == Status::Ok;
@@ -412,16 +452,21 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint6
     uint64_t delete_counter = 0;
     db_->StartSession();
 
-    for (uint64_t key = start_idx; key < end_idx; ++key) {
-        if (key % kRefreshInterval == 0) {
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
+    for (uint64_t i = 0; i < num_deletes; ++i) {
+        if (i % kRefreshInterval == 0) {
             db_->Refresh();
-            if (key % kCompletePendingInterval == 0) {
+            if (i % kCompletePendingInterval == 0) {
                 db_->CompletePending(false);
             }
         }
 
+        const uint64_t key = distrib(rnd_engine);
         DeleteContext context{key};
-        delete_counter += db_->Delete(context, callback, key) == FASTER::core::Status::Ok;
+        delete_counter += db_->Delete(context, callback, i) == FASTER::core::Status::Ok;
     }
 
     db_->Refresh();
@@ -432,7 +477,7 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint6
 }
 
 template <typename KeyT, typename ValueT>
-uint64_t FasterFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_t end_idx) {
+uint64_t FasterFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
     auto callback = [](IAsyncContext* ctxt, Status result) {
         CallbackContext<RmwContext> context{ ctxt };
         *context->getSuccessCounter() += result == Status::Ok;
@@ -441,16 +486,23 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint6
     uint64_t update_counter = 0;
     db_->StartSession();
 
-    for (uint64_t key = start_idx; key < end_idx; ++key) {
-        if (key % kRefreshInterval == 0) {
+    const bool is_nvm = is_nvm_log();
+
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
+    for (uint64_t i = 0; i < num_updates; ++i) {
+        if (i % kRefreshInterval == 0) {
             db_->Refresh();
-            if (key % kCompletePendingInterval == 0) {
+            if (i % kCompletePendingInterval == 0) {
                 db_->CompletePending(false);
             }
         }
 
-        RmwContext context{key, &update_counter};
-        update_counter += db_->Rmw(context, callback, key) == Status::Ok;
+        const uint64_t key = distrib(rnd_engine);
+        RmwContext context{key, is_nvm, &update_counter};
+        update_counter += db_->Rmw(context, callback, i) == Status::Ok;
     }
 
     db_->Refresh();
@@ -461,13 +513,23 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint6
 }
 
 template <typename KeyT, typename ValueT>
-std::string DiskFasterFixture<KeyT, ValueT>::get_base_dir() {
+std::string DiskHybridFasterFixture<KeyT, ValueT>::get_base_dir() {
     return DB_FILE_DIR;
 }
 
 template <typename KeyT, typename ValueT>
-std::string PmemFasterFixture<KeyT, ValueT>::get_base_dir() {
+std::string PmemHybridFasterFixture<KeyT, ValueT>::get_base_dir() {
     return DB_NVM_DIR;
+}
+
+template <typename KeyT, typename ValueT>
+std::string NvmFasterFixture<KeyT, ValueT>::get_base_dir() {
+    return DB_NVM_DIR;
+}
+
+template <typename KeyT, typename ValueT>
+bool NvmFasterFixture<KeyT, ValueT>::is_nvm_log() {
+    return true;
 }
 
 }  // namespace kv_bm

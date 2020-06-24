@@ -1,3 +1,4 @@
+#include <iostream>
 #include "benchmark.hpp"
 
 namespace viper::kv_bm {
@@ -22,6 +23,10 @@ int bm_main(std::vector<std::string> args) {
 
     for (size_t i = 0; i < args.size(); ++i) {
         cstrings.push_back(const_cast<char*>(args[i].c_str()));
+    }
+
+    if (args.size() == 1) {
+        std::cout << "NOT STORING RESULTS!" << std::endl;
     }
 
     int argc = args.size();

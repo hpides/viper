@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rocksdb/utilities/options_util.h>
+#include <rocksdb/table.h>
 #include "common_fixture.hpp"
 #include "rocksdb/db.h"
 
@@ -17,9 +18,9 @@ class RocksDbFixture : public BaseFixture {
     uint64_t insert(uint64_t start_idx, uint64_t end_idx) final;
 
     uint64_t setup_and_insert(uint64_t start_idx, uint64_t end_idx) final;
-    uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx) final;
-    uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx) final;
-    uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx) final;
+    uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) final;
+    uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) final;
+    uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) final;
 
     virtual std::string get_base_dir() = 0;
 
@@ -27,6 +28,7 @@ class RocksDbFixture : public BaseFixture {
     rocksdb::DB* db_;
     std::filesystem::path base_dir_;
     std::filesystem::path db_dir_;
+    std::filesystem::path wal_dir_;
     bool rocksdb_initialized_;
 };
 
@@ -52,7 +54,9 @@ void RocksDbFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const b
     rocksdb::Options options;
     rocksdb::Env* env = rocksdb::Env::Default();
     std::vector<rocksdb::ColumnFamilyDescriptor> cfd;
-    rocksdb::Status s = rocksdb::LoadOptionsFromFile(config_file, env, &options, &cfd);
+//    rocksdb::Status s = rocksdb::LoadOptionsFromFile(config_file, env, &options, &cfd);
+    auto cache = rocksdb::NewLRUCache(671088640);
+    rocksdb::Status s = rocksdb::LoadOptionsFromFile(config_file, env, &options, &cfd, false, &cache);
     if (!s.ok()) {
         throw std::runtime_error("Could not load RocksDb config file.");
     }
@@ -64,12 +68,13 @@ void RocksDbFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const b
 
     if (base_dir_.string().rfind("/mnt/nvram", 0) == 0) {
         // Is NVM version
-        options.wal_dir = "/mnt/nvram-gp/rocksdb-wal";
+        wal_dir_ = "/mnt/nvram-viper/rocksdb-wal";
     } else {
         // Disk version
-        options.wal_dir = "/home/lawrence.benson/rocksdb-wal";
+        wal_dir_ = "/home/lawrence.benson/rocksdb-wal";
     }
-    std::filesystem::remove_all(options.wal_dir);
+    options.wal_dir = wal_dir_;
+    std::filesystem::remove_all(wal_dir_);
 
     rocksdb::Status status = rocksdb::DB::Open(options, db_dir_, &db_);
     if (!status.ok()) {
@@ -85,6 +90,7 @@ void RocksDbFixture<KeyT, ValueT>::DeInitMap() {
     delete db_;
     rocksdb_initialized_ = false;
     std::filesystem::remove_all(db_dir_);
+    std::filesystem::remove_all(wal_dir_);
 }
 
 template <typename KeyT, typename ValueT>
@@ -92,9 +98,11 @@ uint64_t RocksDbFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_i
     uint64_t insert_counter = 0;
     const rocksdb::WriteOptions write_options{};
     for (uint64_t key = start_idx; key < end_idx; ++key) {
-        const rocksdb::Slice key_str = KeyT{key}.to_str();
-        const rocksdb::Slice value_str = ValueT{key}.to_str();
-        insert_counter += db_->Put(write_options, key_str, value_str).ok();
+        const KeyT kt{key};
+        const ValueT vt{key};
+        const rocksdb::Slice db_key{(char*) &kt.data, sizeof(KeyT)};
+        const rocksdb::Slice value_str{(char*) &vt.data, sizeof(ValueT)};
+        insert_counter += db_->Put(write_options, db_key, value_str).ok();
     }
     return insert_counter;
 }
@@ -105,12 +113,19 @@ uint64_t RocksDbFixture<KeyT, ValueT>::setup_and_insert(uint64_t start_idx, uint
 }
 
 template <typename KeyT, typename ValueT>
-uint64_t RocksDbFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t end_idx) {
+uint64_t RocksDbFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
     uint64_t found_counter = 0;
     const rocksdb::ReadOptions read_options{};
-    for (uint64_t key = start_idx; key < end_idx; ++key) {
+    for (uint64_t i = 0; i < num_finds; ++i) {
         std::string value;
-        const rocksdb::Slice db_key = KeyT(key).to_str();
+
+        const uint64_t key = distrib(rnd_engine);
+        const KeyT kt{key};
+        const rocksdb::Slice db_key{(char*) &kt.data, sizeof(KeyT)};
         const bool found = db_->Get(read_options, db_key, &value).ok();
         if (found) {
             found_counter += ValueT{}.from_str(value).data[0] == key;
@@ -120,29 +135,42 @@ uint64_t RocksDbFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64
 }
 
 template <typename KeyT, typename ValueT>
-uint64_t RocksDbFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_t end_idx) {
+uint64_t RocksDbFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
     uint64_t delete_counter = 0;
     const rocksdb::WriteOptions delete_options{};
-    for (uint64_t key = start_idx; key < end_idx; ++key) {
-        const rocksdb::Slice db_key = KeyT(key).to_str();
+    for (uint64_t i = 0; i < num_deletes; ++i) {
+        const uint64_t key = distrib(rnd_engine);
+        const KeyT kt{key};
+        const rocksdb::Slice db_key{(char*) &kt.data, sizeof(KeyT)};
         delete_counter += db_->Delete(delete_options, db_key).ok();
     }
     return delete_counter;
 }
 template <typename KeyT, typename ValueT>
-uint64_t RocksDbFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_t end_idx) {
+uint64_t RocksDbFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
     uint64_t update_counter = 0;
     const rocksdb::ReadOptions read_options{};
     const rocksdb::WriteOptions write_options{};
-    for (uint64_t key = start_idx; key < end_idx; ++key) {
+    for (uint64_t i = 0; i < num_updates; ++i) {
         std::string value;
-        const rocksdb::Slice db_key = KeyT(key).to_str();
+        const uint64_t key = distrib(rnd_engine);
+        const KeyT kt{key};
+        const rocksdb::Slice db_key{(char*) &kt.data, sizeof(KeyT)};
         const bool found = db_->Get(read_options, db_key, &value).ok();
         if (found) {
             ValueT new_value{};
             new_value.from_str(value);
             new_value.update_value();
-            update_counter += db_->Put(write_options, db_key, new_value.to_str()).ok();
+            const rocksdb::Slice new_value_str{(char*) &new_value.data, sizeof(ValueT)};
+            update_counter += db_->Put(write_options, db_key, new_value_str).ok();
         }
     }
     return update_counter;

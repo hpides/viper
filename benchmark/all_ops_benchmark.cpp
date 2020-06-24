@@ -17,9 +17,8 @@
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
-            ->Threads(36)
-//            ->ThreadRange(1, NUM_MAX_THREADS) \
-//            ->Threads(9)->Threads(18)->Threads(24)
+            ->ThreadRange(1, NUM_MAX_THREADS) \
+            ->Threads(24)
 
 #define DEFINE_BM(fixture, method) \
             BENCHMARK_TEMPLATE2_DEFINE_F(fixture, method, KeyType16, ValueType200)(benchmark::State& state) { \
@@ -34,9 +33,9 @@
 
 #define ALL_BMS(fixture) \
             BM_INSERT(fixture); \
-            BM_UPDATE(fixture);
-//            BM_FIND(fixture); \
-//            BM_DELETE(fixture)
+            BM_FIND(fixture); \
+            BM_UPDATE(fixture); \
+            BM_DELETE(fixture)
 
 using namespace viper::kv_bm;
 
@@ -79,12 +78,14 @@ void bm_update(benchmark::State& state, BaseFixture& fixture) {
     }
 
     const uint64_t num_updates_per_thread = num_total_updates / state.threads;
-    const uint64_t start_idx = state.thread_index * num_updates_per_thread;
-    const uint64_t end_idx = start_idx + num_updates_per_thread;
+//    const uint64_t start_idx = state.thread_index * num_updates_per_thread;
+//    const uint64_t end_idx = start_idx + num_updates_per_thread;
+    const uint64_t start_idx = 0;
+    const uint64_t end_idx = num_total_prefill - state.threads;
 
     uint64_t update_counter = 0;
     for (auto _ : state) {
-        update_counter = fixture.setup_and_update(start_idx, end_idx);
+        update_counter = fixture.setup_and_update(start_idx, end_idx, num_updates_per_thread);
     }
 
     state.SetItemsProcessed(num_updates_per_thread);
@@ -93,7 +94,7 @@ void bm_update(benchmark::State& state, BaseFixture& fixture) {
         fixture.DeInitMap();
     }
 
-    BaseFixture::log_find_count(state, update_counter, end_idx - start_idx);
+    BaseFixture::log_find_count(state, update_counter, num_updates_per_thread);
 }
 
 void bm_get(benchmark::State& state, BaseFixture& fixture) {
@@ -103,16 +104,18 @@ void bm_get(benchmark::State& state, BaseFixture& fixture) {
     set_cpu_affinity(state.thread_index);
 
     if (is_init_thread(state)) {
-        fixture.InitMap(num_total_prefills, /*re_init=*/false);
+        fixture.InitMap(num_total_prefills);
     }
 
     const uint64_t num_finds_per_thread = (num_total_finds / state.threads) + 1;
-    const uint64_t start_idx = state.thread_index * num_finds_per_thread;
-    const uint64_t end_idx = std::min(start_idx + num_finds_per_thread, num_total_finds);
+//    const uint64_t start_idx = state.thread_index * num_finds_per_thread;
+//    const uint64_t end_idx = std::min(start_idx + num_finds_per_thread, num_total_finds);
+    const uint64_t start_idx = 0;
+    const uint64_t end_idx = num_total_prefills - state.threads;
 
     uint64_t found_counter = 0;
     for (auto _ : state) {
-        found_counter = fixture.setup_and_find(start_idx, end_idx);
+        found_counter = fixture.setup_and_find(start_idx, end_idx, num_finds_per_thread);
     }
 
     state.SetItemsProcessed(num_finds_per_thread);
@@ -121,7 +124,7 @@ void bm_get(benchmark::State& state, BaseFixture& fixture) {
         fixture.DeInitMap();
     }
 
-    BaseFixture::log_find_count(state, found_counter, end_idx - start_idx);
+    BaseFixture::log_find_count(state, found_counter, num_finds_per_thread);
 }
 
 void bm_delete(benchmark::State& state, BaseFixture& fixture) {
@@ -135,12 +138,14 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
     }
 
     const uint64_t num_deletes_per_thread = (num_total_deletes / state.threads) + 1;
-    const uint64_t start_idx = state.thread_index * num_deletes_per_thread;
-    const uint64_t end_idx = std::min(start_idx + num_deletes_per_thread, num_total_deletes);
+//    const uint64_t start_idx = state.thread_index * num_deletes_per_thread;
+//    const uint64_t end_idx = std::min(start_idx + num_deletes_per_thread, num_total_deletes);
+    const uint64_t start_idx = 0;
+    const uint64_t end_idx = num_total_prefills - state.threads;
 
     uint64_t found_counter = 0;
     for (auto _ : state) {
-        found_counter = fixture.setup_and_delete(start_idx, end_idx);
+        found_counter = fixture.setup_and_delete(start_idx, end_idx, num_deletes_per_thread);
     }
 
     state.SetItemsProcessed(num_deletes_per_thread);
@@ -149,16 +154,21 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
         fixture.DeInitMap();
     }
 
-    BaseFixture::log_find_count(state, found_counter, end_idx - start_idx);
+    BaseFixture::log_find_count(state, found_counter, num_deletes_per_thread);
 }
 
-ALL_BMS(PmemKVFixture);
-ALL_BMS(ViperFixture);
-ALL_BMS(DiskFasterFixture);
-ALL_BMS(PmemFasterFixture);
-ALL_BMS(DiskRocksDbFixture);
-ALL_BMS(PmemRocksDbFixture);
-ALL_BMS(DramMapFixture);
+ALL_BMS(NvmFasterFixture);
+//ALL_BMS(PmemKVFixture);
+//ALL_BMS(DramMapFixture);
+//ALL_BMS(ViperFixture);
+//ALL_BMS(PmemHybridFasterFixture);
+
+// Done
+//ALL_BMS(PmemRocksDbFixture);
+
+// Not needed
+//ALL_BMS(DiskHybridFasterFixture);
+//ALL_BMS(DiskRocksDbFixture);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
