@@ -113,7 +113,6 @@ uint64_t DramMapFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint
     uint64_t delete_counter = 0;
     for (uint64_t i = 0; i < num_deletes; ++i) {
         const uint64_t key = distrib(rnd_engine);
-        typename DramMapType::const_accessor result;
         const KeyT db_key{key};
         delete_counter += dram_map_->erase(db_key);
     }

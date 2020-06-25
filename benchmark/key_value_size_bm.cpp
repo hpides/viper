@@ -4,7 +4,6 @@
 #include "fixtures/viper_fixture.hpp"
 
 using namespace viper::kv_bm;
-using viper::ViperConfig;
 
 constexpr size_t ACCESS_NUM_REPITITIONS = 1;
 constexpr size_t ACCESS_NUM_MAX_THREADS = 24;

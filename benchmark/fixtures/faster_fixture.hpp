@@ -11,11 +11,14 @@ namespace kv_bm {
 template <typename KeyT, typename ValueT>
 class FasterFixture : public BaseFixture {
     static constexpr size_t data_size_max_ = MAX_DATA_SIZE * (sizeof(KeyT) + sizeof(ValueT));
-    static constexpr size_t LOG_FILE_SEGMENT_SIZE = (1024l * 1024 * 1024) * 1;  // 1 GiB;
-    static constexpr size_t LOG_MEMORY_SIZE = (1024l * 1024 * 1024) * 10;  // 4 GiB;
-    static constexpr size_t NVM_LOG_SIZE = 10 * (1024l * 1024 * 1024);
+    static constexpr size_t prefill_size_max_ = NUM_PREFILLS * (sizeof(KeyT) + sizeof(ValueT));
+    static constexpr size_t LOG_FILE_SEGMENT_SIZE = 1 * (1024l * 1024 * 1024);
+//    static constexpr size_t LOG_MEMORY_SIZE = 5 * (1024l * 1024 * 1024);
+//    static constexpr size_t NVM_LOG_SIZE = 30 * (1024l * 1024 * 1024);
+    static constexpr size_t LOG_MEMORY_SIZE = prefill_size_max_ / 4;
+    static constexpr size_t NVM_LOG_SIZE = prefill_size_max_ / 4;
 
-    static constexpr size_t INITIAL_MAP_SIZE = 1L << 22;
+    static constexpr size_t INITIAL_MAP_SIZE = 1L << 23;
 
   public:
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true);
@@ -345,10 +348,8 @@ void FasterFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const bo
     size_t initial_map_size = INITIAL_MAP_SIZE;
 
     // Make sure this is a multiple of 32 MiB
-
     const size_t page_size = PersistentMemoryMalloc<disk_t>::kPageSize;
-//    size_t log_memory_size = (size_t)((LOG_MEMORY_SIZE * SCALE_FACTOR) / page_size) * page_size;
-    size_t log_memory_size = LOG_MEMORY_SIZE;
+    size_t log_memory_size = (size_t)((LOG_MEMORY_SIZE) / page_size) * page_size;
 
     if (is_nvm) {
         log_memory_size = (size_t)(NVM_LOG_SIZE / page_size) * page_size;

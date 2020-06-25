@@ -23,7 +23,7 @@ std::string random_file(const std::filesystem::path& base_dir) {
 void BaseFixture::log_find_count(benchmark::State& state, uint64_t num_found, uint64_t num_expected) {
     state.counters["found"] = num_found;
     if (num_found != num_expected) {
-        std::cerr << "DID NOT FIND ALL ENTRIES (" + std::to_string(num_found)
+        std::cerr << " DID NOT FIND ALL ENTRIES (" + std::to_string(num_found)
             + "/" + std::to_string(num_expected) + ")\n";
     }
 }

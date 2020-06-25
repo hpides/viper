@@ -74,13 +74,18 @@ constexpr slot_size_t get_num_slots_per_page() {
 }
 
 class KeyValueOffset {
+    static constexpr offset_size_t TOMBSTONE = 0xFFFFFFFFFFFFFFFF;
   public:
-    KeyValueOffset() : offset{0xFFFFFFFFFFFFFFFF} {}
+    KeyValueOffset() : offset{TOMBSTONE} {}
 
     explicit KeyValueOffset(const offset_size_t offset) : offset(offset) {}
 
     KeyValueOffset(const block_size_t block_number, const page_size_t page_number, const slot_size_t slot)
         : offset{shift_numbers(block_number, page_number, slot)} {}
+
+    static KeyValueOffset Tombstone() {
+        return KeyValueOffset{};
+    }
 
     inline std::tuple<block_size_t, page_size_t, slot_size_t> get_offsets() const {
         return {get_block_number(), get_page_number(), get_slot_number()};
@@ -100,6 +105,10 @@ class KeyValueOffset {
 
     inline offset_size_t get_raw_offset() const {
         return offset;
+    }
+
+    inline bool is_tombstone() const {
+        return offset == TOMBSTONE;
     }
 
   protected:
@@ -737,7 +746,7 @@ bool Viper<K, V, HC>::Client::put(const K& key, const V& value) {
     v_lock.store(old_version_number + 1, std::memory_order_release);
 
     // Need to free slot at old location for this key
-    if (!is_new_item) {
+    if (!is_new_item && !old_offset.is_tombstone()) {
         const auto [block_number, page_number, slot_number] = old_offset.get_offsets();
         free_occupied_slot(block_number, page_number, slot_number);
     }
@@ -756,8 +765,11 @@ bool Viper<K, V, HC>::Client::get(const K& key, Viper::Accessor& accessor) {
     if (!found) {
         return false;
     }
-
     const KVOffset kv_offset = result->second;
+    if (kv_offset.is_tombstone()) {
+        return false;
+    }
+
     accessor.value_ = get_value_from_offset(kv_offset);
     return true;
 }
@@ -769,8 +781,11 @@ bool Viper<K, V, HC>::ConstClient::get(const K& key, Viper::ConstAccessor& acces
     if (!found) {
         return false;
     }
-
     const KVOffset kv_offset = result->second;
+    if (kv_offset.is_tombstone()) {
+        return false;
+    }
+
     accessor.value_ = get_const_value_from_offset(kv_offset);
     return true;
 }
@@ -788,8 +803,11 @@ bool Viper<K, V, HC>::Client::update(const K& key, UpdateFn update_fn) {
     if (!found) {
         return false;
     }
-
     const KVOffset kv_offset = result->second;
+    if (kv_offset.is_tombstone()) {
+        return false;
+    }
+
     V* value = get_value_from_offset(kv_offset);
     update_fn(value);
     return true;
@@ -802,8 +820,14 @@ bool Viper<K, V, HC>::Client::remove(const K& key) {
     if (!found) {
         return false;
     }
-    const auto [block_number, page_number, slot_number] = result->second.get_offsets();
+    const KVOffset offset = result->second;
+    if (offset.is_tombstone()) {
+        return false;
+    }
+
+    const auto [block_number, page_number, slot_number] = offset.get_offsets();
     free_occupied_slot(block_number, page_number, slot_number);
+//    result->second = KVOffset::Tombstone();
     viper_.map_.erase(result);
     return true;
 }

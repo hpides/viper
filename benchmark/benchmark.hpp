@@ -7,7 +7,7 @@
 
 namespace viper::kv_bm {
 
-static constexpr double SCALE_FACTOR = 0.1;
+static constexpr double SCALE_FACTOR = 1.0;
 static constexpr uint64_t NUM_BASE_PREFILLS = 100'000'000;
 static constexpr uint64_t NUM_BASE_OPS = 50'000'000;
 static constexpr uint64_t NUM_OPS = NUM_BASE_OPS * SCALE_FACTOR;

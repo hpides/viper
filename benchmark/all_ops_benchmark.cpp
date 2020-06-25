@@ -32,10 +32,10 @@
 #define BM_DELETE(fixture) DEFINE_BM(fixture, delete)->Args({NUM_PREFILLS, NUM_DELETES})
 
 #define ALL_BMS(fixture) \
-            BM_INSERT(fixture); \
-            BM_FIND(fixture); \
-            BM_UPDATE(fixture); \
             BM_DELETE(fixture)
+//            BM_INSERT(fixture); \
+//            BM_FIND(fixture); \
+//            BM_UPDATE(fixture); \
 
 using namespace viper::kv_bm;
 
@@ -148,23 +148,23 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
         found_counter = fixture.setup_and_delete(start_idx, end_idx, num_deletes_per_thread);
     }
 
-    state.SetItemsProcessed(num_deletes_per_thread);
+    state.SetItemsProcessed(found_counter);
 
     if (is_init_thread(state)) {
         fixture.DeInitMap();
     }
 
-    BaseFixture::log_find_count(state, found_counter, num_deletes_per_thread);
+    BaseFixture::log_find_count(state, found_counter, found_counter);
 }
 
-ALL_BMS(NvmFasterFixture);
 //ALL_BMS(PmemKVFixture);
-//ALL_BMS(DramMapFixture);
-//ALL_BMS(ViperFixture);
-//ALL_BMS(PmemHybridFasterFixture);
+ALL_BMS(NvmFasterFixture);
 
 // Done
+//ALL_BMS(DramMapFixture);
+//ALL_BMS(ViperFixture);
 //ALL_BMS(PmemRocksDbFixture);
+//ALL_BMS(PmemHybridFasterFixture);
 
 // Not needed
 //ALL_BMS(DiskHybridFasterFixture);
@@ -172,7 +172,7 @@ ALL_BMS(NvmFasterFixture);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
-//    const std::string arg = get_output_file("all_ops/all_ops");
-//    return bm_main({exec_name, arg});
-    return bm_main({exec_name});
+    const std::string arg = get_output_file("all_ops/all_ops");
+    return bm_main({exec_name, arg});
+//    return bm_main({exec_name});
 }
