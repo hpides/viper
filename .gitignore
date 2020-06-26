@@ -3,3 +3,4 @@ results/
 .ipynb_checkpoints/
 venv/
 charts/
+__pycache__/

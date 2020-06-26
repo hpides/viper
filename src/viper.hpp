@@ -65,8 +65,13 @@ constexpr slot_size_t get_num_slots_per_page() {
         current_page_size = BLOCK_SIZE;
     }
 
-    slot_size_t num_slots_per_page = current_page_size / entry_size;
-    if ((num_slots_per_page * entry_size) + sizeof(version_lock_t) + std::ceil(num_slots_per_page / 8) > current_page_size) {
+    uint16_t num_slots_per_page_large = current_page_size / entry_size;
+    if (num_slots_per_page_large > 255) {
+        num_slots_per_page_large--;
+    }
+    slot_size_t num_slots_per_page = num_slots_per_page_large;
+    while ((num_slots_per_page * entry_size) + sizeof(version_lock_t) +
+                std::ceil((double) num_slots_per_page / 8) > current_page_size) {
         num_slots_per_page--;
     }
     assert(num_slots_per_page > 0 && "Cannot fit KV pair into single page!");
@@ -134,7 +139,7 @@ struct alignas(PAGE_SIZE) ViperPage {
     void init() {
         static constexpr size_t v_page_size = sizeof(*this);
         static_assert(((v_page_size & (v_page_size - 1)) == 0), "VPage needs to be a power of 2!");
-        static_assert(PAGE_SIZE % v_page_size == 0, "VPage not page size conform!");
+        static_assert(PAGE_SIZE % alignof(*this) == 0, "VPage not page size conform!");
         version_lock = 0;
         free_slots.set();
     }
@@ -711,7 +716,7 @@ bool Viper<K, V, HC>::Client::put(const K& key, const V& value) {
     std::bitset<VPage::num_slots_per_page>* free_slots = &v_page_->free_slots;
     const slot_size_t free_slot_idx = free_slots->_Find_first();
 
-    if (free_slot_idx == free_slots->size() || free_slot_idx == 64) {
+    if (free_slot_idx >= free_slots->size()) {
         // Page is full. Free lock on page and restart.
         v_lock.store(lock_value & ~LOCK_BIT, std::memory_order_release);
         update_access_information();

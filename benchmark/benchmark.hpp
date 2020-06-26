@@ -7,7 +7,7 @@
 
 namespace viper::kv_bm {
 
-static constexpr double SCALE_FACTOR = 1.0;
+static constexpr double SCALE_FACTOR = 1;
 static constexpr uint64_t NUM_BASE_PREFILLS = 100'000'000;
 static constexpr uint64_t NUM_BASE_OPS = 50'000'000;
 static constexpr uint64_t NUM_OPS = NUM_BASE_OPS * SCALE_FACTOR;
@@ -30,9 +30,8 @@ struct BMRecord {
 
     BMRecord() {}
 
-    BMRecord(T x) {
-        data.fill(x);
-    }
+    BMRecord(uint64_t x) { data.fill(static_cast<T>(x)); }
+    BMRecord(uint32_t x) { data.fill(static_cast<T>(x)); }
 
     inline bool operator==(const BMRecord& other) const {
         return data == other.data;
