@@ -50,10 +50,20 @@ target_link_libraries(access_pattern_bm ${LINK_LIBS})
 target_link_libraries(access_pattern_bm benchmark)
 set_target_properties(access_pattern_bm PROPERTIES LINKER_LANGUAGE CXX)
 
+add_executable(update_bm update_bm.cpp ${BASE_BENCHMARK_FILES})
+target_link_libraries(update_bm ${LINK_LIBS})
+target_link_libraries(update_bm benchmark)
+set_target_properties(update_bm PROPERTIES LINKER_LANGUAGE CXX)
+
 add_executable(kv_size_bm key_value_size_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(kv_size_bm ${LINK_LIBS})
 target_link_libraries(kv_size_bm benchmark faster uuid aio)
 set_target_properties(kv_size_bm PROPERTIES LINKER_LANGUAGE CXX)
+
+add_executable(ycsb_bm ycsb_bm.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
+target_link_libraries(ycsb_bm ${LINK_LIBS})
+target_link_libraries(ycsb_bm benchmark rocksdb faster uuid aio)
+set_target_properties(ycsb_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(nvm_util_benchmark util_benchmark.cpp fixtures/common_fixture.cpp fixtures/common_fixture.hpp)
 target_link_libraries(nvm_util_benchmark ${LINK_LIBS})

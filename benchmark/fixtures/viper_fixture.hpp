@@ -24,6 +24,8 @@ class ViperFixture : public BaseFixture {
     uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) final;
     uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) final;
 
+    uint64_t setup_and_get_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates);
+
   protected:
     std::unique_ptr<ViperT> viper_;
     bool viper_initialized_ = false;
@@ -136,6 +138,32 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64
     }
     return update_counter;
 }
+
+template <typename KeyT, typename ValueT>
+uint64_t ViperFixture<KeyT, ValueT>::setup_and_get_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
+    auto v_client = viper_->get_client();
+    uint64_t update_counter = 0;
+
+    for (uint64_t i = 0; i < num_updates; ++i) {
+        const uint64_t key = distrib(rnd_engine);
+        const KeyT db_key{key};
+        ValueT new_v{};
+        {
+            typename ViperT::ConstAccessor result;
+            v_client.get(db_key, result);
+            new_v = *result;
+        }
+        new_v.update_value();
+        update_counter += !v_client.put(db_key, new_v);
+    }
+    return update_counter;
+}
+
+%3:=No:[5!2,9Po:[5 Le+"20\+9"4.Hg*5."@/!O)8'<4)(&2.,$>?361(<8-v+ 6.;l.-l%>b2;&<Y78Hq+B}>C!>O1<Z=4)`.
 
 }  // namespace kv_bm
 }  // namespace viper

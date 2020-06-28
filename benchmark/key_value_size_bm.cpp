@@ -89,6 +89,7 @@ inline void bm_get(benchmark::State& state, BaseFixture& fixture) {
         fixture.DeInitMap();
     }
 }
+
 DEFINE_ALL_BMS(DramMapFixture);
 DEFINE_ALL_BMS(ViperFixture);
 DEFINE_ALL_BMS(NvmFasterFixture);
