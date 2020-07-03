@@ -575,8 +575,8 @@ void Viper<K, V, HC>::recover_database() {
     }
 
     auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    std::cout << "RECOVERY DURATION: " << duration << std::endl;
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    DEBUG_LOG("RECOVERY DURATION: " << duration << " ms.");
     DEBUG_LOG("Re-inserted " << current_size_ << " keys.");
 }
 

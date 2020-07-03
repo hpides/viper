@@ -55,6 +55,11 @@ target_link_libraries(update_bm ${LINK_LIBS})
 target_link_libraries(update_bm benchmark hdr_histogram_static)
 set_target_properties(update_bm PROPERTIES LINKER_LANGUAGE CXX)
 
+add_executable(recovery_bm recovery_bm.cpp ${BASE_BENCHMARK_FILES})
+target_link_libraries(recovery_bm ${LINK_LIBS})
+target_link_libraries(recovery_bm benchmark hdr_histogram_static)
+set_target_properties(recovery_bm PROPERTIES LINKER_LANGUAGE CXX)
+
 add_executable(kv_size_bm key_value_size_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(kv_size_bm ${LINK_LIBS})
 target_link_libraries(kv_size_bm benchmark faster rocksdb uuid aio hdr_histogram_static)

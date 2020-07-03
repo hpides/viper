@@ -34,6 +34,7 @@ bool is_init_thread(const benchmark::State& state);
 
 void set_cpu_affinity();
 void set_cpu_affinity(uint16_t thread_idx);
+void set_cpu_affinity(uint16_t from, uint16_t to);
 
 std::string random_file(const std::filesystem::path& base_dir);
 

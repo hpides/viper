@@ -86,12 +86,17 @@ bool is_init_thread(const benchmark::State& state) {
     return state.threads == 1 || state.thread_index == 1;
 }
 
-void set_cpu_affinity() {
+void set_cpu_affinity(const uint16_t from, const uint16_t to) {
+    if (from >= CPUS.size() || to > CPUS.size() || from < 0 || to < 0 || to <= from) {
+        throw std::runtime_error("Thread range invalid! " +
+                                 std::to_string(from) + " -> " + std::to_string(to));
+    }
+
     const auto native_thread_handle = pthread_self();
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
-    for (int cpu : CPUS) {
-        CPU_SET(cpu, &cpuset);
+    for (int cpu = from; cpu < to; ++cpu) {
+        CPU_SET(CPUS[cpu], &cpuset);
     }
     int rc = pthread_setaffinity_np(native_thread_handle, sizeof(cpu_set_t), &cpuset);
     if (rc != 0) {
@@ -99,18 +104,12 @@ void set_cpu_affinity() {
     }
 }
 
+void set_cpu_affinity() {
+    return set_cpu_affinity(0, CPUS.size());
+}
+
 void set_cpu_affinity(uint16_t thread_idx) {
-    if (thread_idx >= CPUS.size()) {
-        throw std::runtime_error("Thread index too high!");
-    }
-    const auto native_thread_handle = pthread_self();
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(CPUS[thread_idx], &cpuset);
-    int rc = pthread_setaffinity_np(native_thread_handle, sizeof(cpu_set_t), &cpuset);
-    if (rc != 0) {
-        std::cerr << "Error calling pthread_setaffinity_np: " << rc << "\n";
-    }
+    return set_cpu_affinity(thread_idx, thread_idx + 1);
 }
 
 void zero_block_device(const std::string& block_dev, size_t length) {

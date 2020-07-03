@@ -6,7 +6,7 @@
 	url = https://github.com/facebook/rocksdb.git
 [submodule "third_party/faster"]
 	path = benchmark/third_party/faster
-	url = https://github.com/microsoft/faster.git
+	url = https://github.com/lawben/FASTER-viper.git
 [submodule "benchmark/third_party/dash"]
 	path = benchmark/third_party/dash
 	url = https://github.com/baotonglu/dash.git
