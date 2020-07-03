@@ -32,10 +32,10 @@
 #define BM_DELETE(fixture) DEFINE_BM(fixture, delete)->Args({NUM_PREFILLS, NUM_DELETES})
 
 #define ALL_BMS(fixture) \
+            BM_INSERT(fixture); \
+            BM_FIND(fixture); \
+            BM_UPDATE(fixture); \
             BM_DELETE(fixture)
-//            BM_INSERT(fixture); \
-//            BM_FIND(fixture); \
-//            BM_UPDATE(fixture); \
 
 using namespace viper::kv_bm;
 
@@ -157,18 +157,13 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
     BaseFixture::log_find_count(state, found_counter, found_counter);
 }
 
-//ALL_BMS(PmemKVFixture);
-ALL_BMS(NvmFasterFixture);
-
-// Done
 //ALL_BMS(DramMapFixture);
 //ALL_BMS(ViperFixture);
-//ALL_BMS(PmemRocksDbFixture);
+ALL_BMS(PmemKVFixture);
+//ALL_BMS(NvmFasterFixture);
 //ALL_BMS(PmemHybridFasterFixture);
+//ALL_BMS(PmemRocksDbFixture);
 
-// Not needed
-//ALL_BMS(DiskHybridFasterFixture);
-//ALL_BMS(DiskRocksDbFixture);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];

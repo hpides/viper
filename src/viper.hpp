@@ -5,6 +5,7 @@
 #include <bitset>
 #include <fcntl.h>
 #include <unistd.h>
+#include <vector>
 #include <libpmem.h>
 #include <thread>
 #include <cmath>

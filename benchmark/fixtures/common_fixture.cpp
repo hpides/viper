@@ -1,4 +1,5 @@
 #include "common_fixture.hpp"
+#include "ycsb_common.hpp"
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <thread>
@@ -28,7 +29,8 @@ void BaseFixture::log_find_count(benchmark::State& state, uint64_t num_found, ui
     }
 }
 
-void BaseFixture::prefill(const size_t num_prefills) {
+template <typename PrefillFn>
+void BaseFixture::prefill_internal(const size_t num_prefills, PrefillFn prefill_fn) {
 #ifndef NDEBUG
     std::cout << "START PREFILL." << std::endl;
 #endif
@@ -39,14 +41,13 @@ void BaseFixture::prefill(const size_t num_prefills) {
 
     std::vector<std::thread> prefill_threads{};
     const size_t num_prefills_per_thread = (num_prefills / NUM_UTIL_THREADS) + 1;
-
     for (size_t thread_num = 0; thread_num < NUM_UTIL_THREADS; ++thread_num) {
         const size_t start_key = thread_num * num_prefills_per_thread;
         const size_t end_key = std::min(start_key + num_prefills_per_thread, num_prefills);
-        prefill_threads.emplace_back([&](const size_t start, const size_t end) {
+        prefill_threads.emplace_back([=]() {
             set_cpu_affinity(thread_num);
-            this->insert(start, end);
-        }, start_key, end_key);
+            prefill_fn(start_key, end_key);
+        });
     }
 
     for (std::thread& thread : prefill_threads) {
@@ -57,6 +58,27 @@ void BaseFixture::prefill(const size_t num_prefills) {
     const auto end = std::chrono::high_resolution_clock::now();
     const auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
     std::cout << "PREFILL DURATION: " << duration << " s." << std::endl;
+}
+
+void BaseFixture::prefill(const size_t num_prefills) {
+    if (num_prefills == 0) {
+        return;
+    }
+
+    auto prefill_fn = [this](const size_t start, const size_t end) {
+        this->insert(start, end);
+    };
+
+    prefill_internal(num_prefills, prefill_fn);
+}
+
+void BaseFixture::prefill_ycsb(const std::vector<ycsb::Record>& data) {
+    const size_t num_prefills = data.size();
+    auto prefill_fn = [&](const size_t start, const size_t end) {
+        this->run_ycsb(start, end, data, nullptr);
+    };
+
+    prefill_internal(num_prefills, prefill_fn);
 }
 
 bool is_init_thread(const benchmark::State& state) {

@@ -4,14 +4,15 @@
 #include "fixtures/viper_fixture.hpp"
 #include "fixtures/dram_map_fixture.hpp"
 #include "fixtures/faster_fixture.hpp"
+#include "fixtures/pmem_kv_fixture.hpp"
 
 using namespace viper::kv_bm;
 
-constexpr size_t KV_SIZES_NUM_REPETITIONS = 3;
+constexpr size_t KV_SIZES_NUM_REPETITIONS = 1;
 constexpr double KV_SIZES_SCALE_FACTOR = 1.0;
 constexpr size_t KV_SIZES_PREFILL_SIZE = 20 * (1000l * 1000 * 1000) * KV_SIZES_SCALE_FACTOR;
 constexpr size_t KV_SIZES_INSERT_SIZE = KV_SIZES_PREFILL_SIZE / 2;
-constexpr size_t KV_SIZES_NUM_FINDS = 50'000'000;
+constexpr size_t KV_SIZES_NUM_FINDS = 50'000'000 * KV_SIZES_SCALE_FACTOR;
 
 #define GENERAL_ARGS \
             ->Repetitions(KV_SIZES_NUM_REPETITIONS) \
@@ -35,9 +36,9 @@ constexpr size_t KV_SIZES_NUM_FINDS = 50'000'000;
 
 #define DEFINE_ALL_BMS(fixture) \
         DEFINE_BM(fixture, 8, 8); \
-        DEFINE_BM(fixture, 16, 100); \
-        DEFINE_BM(fixture, 16, 200); \
-        DEFINE_BM(fixture, 100, 900)
+//        DEFINE_BM(fixture, 16, 100); \
+//        DEFINE_BM(fixture, 16, 200); \
+//        DEFINE_BM(fixture, 100, 900)
 
 inline void bm_insert(benchmark::State& state, BaseFixture& fixture) {
     const uint64_t num_total_prefill = state.range(0);
@@ -90,10 +91,11 @@ inline void bm_get(benchmark::State& state, BaseFixture& fixture) {
     }
 }
 
-DEFINE_ALL_BMS(DramMapFixture);
-DEFINE_ALL_BMS(ViperFixture);
-DEFINE_ALL_BMS(NvmFasterFixture);
-DEFINE_ALL_BMS(PmemHybridFasterFixture);
+//DEFINE_ALL_BMS(DramMapFixture);
+//DEFINE_ALL_BMS(ViperFixture);
+//DEFINE_ALL_BMS(NvmFasterFixture);
+//DEFINE_ALL_BMS(PmemHybridFasterFixture);
+DEFINE_ALL_BMS(PmemKVFixture);
 
 
 int main(int argc, char** argv) {

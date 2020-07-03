@@ -26,6 +26,9 @@ class ViperFixture : public BaseFixture {
 
     uint64_t setup_and_get_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates);
 
+    uint64_t run_ycsb(uint64_t start_idx, uint64_t end_idx,
+        const std::vector<ycsb::Record>& data, hdr_histogram* hdr) final;
+
   protected:
     std::unique_ptr<ViperT> viper_;
     bool viper_initialized_ = false;
@@ -163,7 +166,54 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_get_update(uint64_t start_idx, ui
     return update_counter;
 }
 
-%3:=No:[5!2,9Po:[5 Le+"20\+9"4.Hg*5."@/!O)8'<4)(&2.,$>?361(<8-v+ 6.;l.-l%>b2;&<Y78Hq+B}>C!>O1<Z=4)`.
+template <typename KeyT, typename ValueT>
+uint64_t ViperFixture<KeyT, ValueT>::run_ycsb(uint64_t, uint64_t, const std::vector<ycsb::Record>&, hdr_histogram*) {
+    throw std::runtime_error{"YCSB not implemented for non-ycsb key/value types."};
+}
+
+template <>
+uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
+    uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
+    uint64_t op_count = 0;
+    auto v_client = viper_->get_client();
+
+    for (int op_num = start_idx; op_num < end_idx; ++op_num) {
+        const ycsb::Record& record = data[op_num];
+
+        const auto start = std::chrono::high_resolution_clock::now();
+
+        switch (record.op) {
+            case ycsb::Record::Op::INSERT: {
+                op_count += v_client.put(record.key, record.value);
+                break;
+            }
+            case ycsb::Record::Op::GET: {
+                typename ViperT::ConstAccessor result;
+                const bool found = v_client.get(record.key, result);
+                op_count += found && result->data[0] != 0;
+                break;
+            }
+            case ycsb::Record::Op::UPDATE: {
+                auto update_fn = [&](ValueType200* value) { *value = record.value; };
+                op_count += v_client.update(record.key, update_fn);
+                break;
+            }
+            default: {
+                throw std::runtime_error("Unknown operation: " + std::to_string(record.op));
+            }
+        }
+
+        if (hdr == nullptr) {
+            continue;
+        }
+
+        const auto end = std::chrono::high_resolution_clock::now();
+        const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+        hdr_record_value(hdr, duration.count());
+    }
+
+    return op_count;
+}
 
 }  // namespace kv_bm
 }  // namespace viper

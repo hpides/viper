@@ -20,7 +20,6 @@ template <typename KeyT = KeyType16, typename ValueT = ValueType200>
 class PmemKVFixture : public BaseFixture {
   public:
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) override;
-
     void DeInitMap() override;
 
     uint64_t insert(uint64_t start_idx, uint64_t end_idx) final;
@@ -28,7 +27,10 @@ class PmemKVFixture : public BaseFixture {
     uint64_t setup_and_insert(uint64_t start_idx, uint64_t end_idx) final;
     uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) final;
     uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) final;
-    uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) override;
+    uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) final;
+
+    uint64_t run_ycsb(uint64_t start_idx, uint64_t end_idx,
+        const std::vector<ycsb::Record>& data, hdr_histogram* hdr) final;
 
   protected:
     std::unique_ptr<pmem::kv::db> pmem_db_;
@@ -48,7 +50,7 @@ void PmemKVFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const bo
     pool_file_ = random_file(DB_NVM_DIR);
     pmem_db_ = std::make_unique<pmem::kv::db>();
 
-    const size_t expected_pool_file_size = 2 * MAX_DATA_SIZE * (sizeof(KeyT) + sizeof(ValueT));
+    const size_t expected_pool_file_size = 150 * ONE_GB;
     pmem::kv::config config{};
     config.put_string("path", pool_file_);
     config.put_uint64("size", expected_pool_file_size);
@@ -81,6 +83,10 @@ uint64_t PmemKVFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_id
         const pmem::kv::string_view db_key{(char*) &k.data, sizeof(KeyT)};
         const pmem::kv::string_view value_str{(char*) &v.data, sizeof(ValueT)};
         insert_counter += pmem_db_->put(db_key, value_str) == pmem::kv::status::OK;
+
+        if ((key - start_idx) % 1000000 == 0) {
+            std::cout << "Inserted " << (key - start_idx) << " records" << std::endl;
+        }
     }
     return insert_counter;
 }
@@ -150,6 +156,69 @@ uint64_t PmemKVFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint6
         }
     }
     return update_counter;
+}
+
+template <typename KeyT, typename ValueT>
+uint64_t PmemKVFixture<KeyT, ValueT>::run_ycsb(uint64_t, uint64_t, const std::vector<ycsb::Record>&, hdr_histogram*) {
+    throw std::runtime_error{"YCSB not implemented for non-ycsb key/value types."};
+}
+
+template <>
+uint64_t PmemKVFixture<KeyType8, ValueType200>::run_ycsb(
+    uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
+    uint64_t op_count = 0;
+
+    for (int op_num = start_idx; op_num < end_idx; ++op_num) {
+        const ycsb::Record& record = data[op_num];
+
+        const auto start = std::chrono::high_resolution_clock::now();
+
+        switch (record.op) {
+            case ycsb::Record::Op::INSERT: {
+                const pmem::kv::string_view db_key{(char*) &record.key.data, sizeof(KeyType8)};
+                const pmem::kv::string_view value_str{(char*) &record.value.data, sizeof(ValueType200)};
+                op_count += pmem_db_->put(db_key, value_str) == pmem::kv::status::OK;
+                break;
+            }
+            case ycsb::Record::Op::GET: {
+                std::string value;
+                const pmem::kv::string_view db_key{(char*) &record.key.data, sizeof(KeyType8)};
+
+                const bool found = pmem_db_->get(db_key, &value) == pmem::kv::status::OK;
+                if (found) {
+                    op_count += ValueType200 {}.from_str(value).data[0] != 0;
+                }
+                break;
+            }
+            case ycsb::Record::Op::UPDATE: {
+                std::string old_value;
+                const pmem::kv::string_view db_key{(char*) &record.key.data, sizeof(KeyType8)};
+
+                const bool found = pmem_db_->get(db_key, &old_value) == pmem::kv::status::OK;
+                if (found) {
+                    ValueType200 new_val{};
+                    new_val.from_str(old_value);
+                    new_val.update_value();
+                    const pmem::kv::string_view new_val_str{(char*) &new_val.data, sizeof(ValueType200)};
+                    op_count += pmem_db_->put(db_key, new_val_str) == pmem::kv::status::OK;
+                }
+                break;
+            }
+            default: {
+                throw std::runtime_error("Unknown operation: " + std::to_string(record.op));
+            }
+        }
+
+        if (hdr == nullptr) {
+            continue;
+        }
+
+        const auto end = std::chrono::high_resolution_clock::now();
+        const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+        hdr_record_value(hdr, duration.count());
+    }
+
+    return op_count;
 }
 
 }  // namespace kv_bm

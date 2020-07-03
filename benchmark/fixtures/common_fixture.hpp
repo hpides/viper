@@ -10,8 +10,10 @@
 #include <libpmempool.h>
 #include <libpmemobj++/pool.hpp>
 #include <tbb/tbb_stddef.h>
+#include <hdr_histogram.h>
 
 #include "../benchmark.hpp"
+#include "ycsb_common.hpp"
 
 namespace viper::kv_bm {
 
@@ -50,16 +52,18 @@ struct TbbFixedKeyCompare {
 class BaseFixture : public benchmark::Fixture {
   public:
     void SetUp(benchmark::State& state) override {
-        std::random_device rnd{};
-        rnd_engine_ = std::default_random_engine(rnd());
+        hdr_init(1, 1000000000, 4, &hdr_);
     }
-
     void TearDown(benchmark::State& state) override {};
 
     virtual void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) {};
     virtual void DeInitMap() {};
 
+    template <typename PrefillFn>
+    void prefill_internal(size_t num_prefills, PrefillFn prefill_fn);
+
     void prefill(size_t num_prefills);
+    void prefill_ycsb(const std::vector<ycsb::Record>& data);
 
     // Benchmark methods. All pure virtual.
     virtual uint64_t setup_and_insert(uint64_t start_idx, uint64_t end_idx) = 0;
@@ -68,12 +72,25 @@ class BaseFixture : public benchmark::Fixture {
     virtual uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) = 0;
 //    virtual uint64_t setup_and_recover() {};
 
+    virtual uint64_t run_ycsb(uint64_t start_idx, uint64_t end_idx,
+                              const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
+        throw std::runtime_error("YCSB not implemented");
+    }
+
+    void merge_hdr(hdr_histogram* other) {
+        std::lock_guard lock{hdr_lock_};
+        hdr_add(hdr_, other);
+    }
+
+    hdr_histogram* get_hdr() { return hdr_; }
+
     static void log_find_count(benchmark::State& state, const uint64_t num_found, const uint64_t num_expected);
 
   protected:
     virtual uint64_t insert(uint64_t start_idx, uint64_t end_idx) = 0;
 
-    std::default_random_engine rnd_engine_;
+    hdr_histogram* hdr_;
+    std::mutex hdr_lock_;
 };
 
 template <typename RootType>

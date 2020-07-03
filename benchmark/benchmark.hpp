@@ -45,6 +45,10 @@ struct BMRecord {
         return *this;
     }
 
+    uint64_t get_key() const {
+        return *(uint64_t*) data.data();
+    }
+
     void update_value() {
         data[0]++;
     }
@@ -54,20 +58,21 @@ struct BMRecord {
 
 using Offset = uint64_t;
 
-using KeyType8 = BMRecord<uint64_t, 1>;
-using KeyType16 = BMRecord<uint64_t, 2>;
+using KeyType8 = BMRecord<uint32_t, 2>;
+using KeyType16 = BMRecord<uint32_t, 4>;
 using KeyType100 = BMRecord<uint32_t, 25>;
-using ValueType8 = BMRecord<uint64_t, 1>;
-using ValueType100 = BMRecord<uint32_t, 25>;
-using ValueType200 = BMRecord<uint64_t, 25>;
+using ValueType8 = KeyType8;
+using ValueType100 = KeyType100;
+using ValueType200 = BMRecord<uint32_t, 50>;
 using ValueType900 = BMRecord<uint32_t, 225>;
 
-static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.2";
+static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.0";
 static constexpr char DB_NVM_DIR[] = "/mnt/nvram-viper/dbfiles";
 static constexpr char DB_FILE_DIR[] = "/home/lawrence.benson/dbfiles";
 static constexpr char RESULT_FILE_DIR[] = "/home/lawrence.benson/clion/viper/results/";
 static constexpr char CONFIG_DIR[] = "/home/lawrence.benson/clion/viper/benchmark/config/";
-static const uint64_t BM_POOL_SIZE = (1024l*1024*1024) * 1;  // 1GB
+static constexpr uint64_t ONE_GB = (1024l*1024*1024) * 1;  // 1GB
+static constexpr uint64_t BM_POOL_SIZE = ONE_GB;
 
 std::string get_time_string();
 std::string get_output_file(const std::string& bm_name);

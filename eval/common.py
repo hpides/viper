@@ -19,14 +19,17 @@ class Style:
 
 
 ROCKS = ('PmemRocksDb', "RocksDB")
-PMEMKV = ('PmemKv', "PmemKV")
+PMEMKV = ('PmemKV', "PmemKV")
 VIPER = ('Viper', 'Viper')
 DRAM_MAP = ('DramMap', 'TBB Map')
 HYBRID_FASTER = ('PmemHybridFaster', 'FASTER')
 NVM_FASTER = ('NvmFaster', 'FASTER-NVM')
 
 ALL_FIXTURES = [VIPER, ROCKS, PMEMKV, DRAM_MAP, HYBRID_FASTER, NVM_FASTER]
-ALL_BM_TYPES = ['insert', 'get', 'update', 'delete']
+ALL_BM_TYPES = [
+    'insert', 'get', 'update', 'delete',
+    '5050_uniform', '1090_uniform', '5050_zipf', '1090_zipf',
+]
 
 #           red        blue       green      grey       purple     turquoise
 COLORS =  ['#990000', '#000099', '#006600', '#404040', '#990099', '#009999']

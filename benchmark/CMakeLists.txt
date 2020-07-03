@@ -42,27 +42,27 @@ include_directories(third_party/hdr_histogram/src)
 
 add_executable(all_ops_bm all_ops_benchmark.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(all_ops_bm ${LINK_LIBS})
-target_link_libraries(all_ops_bm benchmark rocksdb faster uuid aio)
+target_link_libraries(all_ops_bm benchmark rocksdb faster uuid aio hdr_histogram_static)
 set_target_properties(all_ops_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(access_pattern_bm access_pattern_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(access_pattern_bm ${LINK_LIBS})
-target_link_libraries(access_pattern_bm benchmark)
+target_link_libraries(access_pattern_bm benchmark hdr_histogram_static)
 set_target_properties(access_pattern_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(update_bm update_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(update_bm ${LINK_LIBS})
-target_link_libraries(update_bm benchmark)
+target_link_libraries(update_bm benchmark hdr_histogram_static)
 set_target_properties(update_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(kv_size_bm key_value_size_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(kv_size_bm ${LINK_LIBS})
-target_link_libraries(kv_size_bm benchmark faster uuid aio)
+target_link_libraries(kv_size_bm benchmark faster rocksdb uuid aio hdr_histogram_static)
 set_target_properties(kv_size_bm PROPERTIES LINKER_LANGUAGE CXX)
 
-add_executable(ycsb_bm ycsb_bm.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
+add_executable(ycsb_bm ycsb_bm.cpp fixtures/ycsb_common.cpp fixtures/ycsb_common.hpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(ycsb_bm ${LINK_LIBS})
-target_link_libraries(ycsb_bm benchmark rocksdb faster uuid aio)
+target_link_libraries(ycsb_bm benchmark rocksdb faster uuid aio hdr_histogram_static)
 set_target_properties(ycsb_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(nvm_util_benchmark util_benchmark.cpp fixtures/common_fixture.cpp fixtures/common_fixture.hpp)

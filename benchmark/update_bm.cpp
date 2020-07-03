@@ -2,8 +2,6 @@
 
 #include "benchmark.hpp"
 #include "fixtures/viper_fixture.hpp"
-#include "fixtures/dram_map_fixture.hpp"
-#include "fixtures/faster_fixture.hpp"
 
 using namespace viper::kv_bm;
 

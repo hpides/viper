@@ -7,7 +7,7 @@ using namespace viper::kv_bm;
 using viper::ViperConfig;
 
 constexpr size_t ACCESS_NUM_REPITITIONS = 1;
-constexpr size_t ACCESS_NUM_MAX_THREADS = 24;
+constexpr size_t ACCESS_NUM_MAX_THREADS = 36;
 constexpr size_t ACCESS_NUM_PREFILLS = NUM_PREFILLS;
 constexpr size_t ACCESS_NUM_INSERTS = NUM_INSERTS;
 
@@ -55,7 +55,7 @@ BENCHMARK_REGISTER_F(ViperFixture, insert_dimm_based)
     ->Unit(BM_TIME_UNIT)
     ->UseRealTime()
     ->Args({ACCESS_NUM_PREFILLS, ACCESS_NUM_INSERTS})
-    ->DenseThreadRange(17, ACCESS_NUM_MAX_THREADS);
+    ->DenseThreadRange(19, ACCESS_NUM_MAX_THREADS);
 
 BENCHMARK_REGISTER_F(ViperFixture, insert_block_based)
     ->Repetitions(ACCESS_NUM_REPITITIONS)
@@ -63,10 +63,10 @@ BENCHMARK_REGISTER_F(ViperFixture, insert_block_based)
     ->Unit(BM_TIME_UNIT)
     ->UseRealTime()
     ->Args({ACCESS_NUM_PREFILLS, ACCESS_NUM_INSERTS})
-    ->DenseThreadRange(17, ACCESS_NUM_MAX_THREADS);
+    ->DenseThreadRange(1, ACCESS_NUM_MAX_THREADS);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
-    const std::string arg = get_output_file("access_pattern/bm");
+    const std::string arg = get_output_file("access_pattern/access_pattern");
     return bm_main({exec_name, arg});
 }

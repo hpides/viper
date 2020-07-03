@@ -22,6 +22,9 @@ class DramMapFixture : public BaseFixture {
     uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) final;
     uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) final;
 
+    uint64_t run_ycsb(uint64_t start_idx, uint64_t end_idx,
+        const std::vector<ycsb::Record>& data, hdr_histogram* hdr) final;
+
   protected:
     std::unique_ptr<DramMapType> dram_map_;
     bool map_initialized_ = false;
@@ -117,6 +120,55 @@ uint64_t DramMapFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint
         delete_counter += dram_map_->erase(db_key);
     }
     return delete_counter;
+}
+
+template <typename KeyT, typename ValueT>
+uint64_t DramMapFixture<KeyT, ValueT>::run_ycsb(uint64_t, uint64_t, const std::vector<ycsb::Record>&, hdr_histogram*) {
+    throw std::runtime_error{"YCSB not implemented for non-ycsb key/value types."};
+}
+
+template <>
+uint64_t DramMapFixture<KeyType8, ValueType200>::run_ycsb(
+    uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
+    uint64_t op_count = 0;
+    for (int op_num = start_idx; op_num < end_idx; ++op_num) {
+        const ycsb::Record& record = data[op_num];
+
+        const auto start = std::chrono::high_resolution_clock::now();
+
+        switch (record.op) {
+            case ycsb::Record::Op::INSERT: {
+                typename DramMapType::accessor result;
+                op_count += dram_map_->insert(result, {record.key, record.value});
+                break;
+            }
+            case ycsb::Record::Op::GET: {
+                typename DramMapType::const_accessor result;
+                const bool found = dram_map_->find(result, record.key);
+                op_count += found && result->second.data[0] != 0;
+                break;
+            }
+            case ycsb::Record::Op::UPDATE: {
+                typename DramMapType::accessor result;
+                op_count += dram_map_->find(result, record.key);
+                result->second = record.value;
+                break;
+            }
+            default: {
+                throw std::runtime_error("Unknown operation: " + std::to_string(record.op));
+            }
+        }
+
+        if (hdr == nullptr) {
+            continue;
+        }
+
+        const auto end = std::chrono::high_resolution_clock::now();
+        const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+        hdr_record_value(hdr, duration.count());
+    }
+
+    return op_count;
 }
 
 }  // namespace kv_bm
