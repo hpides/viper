@@ -29,6 +29,10 @@ class ViperFixture : public BaseFixture {
     uint64_t run_ycsb(uint64_t start_idx, uint64_t end_idx,
         const std::vector<ycsb::Record>& data, hdr_histogram* hdr) final;
 
+    ViperT* getViper() {
+        return viper_.get();
+    }
+
   protected:
     std::unique_ptr<ViperT> viper_;
     bool viper_initialized_ = false;

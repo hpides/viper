@@ -402,7 +402,7 @@ void FasterFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const bo
 
     std::cout << "Creating FASTER with " << initial_map_size << " buckets and a "
               << (log_memory_size / ONE_GB) << " GiB log in " << (is_nvm ? "NVM" : "DRAM")
-              << " mode" << std::endl;
+              << " mode." << std::endl;
     db_ = std::make_unique<faster_t>(initial_map_size, log_memory_size, db_dir_, is_nvm);
 
     prefill(num_prefill_inserts);

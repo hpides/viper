@@ -157,12 +157,13 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
     BaseFixture::log_find_count(state, found_counter, found_counter);
 }
 
-//ALL_BMS(DramMapFixture);
-//ALL_BMS(ViperFixture);
+ALL_BMS(DramMapFixture);
+ALL_BMS(ViperFixture);
 ALL_BMS(PmemKVFixture);
-//ALL_BMS(NvmFasterFixture);
-//ALL_BMS(PmemHybridFasterFixture);
-//ALL_BMS(PmemRocksDbFixture);
+ALL_BMS(NvmFasterFixture);
+ALL_BMS(PmemHybridFasterFixture);
+ALL_BMS(DiskHybridFasterFixture);
+ALL_BMS(PmemRocksDbFixture);
 
 
 int main(int argc, char** argv) {
