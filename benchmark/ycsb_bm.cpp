@@ -84,7 +84,14 @@ void ycsb_run(benchmark::State& state, BaseFixture& fixture, std::vector<ycsb::R
     if (is_init_thread(state)) {
         hdr_histogram* global_hdr = fixture.get_hdr();
         state.counters["hdr_max"] = hdr_max(global_hdr);
-        state.counters["hdr_mean"] = hdr_value_at_percentile(global_hdr, 50.0);
+        state.counters["hdr_avg"] = hdr_mean(global_hdr);
+        state.counters["hdr_min"] = hdr_min(global_hdr);
+        state.counters["hdr_std"] = hdr_stddev(global_hdr);
+        state.counters["hdr_median"] = hdr_value_at_percentile(global_hdr, 50.0);
+        state.counters["hdr_90"] = hdr_value_at_percentile(global_hdr, 90.0);
+        state.counters["hdr_95"] = hdr_value_at_percentile(global_hdr, 95.0);
+        state.counters["hdr_99"] = hdr_value_at_percentile(global_hdr, 99.0);
+        state.counters["hdr_999"] = hdr_value_at_percentile(global_hdr, 99.9);
         state.counters["hdr_9999"] = hdr_value_at_percentile(global_hdr, 99.99);
 
         hdr_percentiles_print(global_hdr, stdout, 3, 1.0, CLASSIC);
@@ -95,11 +102,11 @@ void ycsb_run(benchmark::State& state, BaseFixture& fixture, std::vector<ycsb::R
     BaseFixture::log_find_count(state, op_counter, end_idx - start_idx);
 }
 
-//ALL_BMS(ViperFixture);
 ALL_BMS(PmemHybridFasterFixture);
 ALL_BMS(NvmFasterFixture);
-//ALL_BMS(DramMapFixture);
-//ALL_BMS(PmemKVFixture);
+ALL_BMS(ViperFixture);
+ALL_BMS(DramMapFixture);
+ALL_BMS(PmemKVFixture);
 
 int main(int argc, char** argv) {
     std::filesystem::path prefill_file = BASE_DIR + std::string{PREFILL_FILE};

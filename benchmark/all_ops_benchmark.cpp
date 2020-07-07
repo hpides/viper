@@ -13,7 +13,7 @@
 
 
 #define GENERAL_ARGS \
-            ->Repetitions(NUM_REPETITIONS) \
+            ->Repetitions(3) \
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
@@ -78,8 +78,6 @@ void bm_update(benchmark::State& state, BaseFixture& fixture) {
     }
 
     const uint64_t num_updates_per_thread = num_total_updates / state.threads;
-//    const uint64_t start_idx = state.thread_index * num_updates_per_thread;
-//    const uint64_t end_idx = start_idx + num_updates_per_thread;
     const uint64_t start_idx = 0;
     const uint64_t end_idx = num_total_prefill - state.threads;
 
@@ -108,8 +106,6 @@ void bm_get(benchmark::State& state, BaseFixture& fixture) {
     }
 
     const uint64_t num_finds_per_thread = (num_total_finds / state.threads) + 1;
-//    const uint64_t start_idx = state.thread_index * num_finds_per_thread;
-//    const uint64_t end_idx = std::min(start_idx + num_finds_per_thread, num_total_finds);
     const uint64_t start_idx = 0;
     const uint64_t end_idx = num_total_prefills - state.threads;
 
@@ -138,8 +134,6 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
     }
 
     const uint64_t num_deletes_per_thread = (num_total_deletes / state.threads) + 1;
-//    const uint64_t start_idx = state.thread_index * num_deletes_per_thread;
-//    const uint64_t end_idx = std::min(start_idx + num_deletes_per_thread, num_total_deletes);
     const uint64_t start_idx = 0;
     const uint64_t end_idx = num_total_prefills - state.threads;
 

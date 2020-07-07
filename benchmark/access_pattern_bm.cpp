@@ -55,7 +55,7 @@ BENCHMARK_REGISTER_F(ViperFixture, insert_dimm_based)
     ->Unit(BM_TIME_UNIT)
     ->UseRealTime()
     ->Args({ACCESS_NUM_PREFILLS, ACCESS_NUM_INSERTS})
-    ->DenseThreadRange(19, ACCESS_NUM_MAX_THREADS);
+    ->DenseThreadRange(1, ACCESS_NUM_MAX_THREADS);
 
 BENCHMARK_REGISTER_F(ViperFixture, insert_block_based)
     ->Repetitions(ACCESS_NUM_REPITITIONS)

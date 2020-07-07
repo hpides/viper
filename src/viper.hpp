@@ -552,11 +552,9 @@ void Viper<K, V, HC>::recover_database() {
         current_size_.fetch_add(num_entries);
 
         if (duplicates.size() > 0) {
-            DEBUG_LOG("# DUPS: " << duplicates.size());
             for (const KVOffset offset : duplicates) {
                 const auto[block, page, slot] = offset.get_offsets();
                 v_blocks_[block]->v_pages[page].free_slots.set(slot);
-                DEBUG_LOG("DUP KEY: " << v_blocks_[block]->v_pages[page].data[slot].first.data[0]);
             }
         }
     };

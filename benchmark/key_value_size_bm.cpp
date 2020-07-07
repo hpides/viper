@@ -36,9 +36,9 @@ constexpr size_t KV_SIZES_NUM_FINDS = 50'000'000 * KV_SIZES_SCALE_FACTOR;
 
 #define DEFINE_ALL_BMS(fixture) \
         DEFINE_BM(fixture, 8, 8); \
-//        DEFINE_BM(fixture, 16, 100); \
-//        DEFINE_BM(fixture, 16, 200); \
-//        DEFINE_BM(fixture, 100, 900)
+        DEFINE_BM(fixture, 16, 100); \
+        DEFINE_BM(fixture, 16, 200); \
+        DEFINE_BM(fixture, 100, 900)
 
 inline void bm_insert(benchmark::State& state, BaseFixture& fixture) {
     const uint64_t num_total_prefill = state.range(0);
@@ -91,10 +91,10 @@ inline void bm_get(benchmark::State& state, BaseFixture& fixture) {
     }
 }
 
-//DEFINE_ALL_BMS(DramMapFixture);
-//DEFINE_ALL_BMS(ViperFixture);
-//DEFINE_ALL_BMS(NvmFasterFixture);
-//DEFINE_ALL_BMS(PmemHybridFasterFixture);
+DEFINE_ALL_BMS(DramMapFixture);
+DEFINE_ALL_BMS(ViperFixture);
+DEFINE_ALL_BMS(NvmFasterFixture);
+DEFINE_ALL_BMS(PmemHybridFasterFixture);
 DEFINE_ALL_BMS(PmemKVFixture);
 
 

@@ -69,8 +69,3 @@ add_executable(ycsb_bm ycsb_bm.cpp fixtures/ycsb_common.cpp fixtures/ycsb_common
 target_link_libraries(ycsb_bm ${LINK_LIBS})
 target_link_libraries(ycsb_bm benchmark rocksdb faster uuid aio hdr_histogram_static)
 set_target_properties(ycsb_bm PROPERTIES LINKER_LANGUAGE CXX)
-
-add_executable(nvm_util_benchmark util_benchmark.cpp fixtures/common_fixture.cpp fixtures/common_fixture.hpp)
-target_link_libraries(nvm_util_benchmark ${LINK_LIBS})
-target_link_libraries(nvm_util_benchmark benchmark)
-set_target_properties(nvm_util_benchmark PROPERTIES LINKER_LANGUAGE CXX)

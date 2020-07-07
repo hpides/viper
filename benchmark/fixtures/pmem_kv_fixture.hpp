@@ -50,7 +50,7 @@ void PmemKVFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const bo
     pool_file_ = random_file(DB_NVM_DIR);
     pmem_db_ = std::make_unique<pmem::kv::db>();
 
-    const size_t expected_pool_file_size = 150 * ONE_GB;
+    const size_t expected_pool_file_size = 180 * ONE_GB;
     pmem::kv::config config{};
     config.put_string("path", pool_file_);
     config.put_uint64("size", expected_pool_file_size);
@@ -83,10 +83,6 @@ uint64_t PmemKVFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_id
         const pmem::kv::string_view db_key{(char*) &k.data, sizeof(KeyT)};
         const pmem::kv::string_view value_str{(char*) &v.data, sizeof(ValueT)};
         insert_counter += pmem_db_->put(db_key, value_str) == pmem::kv::status::OK;
-
-        if ((key - start_idx) % 1000000 == 0) {
-            std::cout << "Inserted " << (key - start_idx) << " records" << std::endl;
-        }
     }
     return insert_counter;
 }
