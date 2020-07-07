@@ -34,12 +34,6 @@ add_subdirectory(third_party/faster/cc)
 add_subdirectory(third_party/hdr_histogram)
 include_directories(third_party/hdr_histogram/src)
 
-# DASH
-#add_definitions(-DPMEM -DUSE_PMEM=ON)
-#add_subdirectory(third_party/dash)
-#include_directories(third_party/dash/src)
-#include_directories("${CMAKE_CURRENT_BINARY_DIR}/../_deps/epoch_reclaimer-src")
-
 add_executable(all_ops_bm all_ops_benchmark.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(all_ops_bm ${LINK_LIBS})
 target_link_libraries(all_ops_bm benchmark rocksdb faster uuid aio hdr_histogram_static)
