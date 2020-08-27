@@ -85,6 +85,20 @@ uint64_t ViperFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_idx
     return insert_counter;
 }
 
+template <>
+uint64_t ViperFixture<std::string, std::string>::insert(uint64_t start_idx, uint64_t end_idx) {
+    uint64_t insert_counter = 0;
+    auto v_client = viper_->get_client();
+    const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
+    const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
+        const std::string& db_key = keys[key];
+        const std::string& value = values[key];
+        insert_counter += v_client.put(db_key, value);
+    }
+    return insert_counter;
+}
+
 template <typename KeyT, typename ValueT>
 uint64_t ViperFixture<KeyT, ValueT>::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
     return insert(start_idx, end_idx);
@@ -108,6 +122,11 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t
     return found_counter;
 }
 
+template <>
+uint64_t ViperFixture<std::string, std::string>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
+    throw std::runtime_error{"not supported"};
+}
+
 template <typename KeyT, typename ValueT>
 uint64_t ViperFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
     std::random_device rnd{};
@@ -122,6 +141,11 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64
         delete_counter += v_client.remove(db_key);
     }
     return delete_counter;
+}
+
+template <>
+uint64_t ViperFixture<std::string, std::string>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
+    throw std::runtime_error{"not supported"};
 }
 
 template <typename KeyT, typename ValueT>
@@ -146,6 +170,11 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64
     return update_counter;
 }
 
+template <>
+uint64_t ViperFixture<std::string, std::string>::setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
+    throw std::runtime_error("Not supported");
+}
+
 template <typename KeyT, typename ValueT>
 uint64_t ViperFixture<KeyT, ValueT>::setup_and_get_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
     std::random_device rnd{};
@@ -168,6 +197,11 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_get_update(uint64_t start_idx, ui
         update_counter += !v_client.put(db_key, new_v);
     }
     return update_counter;
+}
+
+template <>
+uint64_t ViperFixture<std::string, std::string>::setup_and_get_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
+    throw std::runtime_error("Not supported");
 }
 
 template <typename KeyT, typename ValueT>

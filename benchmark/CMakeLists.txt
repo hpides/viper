@@ -59,6 +59,11 @@ target_link_libraries(kv_size_bm ${LINK_LIBS})
 target_link_libraries(kv_size_bm benchmark faster rocksdb uuid aio hdr_histogram_static)
 set_target_properties(kv_size_bm PROPERTIES LINKER_LANGUAGE CXX)
 
+add_executable(variable_size_bm variable_size_bm.cpp ${BASE_BENCHMARK_FILES})
+target_link_libraries(variable_size_bm ${LINK_LIBS})
+target_link_libraries(variable_size_bm benchmark faster rocksdb uuid aio hdr_histogram_static)
+set_target_properties(variable_size_bm PROPERTIES LINKER_LANGUAGE CXX)
+
 add_executable(ycsb_bm ycsb_bm.cpp fixtures/ycsb_common.cpp fixtures/ycsb_common.hpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(ycsb_bm ${LINK_LIBS})
 target_link_libraries(ycsb_bm benchmark rocksdb faster uuid aio hdr_histogram_static)

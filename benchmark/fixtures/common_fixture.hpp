@@ -38,6 +38,8 @@ void set_cpu_affinity(uint16_t from, uint16_t to);
 
 std::string random_file(const std::filesystem::path& base_dir);
 
+using VarSizeKVs = std::pair<std::vector<std::string>, std::vector<std::string>>;
+
 void zero_block_device(const std::string& block_dev, size_t length);
 
 template <typename KeyT>
@@ -48,6 +50,14 @@ struct TbbFixedKeyCompare {
         return static_cast<size_t>(a.data[0]) * hash_multiplier;
     }
     static bool equal(const KeyT& a, const KeyT& b) { return a == b; }
+};
+
+template <>
+struct TbbFixedKeyCompare<std::string> {
+    static size_t hash(const std::string& a) {
+        return std::hash<std::string>{}(a);
+    }
+    static bool equal(const std::string& a, const std::string& b) { return a == b; }
 };
 
 class BaseFixture : public benchmark::Fixture {
@@ -66,12 +76,13 @@ class BaseFixture : public benchmark::Fixture {
     void prefill(size_t num_prefills);
     void prefill_ycsb(const std::vector<ycsb::Record>& data);
 
+    void generate_strings(size_t num_strings, size_t key_size, size_t value_size);
+
     // Benchmark methods. All pure virtual.
     virtual uint64_t setup_and_insert(uint64_t start_idx, uint64_t end_idx) = 0;
     virtual uint64_t setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) = 0;
     virtual uint64_t setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) = 0;
     virtual uint64_t setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) = 0;
-//    virtual uint64_t setup_and_recover() {};
 
     virtual uint64_t run_ycsb(uint64_t start_idx, uint64_t end_idx,
                               const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
@@ -92,6 +103,8 @@ class BaseFixture : public benchmark::Fixture {
 
     hdr_histogram* hdr_;
     std::mutex hdr_lock_;
+
+    VarSizeKVs var_size_kvs_{};
 };
 
 template <typename RootType>
