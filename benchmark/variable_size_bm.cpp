@@ -10,9 +10,9 @@ using namespace viper::kv_bm;
 
 constexpr size_t VAR_SIZES_NUM_REPETITIONS = 1;
 constexpr double VAR_SIZES_SCALE_FACTOR = 1.0;
-constexpr size_t VAR_SIZES_PREFILL_SIZE = 20 * (1000l * 1000 * 1000) * VAR_SIZES_SCALE_FACTOR;
+constexpr size_t VAR_SIZES_PREFILL_SIZE = 0.1 * (1000l * 1000 * 1000) * VAR_SIZES_SCALE_FACTOR;
 constexpr size_t VAR_SIZES_INSERT_SIZE = VAR_SIZES_PREFILL_SIZE / 2;
-constexpr size_t VAR_SIZES_NUM_FINDS = 50'000'000 * VAR_SIZES_SCALE_FACTOR;
+constexpr size_t VAR_SIZES_NUM_FINDS = 5'000'000 * VAR_SIZES_SCALE_FACTOR;
 
 #define GENERAL_ARGS \
             ->Repetitions(VAR_SIZES_NUM_REPETITIONS) \
@@ -23,17 +23,17 @@ constexpr size_t VAR_SIZES_NUM_FINDS = 50'000'000 * VAR_SIZES_SCALE_FACTOR;
             ->Threads(24)
 
 #define DEFINE_BM_INTERNAL(fixture, method, KS, VS) \
-        BENCHMARK_TEMPLATE2_DEFINE_F(fixture, method ##_ ##KS ##_ ##VS,  \
-                                     std::string, std::string)(benchmark::State& state) { \
+        BENCHMARK_TEMPLATE_DEFINE_F(fixture, method ##_ ##KS ##_ ##VS,  \
+                                    std::string, std::string, viper::internal::KeyCompare<std::string>)(benchmark::State& state) { \
             bm_##method(state, *this, KS, VS); \
         } \
         BENCHMARK_REGISTER_F(fixture, method ##_ ##KS ##_ ##VS) GENERAL_ARGS
 
 #define DEFINE_BM(fixture, KS, VS) \
+        DEFINE_BM_INTERNAL(fixture, get, KS, VS) \
+            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_FINDS}); \
         DEFINE_BM_INTERNAL(fixture, insert, KS, VS) \
             ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_INSERT_SIZE / (KS + VS)}); \
-//        DEFINE_BM_INTERNAL(fixture, get, KS, VS) \
-//            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_FINDS})
 
 #define DEFINE_ALL_BMS(fixture) \
         DEFINE_BM(fixture, 10, 50); \

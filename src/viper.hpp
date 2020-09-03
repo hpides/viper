@@ -25,7 +25,7 @@ namespace viper {
 using offset_size_t = uint64_t;
 using block_size_t = uint64_t;
 using page_size_t = uint8_t;
-using slot_size_t = uint8_t;
+using slot_size_t = uint16_t;
 using version_lock_t = uint8_t;
 
 static constexpr uint16_t PAGE_SIZE = 4 * 1024; // 4kb
@@ -52,6 +52,10 @@ namespace internal {
 
 template <typename K, typename V>
 constexpr slot_size_t get_num_slots_per_page() {
+    if constexpr (std::is_same_v<K, std::string>) {
+        return 502;
+    }
+
     const uint32_t entry_size = sizeof(K) + sizeof(V);
     uint16_t current_page_size = PAGE_SIZE;
 
@@ -71,7 +75,7 @@ constexpr slot_size_t get_num_slots_per_page() {
         num_slots_per_page_large--;
     }
     slot_size_t num_slots_per_page = num_slots_per_page_large;
-    while ((num_slots_per_page * entry_size) + sizeof(version_lock_t) +
+    while ((num_slots_per_page * entry_size) + page_overhead +
                 std::ceil((double) num_slots_per_page / 8) > current_page_size) {
         num_slots_per_page--;
     }
@@ -79,53 +83,36 @@ constexpr slot_size_t get_num_slots_per_page() {
     return num_slots_per_page;
 }
 
-class KeyValueOffset {
+struct KeyValueOffset {
     static constexpr offset_size_t TOMBSTONE = 0xFFFFFFFFFFFFFFFF;
-  public:
+
+    union {
+        offset_size_t offset;
+        struct {
+            block_size_t block_number : 52;
+            page_size_t page_number : 3;
+            slot_size_t slot_number : 9;
+        };
+    };
+
     KeyValueOffset() : offset{TOMBSTONE} {}
 
     explicit KeyValueOffset(const offset_size_t offset) : offset(offset) {}
 
     KeyValueOffset(const block_size_t block_number, const page_size_t page_number, const slot_size_t slot)
-        : offset{shift_numbers(block_number, page_number, slot)} {}
+        : block_number{block_number}, page_number{page_number}, slot_number{slot} {}
 
     static KeyValueOffset Tombstone() {
         return KeyValueOffset{};
     }
 
     inline std::tuple<block_size_t, page_size_t, slot_size_t> get_offsets() const {
-        return {get_block_number(), get_page_number(), get_slot_number()};
-    }
-
-    inline block_size_t get_block_number() const {
-        return (offset & 0xFFFFFFFFFFFF0000u) >> 16u; // Bit 1 to 48
-    }
-
-    inline page_size_t get_page_number() const {
-        return (offset & 0xFF00u) >> 8u; // Bits 49 to 56
-    }
-
-    inline slot_size_t get_slot_number() const {
-        return offset & 0xFFu; // Bits 57 to 64
-    }
-
-    inline offset_size_t get_raw_offset() const {
-        return offset;
+        return {block_number, page_number, slot_number};
     }
 
     inline bool is_tombstone() const {
         return offset == TOMBSTONE;
     }
-
-  protected:
-    static offset_size_t shift_numbers(const block_size_t block_number, const page_size_t page_number, const slot_size_t slot) {
-        offset_size_t kv_offset = block_number << 16u;
-        kv_offset |= static_cast<offset_size_t>(page_number) << 8u;
-        kv_offset |= static_cast<offset_size_t>(slot);
-        return kv_offset;
-    }
-
-    offset_size_t offset;
 };
 
 struct VarSizeOffset {
@@ -142,6 +129,51 @@ struct VarSizeOffset {
         : block_number(blockNumber), page_number(pageNumber), page_offset(pageOffset) {}
 };
 
+struct VarSizeEntry {
+    union {
+        uint64_t size_info;
+        struct {
+            uint32_t key_size;
+            uint32_t value_size;
+        };
+    };
+    char* data;
+
+    VarSizeEntry(const uint64_t keySize, const uint64_t valueSize)
+        : key_size{static_cast<uint32_t>(keySize)}, value_size{static_cast<uint32_t>(valueSize)} {}
+};
+
+struct VarEntryAccessor {
+    uint32_t key_size;
+    uint32_t value_size;
+    char* key_data = nullptr;
+    char* value_data = nullptr;
+
+    VarEntryAccessor(const char* raw_entry) {
+        const VarSizeEntry* entry = reinterpret_cast<const VarSizeEntry*>(raw_entry);
+        key_size = entry->key_size;
+        value_size = entry->value_size;
+        key_data = const_cast<char*>(raw_entry) + sizeof(entry->size_info);
+        value_data = key_data + key_size;
+    }
+
+    VarEntryAccessor(const char* raw_key_entry, const char* raw_value_entry) : VarEntryAccessor{raw_key_entry} {
+        assert(value_size == 0);
+        assert(key_data != nullptr);
+        const VarSizeEntry* value_entry = reinterpret_cast<const VarSizeEntry*>(raw_value_entry);
+        value_size = value_entry->value_size;
+        value_data = const_cast<char*>(raw_value_entry) + sizeof(value_entry->size_info);
+    }
+
+    const std::string_view key() const {
+        return std::string_view{key_data, key_size};
+    }
+
+    const std::string_view value() const {
+        return std::string_view{value_data, value_size};
+    }
+};
+
 template <typename K, typename V>
 struct alignas(PAGE_SIZE) ViperPage {
     using VEntry = std::pair<K, V>;
@@ -149,7 +181,6 @@ struct alignas(PAGE_SIZE) ViperPage {
 
     std::atomic<version_lock_t> version_lock;
     std::bitset<num_slots_per_page> free_slots;
-
 
     std::array<VEntry, num_slots_per_page> data;
 
@@ -162,42 +193,23 @@ struct alignas(PAGE_SIZE) ViperPage {
     }
 };
 
-struct ViperDataPage {
-    struct VarSizeEntry {
-        union {
-            uint64_t size_info;
-            struct {
-                uint32_t key_size;
-                uint32_t value_size;
-            };
-        };
-        char* data;
-
-        VarSizeEntry(const uint64_t keySize, const uint64_t valueSize)
-        : key_size{static_cast<uint32_t>(keySize)}, value_size{static_cast<uint32_t>(valueSize)} {}
-
-        const std::string_view key() {
-            return std::string_view{data, key_size};
-        }
-
-        const std::string_view value() {
-            return std::string_view{data + key_size, value_size};
-        }
-    };
-
+struct alignas(PAGE_SIZE) ViperDataPage {
     ViperPage<std::string, std::string>* owner;
     ViperDataPage* next;
 
-    static constexpr uint16_t DATA_SIZE = PAGE_SIZE - (sizeof(owner) + sizeof(next));
+    static constexpr size_t METADATA_SIZE = sizeof(owner) + sizeof(next);
+    static constexpr uint16_t DATA_SIZE = PAGE_SIZE - METADATA_SIZE;
     std::array<char, DATA_SIZE> data;
+
+    ViperDataPage() {
+        static_assert(sizeof(*this) == PAGE_SIZE, "String VPage too big...");
+    }
 };
 
 template <>
 struct alignas(PAGE_SIZE) ViperPage<std::string, std::string> {
-    using VEntry = ViperDataPage::VarSizeEntry;
     using VarEntryOffset = internal::VarSizeOffset;
-    // Need to pretend we are storing two 4 byte values and not one 8 byte to avoid sizeof(void)
-    static constexpr slot_size_t num_slots_per_page = get_num_slots_per_page<uint32_t, uint32_t>();
+    static constexpr slot_size_t num_slots_per_page = 501;
 
     std::atomic<version_lock_t> version_lock;
     std::bitset<num_slots_per_page> free_slots;
@@ -209,6 +221,7 @@ struct alignas(PAGE_SIZE) ViperPage<std::string, std::string> {
         static constexpr size_t v_page_size = sizeof(*this);
         static_assert(((v_page_size & (v_page_size - 1)) == 0), "VPage needs to be a power of 2!");
         static_assert(PAGE_SIZE % alignof(*this) == 0, "VPage not page size conform!");
+        static_assert(PAGE_SIZE == v_page_size, "VPage not 4096 Byte!");
         version_lock = 0;
         free_slots.set();
         current_data_page = nullptr;
@@ -225,6 +238,14 @@ struct alignas(PAGE_SIZE) ViperPageBlock {
      * making all pointers invalid.
      */
     std::array<VPage, num_pages> v_pages;
+};
+
+template <typename KeyT>
+struct KeyCompare {
+    static size_t hash(const KeyT& a) {
+        return std::hash<KeyT>{}(a);
+    }
+    static bool equal(const KeyT& a, const KeyT& b) { return a == b; }
 };
 
 } // namespace internal
@@ -250,7 +271,27 @@ struct ViperBase {
     std::vector<ViperFileMapping> v_mappings;
 };
 
-template <typename K, typename V, typename HashCompare>
+template <typename ValueT>
+struct ValueAccessor {
+    typedef ValueT* type;
+    typedef ValueT* ptr_type;
+    typedef const ValueT* const_ptr_type;
+
+    static ptr_type to_ptr_type(type& x) { return x; }
+    static const_ptr_type to_ptr_type(const type& x) { return x; }
+};
+
+template <>
+struct ValueAccessor<std::string> {
+    typedef std::string_view type;
+    typedef std::string_view* ptr_type;
+    typedef const std::string_view* const_ptr_type;
+
+    static ptr_type to_ptr_type(type& x) { return &x; }
+    static const_ptr_type to_ptr_type(const type& x) { return &x; }
+};
+
+template <typename K, typename V, typename HashCompare = internal::KeyCompare<K>>
 class Viper {
     using ViperT = Viper<K, V, HashCompare>;
     using VPage = internal::ViperPage<K, V>;
@@ -274,14 +315,13 @@ class Viper {
 
     class ConstAccessor {
         friend class Viper<K, V, HashCompare>;
-        using MapType = tbb::concurrent_hash_map<K, internal::KeyValueOffset, HashCompare>;
         using MapConstAccessor = typename MapType::const_accessor;
 
       public:
         ConstAccessor() = default;
 
-        const V& operator*() const { return *value_; }
-        const V* operator->() const { return value_; }
+//        const typename ValueAccessor<V>::ref_type operator*() const { return *value_; }
+        const typename ValueAccessor<V>::const_ptr_type operator->() const { return ValueAccessor<V>::to_ptr_type(value_); }
 
         ConstAccessor(const ConstAccessor& other) = delete;
         ConstAccessor& operator=(const ConstAccessor& other) = delete;
@@ -291,18 +331,18 @@ class Viper {
 
       protected:
         MapConstAccessor map_accessor_;
-        V const * value_;
+        typename ValueAccessor<V>::type value_{};
     };
 
     class Accessor : public ConstAccessor {
         using MapAccessor = typename ConstAccessor::MapType::accessor;
       public:
-        V& operator*() { return *value_; }
-        V* operator->() { return value_; }
+//        typename ValueAccessor<V>::ref_type operator*() { return *value_; }
+        typename ValueAccessor<V>::ptr_type operator->() { return value_; }
 
       protected:
         MapAccessor map_accessor_;
-        V* value_;
+        typename ValueAccessor<V>::type value_{};
     };
 
     class ConstClient {
@@ -311,7 +351,7 @@ class Viper {
         bool get(const K& key, ConstAccessor& accessor) const;
       protected:
         explicit ConstClient(const ViperT& viper);
-        inline const V* get_const_value_from_offset(KVOffset offset) const;
+        inline const typename ValueAccessor<V>::type get_const_value_from_offset(KVOffset offset) const;
         const ViperT& const_viper_;
     };
 
@@ -335,7 +375,7 @@ class Viper {
         inline void update_access_information();
         inline void update_data_page_information(internal::ViperPage<K, V>* v_page);
         inline void info_sync(bool force = false);
-        inline V* get_value_from_offset(KVOffset offset);
+        inline typename ValueAccessor<V>::type get_value_from_offset(KVOffset offset);
         void free_occupied_slot(block_size_t block_number, page_size_t page_number, slot_size_t slot_number);
 
         enum PageStrategy : uint8_t { BlockBased, DimmBased };
@@ -454,7 +494,7 @@ Viper<K, V, HC>::Viper(ViperBase v_base, const bool owns_pool, const ViperConfig
         recover_database();
     }
 
-    current_block_page_ = KVOffset{v_base.v_metadata->num_used_blocks, 0, 0}.get_raw_offset();
+    current_block_page_ = KVOffset{v_base.v_metadata->num_used_blocks, 0, 0}.offset;
 }
 
 template <typename K, typename V, typename HC>
@@ -682,7 +722,7 @@ void Viper<K, V, HC>::get_new_access_information(Client* client) {
 //    }
 
     const KVOffset block_page{current_block_page_.load()};
-    if (block_page.get_block_number() > resize_threshold_ * v_blocks_.size()) {
+    if (block_page.block_number > resize_threshold_ * v_blocks_.size()) {
         trigger_resize();
     }
 
@@ -709,7 +749,7 @@ void Viper<K, V, HC>::get_new_data_access_information(Client* client) {
 //    }
 
     const KVOffset block_page{current_block_page_.load()};
-    if (block_page.get_block_number() > resize_threshold_ * v_blocks_.size()) {
+    if (block_page.block_number > resize_threshold_ * v_blocks_.size()) {
         trigger_resize();
     }
 
@@ -760,8 +800,8 @@ void Viper<K, V, HC>::get_dimm_based_access(Client* client) {
     page_size_t client_page;
     do {
         const KVOffset v_block_page = KVOffset{raw_block_page};
-        client_block = v_block_page.get_block_number();
-        client_page = v_block_page.get_page_number();
+        client_block = v_block_page.block_number;
+        client_page = v_block_page.page_number;
 
         block_size_t new_block = client_block;
         page_size_t new_page = client_page + 1;
@@ -770,7 +810,7 @@ void Viper<K, V, HC>::get_dimm_based_access(Client* client) {
             new_page = 0;
         }
         new_offset = KVOffset{new_block, new_page, 0};
-    } while (!current_block_page_.compare_exchange_weak(raw_block_page, new_offset.get_raw_offset()));
+    } while (!current_block_page_.compare_exchange_weak(raw_block_page, new_offset.offset));
 
     client->strategy_ = Client::PageStrategy::DimmBased;
     client->v_block_number_ = client_block;
@@ -792,8 +832,8 @@ internal::KeyValueOffset Viper<K, V, HC>::get_new_block() {
     page_size_t client_page;
     do {
         const KVOffset v_block_page{raw_block_page};
-        client_block = v_block_page.get_block_number();
-        client_page = v_block_page.get_page_number();
+        client_block = v_block_page.block_number;
+        client_page = v_block_page.page_number;
 
         const block_size_t new_block = client_block + 1;
         assert(new_block < v_blocks_.size());
@@ -801,7 +841,7 @@ internal::KeyValueOffset Viper<K, V, HC>::get_new_block() {
         // Chose random offset to evenly distribute load on all DIMMs
         const page_size_t new_page = rand() % num_pages_per_block;
         new_offset = KVOffset{new_block, new_page, 0};
-    } while (!current_block_page_.compare_exchange_weak(raw_block_page, new_offset.get_raw_offset()));
+    } while (!current_block_page_.compare_exchange_weak(raw_block_page, new_offset.offset));
 
     return KVOffset{raw_block_page};
 }
@@ -871,19 +911,19 @@ bool Viper<K, V, HC>::Client::put(const K& key, const V& value) {
 
     if constexpr (std::is_same_v<K, std::string>) {
         // Variable length record
-        VDataPage::VarSizeEntry entry{key.size(), value.size()};
+        internal::VarSizeEntry entry{key.size(), value.size()};
         bool is_inserted = false;
         char* insert_pos = v_page_->next_insert_pos;
         const size_t entry_length = entry.key_size + entry.value_size;
-        const size_t meta_size = sizeof(entry.key_size) + sizeof(entry.value_size);
-        const ptrdiff_t offset_in_page = insert_pos - reinterpret_cast<char*>(v_page_->current_data_page);
+        const size_t meta_size = sizeof(entry.size_info);
 
-        const block_size_t current_block_number = v_data_block_number_;
-        const page_size_t current_page_number = v_data_page_number_;
+        ptrdiff_t offset_in_page = insert_pos - reinterpret_cast<char*>(v_page_->current_data_page);
+//        assert(offset_in_page < 4080);
+        block_size_t current_block_number = v_data_block_number_;
+        page_size_t current_page_number = v_data_page_number_;
 
         if (offset_in_page + meta_size + entry_length > v_page_size) {
             // This page is not big enough to fit the record. Allocate new one.
-            VDataPage* current_page = v_data_page_;
             update_data_page_information(v_page_);
 
             if (offset_in_page + meta_size + entry.key_size < v_page_size) {
@@ -897,7 +937,7 @@ bool Viper<K, V, HC>::Client::put(const K& key, const V& value) {
                 // Add value to new page.
                 insert_pos = v_data_page_->data.data();
                 // 0 size indicates key is on previous page.
-                VDataPage::VarSizeEntry value_entry{0, value.size()};
+                internal::VarSizeEntry value_entry{0, value.size()};
                 value_entry.data = insert_pos + meta_size;
                 pmem_memcpy(value_entry.data, value.data(), value_entry.value_size, 0);
                 pmem_memcpy(insert_pos, &value_entry, meta_size, 0);
@@ -906,10 +946,13 @@ bool Viper<K, V, HC>::Client::put(const K& key, const V& value) {
                 v_page_->next_insert_pos = insert_pos + meta_size + value_entry.value_size;
                 is_inserted = true;
             } else {
-                // Both records don't fit. Add both to new page. 0 sizes indicate that both are on next page.
-                VDataPage::VarSizeEntry next_page_entry{0, 0};
+                // Both key and value don't fit. Add both to new page. 0 sizes indicate that both are on next page.
+                internal::VarSizeEntry next_page_entry{0, 0};
                 pmem_memcpy_persist(insert_pos, &next_page_entry, meta_size);
                 insert_pos = v_data_page_->data.data();
+                offset_in_page = v_data_page_->METADATA_SIZE;
+                current_block_number = v_data_block_number_;
+                current_page_number = v_data_page_number_;
             }
         }
 
@@ -920,10 +963,11 @@ bool Viper<K, V, HC>::Client::put(const K& key, const V& value) {
             pmem_memcpy(entry.data, key.data(), entry.key_size, 0);
             pmem_memcpy(entry.data + entry.key_size, value.data(), entry.value_size, 0);
             pmem_persist(insert_pos, meta_size + entry_length);
-            v_page_->next_insert_pos = insert_pos + entry_length;
+            v_page_->next_insert_pos = insert_pos + meta_size + entry_length;
         }
 
-        const VarOffset var_offset{current_block_number, current_page_number, static_cast<uint16_t>(offset_in_page)};
+        const uint16_t data_offset = offset_in_page - v_data_page_->METADATA_SIZE;
+        const VarOffset var_offset{current_block_number, current_page_number, data_offset};
         v_page_->data[free_slot_idx] = var_offset;
         VarOffset* entry_ptr = v_page_->data.data() + free_slot_idx;
         pmem_persist(entry_ptr, sizeof(VarOffset));
@@ -1151,15 +1195,57 @@ Viper<K, V, HC>::Client::~Client() {
 }
 
 template <typename K, typename V, typename HC>
-const V* Viper<K, V, HC>::ConstClient::get_const_value_from_offset(Viper::KVOffset offset) const {
+const typename ValueAccessor<V>::type Viper<K, V, HC>::ConstClient::get_const_value_from_offset(Viper::KVOffset offset) const {
     const auto [block, page, slot] = offset.get_offsets();
     return &(const_viper_.v_blocks_[block]->v_pages[page].data[slot].second);
 }
 
+template <>
+const typename ValueAccessor<std::string>::type Viper<std::string, std::string, internal::KeyCompare<std::string>>::ConstClient::get_const_value_from_offset(Viper::KVOffset offset) const {
+    const auto [block, page, slot] = offset.get_offsets();
+
+    const internal::VarSizeOffset var_offset = const_viper_.v_blocks_[block]->v_pages[page].data[slot];
+    const block_size_t var_block = var_offset.block_number;
+    const page_size_t var_page = var_offset.page_number;
+    const uint32_t var_page_offset = var_offset.page_offset;
+
+    const VDataPageBlock* v_data_block = reinterpret_cast<VDataPageBlock*>(const_viper_.v_blocks_[var_block]);
+    const VDataPage& v_data_page = v_data_block->v_pages[var_page];
+    const char* raw_data = &v_data_page.data[var_page_offset];
+    internal::VarEntryAccessor var_entry{raw_data};
+    if (var_entry.value_size == 0) {
+        // Value is on next page
+        const char* raw_value_data = &v_data_page.next->data[0];
+        var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
+    }
+    return var_entry.value();
+}
+
 template <typename K, typename V, typename HC>
-V* Viper<K, V, HC>::Client::get_value_from_offset(Viper::KVOffset offset) {
+typename ValueAccessor<V>::type Viper<K, V, HC>::Client::get_value_from_offset(Viper::KVOffset offset) {
     const auto [block, page, slot] = offset.get_offsets();
     return &(viper_.v_blocks_[block]->v_pages[page].data[slot].second);
+}
+
+template <>
+std::string_view Viper<std::string, std::string, internal::KeyCompare<std::string>>::Client::get_value_from_offset(Viper::KVOffset offset) {
+    const auto [block, page, slot] = offset.get_offsets();
+
+    const internal::VarSizeOffset var_offset = viper_.v_blocks_[block]->v_pages[page].data[slot];
+    const block_size_t var_block = var_offset.block_number;
+    const page_size_t var_page = var_offset.page_number;
+    const uint32_t var_page_offset = var_offset.page_offset;
+
+    const VDataPageBlock* v_data_block = reinterpret_cast<VDataPageBlock*>(const_viper_.v_blocks_[var_block]);
+    const VDataPage& v_data_page = v_data_block->v_pages[var_page];
+    const char* raw_data = &v_data_page.data[var_page_offset];
+    internal::VarEntryAccessor var_entry{raw_data};
+    if (var_entry.value_size == 0) {
+        // Value is on next page
+        const char* raw_value_data = &v_data_page.next->data[0];
+        var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
+    }
+    return var_entry.value();
 }
 
 }  // namespace viper

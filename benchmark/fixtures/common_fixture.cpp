@@ -41,8 +41,8 @@ void BaseFixture::prefill_internal(const size_t num_prefills, PrefillFn prefill_
     set_cpu_affinity();
 
     std::vector<std::thread> prefill_threads{};
-    const size_t num_prefills_per_thread = (num_prefills / NUM_UTIL_THREADS) + 1;
-    for (size_t thread_num = 0; thread_num < NUM_UTIL_THREADS; ++thread_num) {
+    const size_t num_prefills_per_thread = (num_prefills / 1) + 1;
+    for (size_t thread_num = 0; thread_num < 1; ++thread_num) {
         const size_t start_key = thread_num * num_prefills_per_thread;
         const size_t end_key = std::min(start_key + num_prefills_per_thread, num_prefills);
         prefill_threads.emplace_back([=]() {
@@ -99,12 +99,13 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
         std::random_device rd;
         std::default_random_engine rng(rd());
         std::normal_distribution<> record_length_dist(record_size, 0.2 * record_size);
-        std::uniform_int_distribution<> dist(0,sizeof(alphabet)/sizeof(*alphabet)-2);
+        std::uniform_int_distribution<> dist(0, sizeof(alphabet) / sizeof(*alphabet) - 2);
 
         for (auto i = start; i < end; ++i) {
-            std::string str;
             size_t record_len = record_length_dist(rng);
             record_len = std::min(record_len, 2 * record_size);
+            record_len = std::max(1ul, record_len);
+            std::string str;
             str.reserve(record_len);
             std::generate_n(std::back_inserter(str), record_len, [&]() { return alphabet[dist(rng)]; });
             records[i] = std::move(str);
