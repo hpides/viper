@@ -58,7 +58,7 @@ void ViperFixture<KeyT, ValueT, KC>::InitMap(uint64_t num_prefill_inserts, Viper
 
     pool_file_ = VIPER_POOL_FILE;
     const size_t expected_size = MAX_DATA_SIZE * (sizeof(KeyT) + sizeof(ValueT));
-    const size_t size_to_zero = ONE_GB * (std::ceil(expected_size / ONE_GB) + 5);
+    const size_t size_to_zero = ONE_GB * (std::ceil(expected_size / ONE_GB) + 10);
     zero_block_device(pool_file_, size_to_zero);
 
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE, v_config);
@@ -164,7 +164,19 @@ uint64_t ViperFixture<KeyT, ValueT, KC>::setup_and_delete(uint64_t start_idx, ui
 
 template <>
 uint64_t ViperFixture<std::string, std::string, KeyCompare<std::string>>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
-    throw std::runtime_error{"not supported"};
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+    const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
+
+    auto v_client = viper_->get_client();
+    uint64_t delete_counter = 0;
+    for (uint64_t i = 0; i < num_deletes; ++i) {
+        const uint64_t key = distrib(rnd_engine);
+        const std::string& db_key = keys[key];
+        delete_counter += v_client.remove(db_key);
+    }
+    return delete_counter;
 }
 
 template <typename KeyT, typename ValueT, typename KC>

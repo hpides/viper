@@ -9,18 +9,19 @@
 using namespace viper::kv_bm;
 
 constexpr size_t VAR_SIZES_NUM_REPETITIONS = 1;
-constexpr double VAR_SIZES_SCALE_FACTOR = 1.0;
-constexpr size_t VAR_SIZES_PREFILL_SIZE = 0.1 * (1000l * 1000 * 1000) * VAR_SIZES_SCALE_FACTOR;
+constexpr size_t VAR_SIZES_PREFILL_SIZE = 10 * (1000l * 1000 * 1000);
 constexpr size_t VAR_SIZES_INSERT_SIZE = VAR_SIZES_PREFILL_SIZE / 2;
-constexpr size_t VAR_SIZES_NUM_FINDS = 5'000'000 * VAR_SIZES_SCALE_FACTOR;
+constexpr size_t VAR_SIZES_NUM_FINDS = 50'000'000;
+constexpr size_t VAR_SIZES_NUM_UPDATES = 50'000'000;
+constexpr size_t VAR_SIZES_NUM_DELETES = 50'000'000;
 
 #define GENERAL_ARGS \
             ->Repetitions(VAR_SIZES_NUM_REPETITIONS) \
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
-            ->ThreadRange(1, NUM_MAX_THREADS) \
             ->Threads(24)
+//            ->ThreadRange(1, NUM_MAX_THREADS) \
 
 #define DEFINE_BM_INTERNAL(fixture, method, KS, VS) \
         BENCHMARK_TEMPLATE_DEFINE_F(fixture, method ##_ ##KS ##_ ##VS,  \
@@ -34,6 +35,10 @@ constexpr size_t VAR_SIZES_NUM_FINDS = 5'000'000 * VAR_SIZES_SCALE_FACTOR;
             ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_FINDS}); \
         DEFINE_BM_INTERNAL(fixture, insert, KS, VS) \
             ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_INSERT_SIZE / (KS + VS)}); \
+//        DEFINE_BM_INTERNAL(fixture, delete, KS, VS) \
+//            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_DELETES}); \
+//        DEFINE_BM_INTERNAL(fixture, update, KS, VS) \
+//            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_UPDATES}); \
 
 #define DEFINE_ALL_BMS(fixture) \
         DEFINE_BM(fixture, 10, 50); \
@@ -83,11 +88,41 @@ inline void bm_get(benchmark::State& state, BaseFixture& fixture, size_t key_siz
     const uint64_t start_idx = 0;
     const uint64_t end_idx = num_total_prefill - state.threads;
 
+    size_t found_counter = 0;
     for (auto _ : state) {
-        fixture.setup_and_find(start_idx, end_idx, num_finds_per_thread);
+        found_counter = fixture.setup_and_find(start_idx, end_idx, num_finds_per_thread);
     }
 
     state.SetItemsProcessed(num_finds_per_thread);
+    fixture.log_find_count(state, found_counter, num_finds_per_thread);
+
+    if (is_init_thread(state)) {
+        fixture.DeInitMap();
+    }
+}
+
+inline void bm_delete(benchmark::State& state, BaseFixture& fixture, size_t key_size, size_t value_size) {
+    const uint64_t num_total_prefill = state.range(0);
+    const uint64_t num_total_deletes = state.range(1);
+
+    set_cpu_affinity(state.thread_index);
+
+    if (is_init_thread(state)) {
+        const size_t num_total_strings = num_total_prefill;
+        fixture.generate_strings(num_total_strings, key_size, value_size);
+        fixture.InitMap(num_total_prefill);
+    }
+
+    const uint64_t num_deletes_per_thread = num_total_deletes / state.threads;
+    const uint64_t start_idx = 0;
+    const uint64_t end_idx = num_total_prefill - state.threads;
+
+    uint64_t num_deletes = 0;
+    for (auto _ : state) {
+        num_deletes = fixture.setup_and_delete(start_idx, end_idx, num_deletes_per_thread);
+    }
+
+    state.SetItemsProcessed(num_deletes);
 
     if (is_init_thread(state)) {
         fixture.DeInitMap();

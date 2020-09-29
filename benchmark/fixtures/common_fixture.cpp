@@ -4,6 +4,7 @@
 #include <sys/mman.h>
 #include <thread>
 #include <execution>
+#include <unordered_set>
 
 namespace viper::kv_bm {
 
@@ -41,8 +42,8 @@ void BaseFixture::prefill_internal(const size_t num_prefills, PrefillFn prefill_
     set_cpu_affinity();
 
     std::vector<std::thread> prefill_threads{};
-    const size_t num_prefills_per_thread = (num_prefills / 1) + 1;
-    for (size_t thread_num = 0; thread_num < 1; ++thread_num) {
+    const size_t num_prefills_per_thread = (num_prefills / NUM_UTIL_THREADS) + 1;
+    for (size_t thread_num = 0; thread_num < NUM_UTIL_THREADS; ++thread_num) {
         const size_t start_key = thread_num * num_prefills_per_thread;
         const size_t end_key = std::min(start_key + num_prefills_per_thread, num_prefills);
         prefill_threads.emplace_back([=]() {
@@ -96,10 +97,10 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
     std::cout << "Generating records..." << std::endl;
 
     auto record_gen_fn = [](std::vector<std::string>& records, size_t start, size_t end, size_t record_size) {
-        std::random_device rd;
-        std::default_random_engine rng(rd());
+        std::seed_seq seed{start};
+        std::mt19937_64 rng{seed};
         std::normal_distribution<> record_length_dist(record_size, 0.2 * record_size);
-        std::uniform_int_distribution<> dist(0, sizeof(alphabet) / sizeof(*alphabet) - 2);
+        std::uniform_int_distribution<> dist(0, 61);
 
         for (auto i = start; i < end; ++i) {
             size_t record_len = record_length_dist(rng);
@@ -136,6 +137,16 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
     const auto end = std::chrono::high_resolution_clock::now();
     const auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
     std::cout << "GENERATION DURATION: " << duration << " s." << std::endl;
+
+//    std::unordered_set<std::string> keys_checker{keys.begin(), keys.end()};
+//    if (keys_checker.size() != keys.size()) {
+//        std::cout << "KEYS MISMATCH: " << keys.size() << " is " << keys_checker.size() << " in set" << std::endl;
+//    }
+//
+//    std::unordered_set<std::string> values_checker{values.begin(), values.end()};
+//    if (values_checker.size() != values.size()) {
+//        std::cout << "VALUES MISMATCH: " << values.size() << " is " << values_checker.size() << " in set" << std::endl;
+//    }
 
     set_cpu_affinity(CPU_ISSET(0, &cpuset_before) ? 0 : 1);
 }
@@ -189,12 +200,13 @@ void zero_block_device(const std::string& block_dev, size_t length) {
     const size_t num_chunks = length / buffer_size;
     const size_t num_chunks_per_thread = (num_chunks / NUM_UTIL_THREADS) + 1;
 
+    const size_t num_write_threads = 6;
     std::vector<std::thread> zero_threads;
-    zero_threads.reserve(NUM_UTIL_THREADS);
-    for (size_t thread_num = 0; thread_num < NUM_UTIL_THREADS; ++thread_num) {
+    zero_threads.reserve(num_write_threads);
+    for (size_t thread_num = 0; thread_num < num_write_threads; ++thread_num) {
         char* start_addr = reinterpret_cast<char*>(addr) + (thread_num * num_chunks_per_thread);
         zero_threads.emplace_back([&](char* start_addr) {
-            for (size_t i = 0; i < num_chunks_per_thread; ++i) {
+            for (size_t i = 0; i < num_chunks_per_thread && i < num_chunks; ++i) {
                 void* chunk_start_addr = start_addr + (i * buffer_size);
                 memcpy(chunk_start_addr, &buffer, buffer_size);
             }
