@@ -20,8 +20,8 @@ constexpr size_t VAR_SIZES_NUM_DELETES = 50'000'000;
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
+            ->ThreadRange(1, NUM_MAX_THREADS) \
             ->Threads(36)
-//            ->ThreadRange(1, NUM_MAX_THREADS) \
 
 #define DEFINE_BM_INTERNAL(fixture, method, KS, VS) \
         BENCHMARK_TEMPLATE_DEFINE_F(fixture, method ##_ ##KS ##_ ##VS,  \
