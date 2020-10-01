@@ -195,11 +195,12 @@ struct alignas(PAGE_SIZE) ViperPage {
 };
 
 struct alignas(PAGE_SIZE) ViperDataPage {
+    static constexpr size_t METADATA_SIZE = sizeof(owner) + sizeof(next);
+    static constexpr uint16_t DATA_SIZE = PAGE_SIZE - METADATA_SIZE;
+
     ViperPage<std::string, std::string>* owner;
     ViperDataPage* next;
 
-    static constexpr size_t METADATA_SIZE = sizeof(owner) + sizeof(next);
-    static constexpr uint16_t DATA_SIZE = PAGE_SIZE - METADATA_SIZE;
     std::array<char, DATA_SIZE> data;
 
     ViperDataPage() {

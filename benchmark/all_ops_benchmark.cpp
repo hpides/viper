@@ -10,18 +10,19 @@
 #include "fixtures/rocksdb_fixture.hpp"
 #include "fixtures/faster_fixture.hpp"
 #include "fixtures/dram_map_fixture.hpp"
-
+#include "fixtures/cceh_fixture.hpp"
 
 #define GENERAL_ARGS \
             ->Repetitions(3) \
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
-            ->ThreadRange(1, NUM_MAX_THREADS) \
-            ->Threads(24)
+            ->Threads(36)
+//            ->ThreadRange(1, NUM_MAX_THREADS) \
 
+// TODO: change back to 16/200
 #define DEFINE_BM(fixture, method) \
-            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, method, KeyType16, ValueType200)(benchmark::State& state) { \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, method, KeyType8, ValueType8)(benchmark::State& state) { \
                 bm_##method(state, *this); \
             } \
             BENCHMARK_REGISTER_F(fixture, method) GENERAL_ARGS
@@ -32,10 +33,10 @@
 #define BM_DELETE(fixture) DEFINE_BM(fixture, delete)->Args({NUM_PREFILLS, NUM_DELETES})
 
 #define ALL_BMS(fixture) \
-            BM_INSERT(fixture); \
             BM_FIND(fixture); \
-            BM_UPDATE(fixture); \
-            BM_DELETE(fixture)
+//            BM_INSERT(fixture); \
+//            BM_UPDATE(fixture); \
+//            BM_DELETE(fixture)
 
 using namespace viper::kv_bm;
 
@@ -151,18 +152,19 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
     BaseFixture::log_find_count(state, found_counter, found_counter);
 }
 
-ALL_BMS(DramMapFixture);
-ALL_BMS(ViperFixture);
-ALL_BMS(PmemKVFixture);
-ALL_BMS(NvmFasterFixture);
-ALL_BMS(PmemHybridFasterFixture);
-ALL_BMS(DiskHybridFasterFixture);
-ALL_BMS(PmemRocksDbFixture);
+//ALL_BMS(DramMapFixture);
+ALL_BMS(CcehFixture);
+//ALL_BMS(ViperFixture);
+//ALL_BMS(PmemKVFixture);
+//ALL_BMS(NvmFasterFixture);
+//ALL_BMS(PmemHybridFasterFixture);
+//ALL_BMS(DiskHybridFasterFixture);
+//ALL_BMS(PmemRocksDbFixture);
 
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
-    const std::string arg = get_output_file("all_ops/all_ops");
-    return bm_main({exec_name, arg});
-//    return bm_main({exec_name});
+//    const std::string arg = get_output_file("all_ops/all_ops");
+//    return bm_main({exec_name, arg});
+    return bm_main({exec_name});
 }

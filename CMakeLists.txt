@@ -42,6 +42,13 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 SET(LINK_LIBS pthread pmem pmemobj ${TBB_IMPORTED_TARGETS} pmemkv pmempool pmemlog /usr/local/lib/libmemkind.so.0)
 
+# Include Dash
+#add_subdirectory(third_party/dash)
+#include_directories(third_party/dash)
+
+include_directories(third_party/cceh)
+add_subdirectory(third_party/cceh)
+
 # Include viper sources
 include_directories(src)
 
