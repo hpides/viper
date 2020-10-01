@@ -35,8 +35,8 @@ template <typename PrefillFn>
 void BaseFixture::prefill_internal(const size_t num_prefills, PrefillFn prefill_fn) {
 #ifndef NDEBUG
     std::cout << "START PREFILL." << std::endl;
-#endif
     const auto start = std::chrono::high_resolution_clock::now();
+#endif
     cpu_set_t cpuset_before;
     pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
     set_cpu_affinity();
@@ -57,9 +57,11 @@ void BaseFixture::prefill_internal(const size_t num_prefills, PrefillFn prefill_
     }
 
     set_cpu_affinity(CPU_ISSET(0, &cpuset_before) ? 0 : 1);
+#ifndef NDEBUG
     const auto end = std::chrono::high_resolution_clock::now();
     const auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
     std::cout << "PREFILL DURATION: " << duration << " s." << std::endl;
+#endif
 }
 
 void BaseFixture::prefill(const size_t num_prefills) {
@@ -94,7 +96,6 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
     set_cpu_affinity();
 
     const auto start = std::chrono::high_resolution_clock::now();
-    std::cout << "Generating records..." << std::endl;
 
     auto record_gen_fn = [](std::vector<std::string>& records, size_t start, size_t end, size_t record_size) {
         std::seed_seq seed{start};
@@ -134,19 +135,11 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
         thread.join();
     }
 
+#ifndef NDEBUG
     const auto end = std::chrono::high_resolution_clock::now();
     const auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
     std::cout << "GENERATION DURATION: " << duration << " s." << std::endl;
-
-//    std::unordered_set<std::string> keys_checker{keys.begin(), keys.end()};
-//    if (keys_checker.size() != keys.size()) {
-//        std::cout << "KEYS MISMATCH: " << keys.size() << " is " << keys_checker.size() << " in set" << std::endl;
-//    }
-//
-//    std::unordered_set<std::string> values_checker{values.begin(), values.end()};
-//    if (values_checker.size() != values.size()) {
-//        std::cout << "VALUES MISMATCH: " << values.size() << " is " << values_checker.size() << " in set" << std::endl;
-//    }
+#endif
 
     set_cpu_affinity(CPU_ISSET(0, &cpuset_before) ? 0 : 1);
 }

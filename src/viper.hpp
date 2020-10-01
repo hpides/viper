@@ -277,6 +277,7 @@ struct ValueAccessor {
     typedef ValueT* type;
     typedef ValueT* ptr_type;
     typedef const ValueT* const_ptr_type;
+    typedef const ValueT& ref_type;
 
     static ptr_type to_ptr_type(type& x) { return x; }
     static const_ptr_type to_ptr_type(const type& x) { return x; }
@@ -287,6 +288,7 @@ struct ValueAccessor<std::string> {
     typedef std::string_view type;
     typedef std::string_view* ptr_type;
     typedef const std::string_view* const_ptr_type;
+    typedef const std::string_view& ref_type;
 
     static ptr_type to_ptr_type(type& x) { return &x; }
     static const_ptr_type to_ptr_type(const type& x) { return &x; }
@@ -321,7 +323,7 @@ class Viper {
       public:
         ConstAccessor() = default;
 
-//        const typename ValueAccessor<V>::ref_type operator*() const { return *value_; }
+        const typename ValueAccessor<V>::ref_type operator*() const { return *operator->(); }
         const typename ValueAccessor<V>::const_ptr_type operator->() const { return ValueAccessor<V>::to_ptr_type(value_); }
 
         ConstAccessor(const ConstAccessor& other) = delete;
@@ -338,7 +340,7 @@ class Viper {
     class Accessor : public ConstAccessor {
         using MapAccessor = typename ConstAccessor::MapType::accessor;
       public:
-//        typename ValueAccessor<V>::ref_type operator*() { return *value_; }
+        typename ValueAccessor<V>::ref_type operator*() { return *value_; }
         typename ValueAccessor<V>::ptr_type operator->() { return value_; }
 
       protected:
@@ -974,7 +976,6 @@ bool Viper<K, V, HC>::Client::put(const K& key, const V& value) {
 
         ptrdiff_t next_pos = v_page_->next_insert_pos - reinterpret_cast<char*>(v_page_->current_data_page);
         assert(next_pos <= v_page_size);
-        assert(*v_page_->next_insert_pos == '\0');
 
         const uint16_t data_offset = offset_in_page - v_data_page_->METADATA_SIZE;
         const VarOffset var_offset{current_block_number, current_page_number, data_offset};
@@ -1062,6 +1063,10 @@ bool Viper<K, V, HC>::Client::get(const K& key, Viper::ConstAccessor& accessor) 
 template <typename K, typename V, typename HC>
 template <typename UpdateFn>
 bool Viper<K, V, HC>::Client::update(const K& key, UpdateFn update_fn) {
+    if constexpr (std::is_same_v<K, std::string>) {
+        throw std::runtime_error("In-place update not supported for variable length records!");
+    }
+
     typename MapType::accessor result;
     const bool found = viper_.map_.find(result, key);
     if (!found) {
@@ -1091,7 +1096,6 @@ bool Viper<K, V, HC>::Client::remove(const K& key) {
 
     const auto [block_number, page_number, slot_number] = offset.get_offsets();
     free_occupied_slot(block_number, page_number, slot_number);
-//    result->second = KVOffset::Tombstone();
     viper_.map_.erase(result);
     return true;
 }
@@ -1100,6 +1104,9 @@ template <typename K, typename V, typename HC>
 void Viper<K, V, HC>::Client::free_occupied_slot(const block_size_t block_number,
                                                  const page_size_t page_number,
                                                  const slot_size_t slot_number) {
+    while (viper_.is_v_blocks_resizing_.load(std::memory_order_acquire)) {
+        // Wait for vector's memmove to complete. Otherwise we might encounter a segfault.
+    }
     VPage& v_page = viper_.v_blocks_[block_number]->v_pages[page_number];
     std::atomic<version_lock_t>& v_lock = v_page.version_lock;
     version_lock_t lock_value = v_lock.load(std::memory_order_acquire) & FREE_BYTE;
