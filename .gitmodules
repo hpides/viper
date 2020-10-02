@@ -13,6 +13,3 @@
 [submodule "benchmark/third_party/hdr_histogram"]
 	path = benchmark/third_party/hdr_histogram
 	url = https://github.com/HdrHistogram/HdrHistogram_c.git
-[submodule "third_party/cceh"]
-	path = third_party/cceh
-	url = https://github.com/lawben/CCEH.git
