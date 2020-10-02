@@ -58,7 +58,7 @@ void ViperFixture<KeyT, ValueT, KC>::InitMap(uint64_t num_prefill_inserts, Viper
 
     pool_file_ = VIPER_POOL_FILE;
     const size_t expected_size = MAX_DATA_SIZE * (sizeof(KeyT) + sizeof(ValueT));
-    const size_t size_to_zero = ONE_GB * (std::ceil(expected_size / ONE_GB) + 10);
+    const size_t size_to_zero = ONE_GB * (std::ceil(expected_size / ONE_GB) + 5);
     zero_block_device(pool_file_, size_to_zero);
 
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE, v_config);

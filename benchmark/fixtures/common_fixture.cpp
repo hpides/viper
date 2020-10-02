@@ -186,14 +186,11 @@ void zero_block_device(const std::string& block_dev, size_t length) {
         throw std::runtime_error("Cannot mmap pool file: " + block_dev + " | " + std::strerror(errno));
     }
 
+    constexpr size_t num_write_threads = 6;
     constexpr size_t buffer_size = 4096;
-    std::array<char, buffer_size> buffer;
-    buffer.fill(0);
-
     const size_t num_chunks = length / buffer_size;
-    const size_t num_chunks_per_thread = (num_chunks / NUM_UTIL_THREADS) + 1;
+    const size_t num_chunks_per_thread = (num_chunks / num_write_threads) + 1;
 
-    const size_t num_write_threads = 6;
     std::vector<std::thread> zero_threads;
     zero_threads.reserve(num_write_threads);
     for (size_t thread_num = 0; thread_num < num_write_threads; ++thread_num) {
@@ -201,7 +198,7 @@ void zero_block_device(const std::string& block_dev, size_t length) {
         zero_threads.emplace_back([&](char* start_addr) {
             for (size_t i = 0; i < num_chunks_per_thread && i < num_chunks; ++i) {
                 void* chunk_start_addr = start_addr + (i * buffer_size);
-                memcpy(chunk_start_addr, &buffer, buffer_size);
+                memset(chunk_start_addr, 0, buffer_size);
             }
         }, start_addr);
     }
