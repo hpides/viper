@@ -1,6 +1,11 @@
+#include <iostream>
 #include <memory>
 #include <iostream>
 #include "cceh/CCEH.h"
+
+#include "viper.hpp"
+
+using namespace viper;
 
 int main() {
     size_t capacity = 10;
