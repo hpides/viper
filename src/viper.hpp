@@ -13,7 +13,6 @@
 #include <sys/mman.h>
 #include <atomic>
 #include <assert.h>
-#include <unordered_set>
 
 #ifndef NDEBUG
 #define DEBUG_LOG(msg) (std::cout << msg << std::endl)
@@ -114,20 +113,6 @@ struct KeyValueOffset {
     inline bool is_tombstone() const {
         return offset == TOMBSTONE;
     }
-};
-
-struct VarSizeOffset {
-    union {
-        uint64_t offset_info;
-        struct {
-            uint64_t block_number : 48;
-            uint8_t page_number : 4;
-            uint16_t data_offset : 12;
-        };
-    };
-
-    VarSizeOffset(uint64_t block_number, uint8_t page_number, uint16_t data_offset)
-        : block_number(block_number), page_number(page_number), data_offset(data_offset) {}
 };
 
 struct VarSizeEntry {
@@ -286,9 +271,7 @@ template <typename K, typename V, typename HashCompare = internal::KeyCompare<K>
 class Viper {
     using ViperT = Viper<K, V, HashCompare>;
     using VPage = internal::ViperPage<K, V>;
-    using VPageVar = internal::ViperPage<std::string, std::string>;
     using KVOffset = internal::KeyValueOffset;
-    using VarOffset = internal::VarSizeOffset;
     using MapType = tbb::concurrent_hash_map<K, KVOffset, HashCompare>;
     static constexpr uint64_t v_page_size = sizeof(VPage);
     static_assert(BLOCK_SIZE % v_page_size == 0, "Page needs to fit into block.");
