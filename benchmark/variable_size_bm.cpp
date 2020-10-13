@@ -9,19 +9,19 @@
 using namespace viper::kv_bm;
 
 constexpr size_t VAR_SIZES_NUM_REPETITIONS = 1;
-constexpr size_t VAR_SIZES_PREFILL_SIZE = 20 * (1000l * 1000 * 1000);
+constexpr size_t VAR_SIZES_PREFILL_SIZE = 1 * (1000l * 1000 * 1000);
 constexpr size_t VAR_SIZES_INSERT_SIZE = VAR_SIZES_PREFILL_SIZE / 2;
-constexpr size_t VAR_SIZES_NUM_FINDS = 50'000'000;
-constexpr size_t VAR_SIZES_NUM_UPDATES = 50'000'000;
-constexpr size_t VAR_SIZES_NUM_DELETES = 50'000'000;
+constexpr size_t VAR_SIZES_NUM_FINDS = 5'000'000;
+constexpr size_t VAR_SIZES_NUM_UPDATES = 5'000'000;
+constexpr size_t VAR_SIZES_NUM_DELETES = 5'000'000;
 
 #define GENERAL_ARGS \
             ->Repetitions(VAR_SIZES_NUM_REPETITIONS) \
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
-            ->ThreadRange(1, NUM_MAX_THREADS) \
-            ->Threads(24)
+            ->Threads(36)
+//            ->ThreadRange(1, NUM_MAX_THREADS) \
 
 #define DEFINE_BM_INTERNAL(fixture, method, KS, VS) \
         BENCHMARK_TEMPLATE_DEFINE_F(fixture, method ##_ ##KS ##_ ##VS,  \
@@ -32,15 +32,19 @@ constexpr size_t VAR_SIZES_NUM_DELETES = 50'000'000;
 
 #define DEFINE_BM(fixture, KS, VS) \
         DEFINE_BM_INTERNAL(fixture, insert, KS, VS) \
-            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_INSERT_SIZE / (KS + VS)}); \
-        DEFINE_BM_INTERNAL(fixture, get, KS, VS) \
-            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_FINDS}); \
-        DEFINE_BM_INTERNAL(fixture, delete, KS, VS) \
-            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_DELETES}); \
+            ->Args({100000, 100000}); \
+//        DEFINE_BM_INTERNAL(fixture, get, KS, VS) \
+//            ->Args({100000, 100000}); \
+//            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_FINDS}); \
+//        DEFINE_BM_INTERNAL(fixture, delete, KS, VS) \
+//            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_DELETES}); \
+
+// TODO: insert args
+//            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_INSERT_SIZE / (KS + VS)}); \
 
 #define DEFINE_ALL_BMS(fixture) \
         DEFINE_BM(fixture, 10, 50); \
-        DEFINE_BM(fixture, 100, 250)
+//        DEFINE_BM(fixture, 100, 250)
 
 void bm_insert(benchmark::State& state, BaseFixture& fixture, size_t key_size, size_t value_size) {
     const uint64_t num_total_prefill = state.range(0);
@@ -58,12 +62,14 @@ void bm_insert(benchmark::State& state, BaseFixture& fixture, size_t key_size, s
     const uint64_t start_idx = (state.thread_index * num_inserts_per_thread) + num_total_prefill;
     const uint64_t end_idx = start_idx + num_inserts_per_thread;
 
+    size_t insert_counter = 0;
     for (auto _ : state) {
-        fixture.setup_and_insert(start_idx, end_idx);
+        insert_counter = fixture.setup_and_insert(start_idx, end_idx);
 
     }
 
     state.SetItemsProcessed(num_inserts_per_thread);
+    fixture.log_find_count(state, insert_counter, num_inserts_per_thread);
 
     if (is_init_thread(state)) {
         fixture.DeInitMap();

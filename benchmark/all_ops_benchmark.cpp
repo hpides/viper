@@ -153,8 +153,8 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
 }
 
 //ALL_BMS(DramMapFixture);
-ALL_BMS(CcehFixture);
-//ALL_BMS(ViperFixture);
+//ALL_BMS(CcehFixture);
+ALL_BMS(ViperFixture);
 //ALL_BMS(PmemKVFixture);
 //ALL_BMS(NvmFasterFixture);
 //ALL_BMS(PmemHybridFasterFixture);

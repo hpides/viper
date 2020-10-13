@@ -3,18 +3,85 @@
 #include <cstring>
 #include <cmath>
 #include <vector>
+#include <stdint.h>
 #include <iostream>
 #include <cmath>
 #include <thread>
 #include <bitset>
 #include <cassert>
 #include <unordered_map>
+#include <atomic>
 
-#include "cceh/pair.h"
-#include "cceh/persist.h"
-#include "cceh/uhash.h"
+#include "hash.hpp"
 
-namespace viper::cceh {
+namespace viper {
+
+#define internal_cas(entry, expected, updated) \
+    __atomic_compare_exchange_n(entry, expected, updated, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)
+
+#define requires_fingerprint(KeyType) \
+    std::is_same_v<KeyType, std::string> || sizeof(KeyType) > 8
+
+
+template <typename KeyType>
+inline bool CAS(KeyType* key, KeyType* expected, KeyType updated) {
+    if constexpr (sizeof(KeyType) == 1) return internal_cas((int8_t *) key, (int8_t *) expected, (int8_t ) updated);
+    else if constexpr (sizeof(KeyType) == 2) return internal_cas((int16_t*) key, (int16_t*) expected, (int16_t ) updated);
+    else if constexpr (sizeof(KeyType) == 4) return internal_cas((int32_t*) key, (int32_t*) expected, (int32_t ) updated);
+    else if constexpr (sizeof(KeyType) == 8) return internal_cas((int64_t*) key, (int64_t*) expected, (int64_t ) updated);
+    else if constexpr (sizeof(KeyType) == 16) return internal_cas((__int128*) key, (__int128*) expected, (__int128) updated);
+    else throw std::runtime_error("CAS not supported for > 16 bytes!");
+}
+
+using offset_size_t = uint64_t;
+using block_size_t = uint64_t;
+using page_size_t = uint8_t;
+using data_offset_size_t = uint16_t;
+
+struct KeyValueOffset {
+    static constexpr offset_size_t INVALID = 0xFFFFFFFFFFFFFFFF;
+
+    union {
+        offset_size_t offset;
+        struct {
+            bool is_free : 1;
+            block_size_t block_number : 44;
+            page_size_t page_number : 3;
+            data_offset_size_t data_offset : 16;
+        };
+    };
+
+    KeyValueOffset() : offset{INVALID} {}
+
+    static KeyValueOffset NONE() { return KeyValueOffset{INVALID}; }
+
+    explicit KeyValueOffset(const offset_size_t offset) : offset(offset) {}
+
+    KeyValueOffset(const block_size_t block_number, const page_size_t page_number, const data_offset_size_t slot)
+        : is_free{true}, block_number{block_number}, page_number{page_number}, data_offset{slot} {}
+
+    static KeyValueOffset Tombstone() {
+        return KeyValueOffset{};
+    }
+
+    inline std::tuple<block_size_t, page_size_t, data_offset_size_t> get_offsets() const {
+        return {block_number, page_number, data_offset};
+    }
+
+    inline bool is_tombstone() const {
+        return offset == INVALID;
+    }
+};
+
+using IndexK = size_t;
+using IndexV = KeyValueOffset;
+constexpr IndexK SENTINEL = -2; // 11111...110
+constexpr IndexK INVALID = -1; // 11111...111
+
+namespace cceh {
+
+#define INPLACE 1
+#define CACHE_LINE_SIZE 64
 
 constexpr size_t kSegmentBits = 8;
 constexpr size_t kMask = (1 << kSegmentBits)-1;
@@ -23,8 +90,106 @@ constexpr size_t kSegmentSize = (1 << kSegmentBits) * 16 * 4;
 constexpr size_t kNumPairPerCacheLine = 4;
 constexpr size_t kNumCacheLine = 4;
 
+template <typename KeyType = IndexK>
+struct Pair {
+    KeyType key;
+    IndexV value;
+
+    Pair(void) : key{INVALID}, value{IndexV::Tombstone()} {}
+
+    Pair(KeyType _key, IndexV _value) : key{_key}, value{_value} {}
+
+    Pair& operator=(const Pair& other) {
+        key = other.key;
+        value = other.value;
+        return *this;
+    }
+
+  void* operator new(size_t size) {
+    void *ret;
+    posix_memalign(&ret, 64, size);
+    return ret;
+  }
+
+  void* operator new[](size_t size) {
+    void *ret;
+    posix_memalign(&ret, 64, size);
+    return ret;
+  }
+};
+
+struct CcehAccessor {
+  IndexV* offset;
+  bool has_lock;
+  bool found;
+
+  CcehAccessor() : offset{nullptr}, has_lock{false}, found{false} {}
+  ~CcehAccessor() { release(); }
+
+  inline void take(IndexV* value) {
+      offset = value;
+      found = offset != nullptr && !offset->is_tombstone();
+      if (found) acquire();
+  }
+
+  IndexV* operator->() { return offset; }
+  IndexV& operator*() { return *offset; }
+
+  inline void acquire() {
+      IndexV* expected = offset;
+      expected->is_free = true;
+      IndexV* locked = offset;
+      locked->is_free = false;
+      while (!CAS(&offset->offset, &expected->offset, locked->offset)) {
+          expected->is_free = true;
+      }
+      has_lock = true;
+  }
+
+  inline void release() {
+    if (has_lock) {
+        IndexV* expected = offset;
+        expected->is_free = false;
+        IndexV* unlocked = offset;
+        unlocked->is_free = true;
+        CAS(&offset->offset, &expected->offset, unlocked->offset);
+        has_lock = false;
+    }
+  }
+};
+
+static inline void CPUPause(void) {
+    __asm__ volatile("pause":::"memory");
+}
+
+static inline unsigned long ReadTSC(void) {
+    unsigned long var;
+    unsigned int hi, lo;
+    asm volatile("rdtsc":"=a"(lo),"=d"(hi));
+    var = ((unsigned long long int) hi << 32) | lo;
+    return var;
+}
+
+inline void mfence(void) {
+#ifdef CCEH_PERSISTENT
+    asm volatile("mfence":::"memory");
+#endif
+}
+
+inline void clflush(char* data, size_t len) {
+#ifdef CCEH_PERSISTENT
+    volatile char *ptr = (char*)((unsigned long)data & (~(CACHE_LINE_SIZE-1)));
+  mfence();
+  for (; ptr < data+len; ptr+=CACHE_LINE_SIZE) {
+    asm volatile("clflush %0" : "+m" (*(volatile char*)ptr));
+  }
+  mfence();
+#endif
+}
+
+template <typename KeyType>
 struct Segment {
-    static const size_t kNumSlot = kSegmentSize/sizeof(Pair);
+    static const size_t kNumSlot = kSegmentSize / sizeof(Pair<KeyType>);
 
     Segment(void)
         : local_depth{0}
@@ -49,21 +214,22 @@ struct Segment {
         return ret;
     }
 
-    int Insert(Key_t&, Value_t, size_t, size_t);
-    void Insert4split(Key_t&, Value_t, size_t);
-    bool Put(Key_t&, Value_t, size_t);
+    template <typename KeyCheckFn>
+    int Insert(const KeyType&, IndexV, size_t, size_t, IndexV* old_entry, KeyCheckFn);
+
+    void Insert4split(IndexK, IndexV, size_t);
     Segment** Split(void);
 
-    Pair _[kNumSlot];
+    Pair<IndexK> _[kNumSlot];
     size_t local_depth;
     int64_t sema = 0;
     size_t pattern = 0;
-    size_t numElem(void);
 };
 
+template <typename KeyType>
 struct Directory {
     static const size_t kDefaultDepth = 10;
-    Segment** _;
+    Segment<KeyType>** _;
     size_t capacity;
     size_t depth;
     bool lock;
@@ -72,7 +238,7 @@ struct Directory {
     Directory(void) {
         depth = kDefaultDepth;
         capacity = pow(2, depth);
-        _ = new Segment*[capacity];
+        _ = new Segment<KeyType>*[capacity];
         lock = false;
         sema = 0;
     }
@@ -80,7 +246,7 @@ struct Directory {
     Directory(size_t _depth) {
         depth = _depth;
         capacity = pow(2, depth);
-        _ = new Segment*[capacity];
+        _ = new Segment<KeyType>*[capacity];
         lock = false;
         sema = 0;
     }
@@ -100,26 +266,31 @@ struct Directory {
     }
 
     void SanityCheck(void*);
-    void LSBUpdate(int, int, int, int, Segment**);
 };
 
+template <typename KeyType>
 class CCEH {
   public:
+    static constexpr auto dummy_key_check = [](const KeyType&, IndexV) {
+        throw std::runtime_error("Dummy key check should never be used!");
+        return true;
+    };
+
     CCEH(void);
     CCEH(size_t);
     ~CCEH(void);
-    void Insert(Key_t&, Value_t);
-    bool InsertOnly(Key_t&, Value_t);
-    bool Delete(Key_t&);
-    Value_t Get(Key_t&);
-    Value_t FindAnyway(Key_t&);
-    double Utilization(void);
+
+    template <typename KeyCheckFn>
+    IndexV Insert(const KeyType&, IndexV, KeyCheckFn);
+
+    template <typename KeyCheckFn>
+    bool Get(const KeyType&, CcehAccessor& accessor, KeyCheckFn);
+
+    IndexV Insert(const KeyType&, IndexV);
+    bool Delete(const KeyType&);
+    bool Get(const KeyType&, CcehAccessor& accessor);
     size_t Capacity(void);
     bool Recovery(void);
-
-    void print_meta(void) {
-        std::cout << dir->depth << "," << dir->capacity << "," << Capacity() << "," << Capacity()/Segment::kNumSlot << std::endl;
-    }
 
     void* operator new(size_t size) {
         void *ret;
@@ -128,73 +299,104 @@ class CCEH {
     }
 
   private:
-    size_t global_depth;
-    Directory* dir;
+    Directory<KeyType>* dir;
 };
 
 extern size_t perfCounter;
 
-int Segment::Insert(K& key, V value, size_t loc, size_t key_hash) {
-#ifdef INPLACE
-    if (sema == -1) return 2;
-  if ((key_hash >> (8*sizeof(key_hash)-local_depth)) != pattern) return 2;
+template <typename KeyType>
+template <typename KeyCheckFn>
+int Segment<KeyType>::Insert(const KeyType& key, IndexV value, size_t loc, size_t key_hash,
+                             IndexV* old_entry, KeyCheckFn key_check_fn) {
+  const size_t pattern_shift = 8 * sizeof(key_hash) - local_depth;
+
+  if (sema == -1) return 2;
+  if ((key_hash >> pattern_shift) != pattern) return 2;
+
   auto lock = sema;
   int ret = 1;
   while (!CAS(&sema, &lock, lock+1)) {
     lock = sema;
   }
-  Key_t LOCK = INVALID;
+
+  IndexK LOCK = INVALID;
+  constexpr bool using_fp = requires_fingerprint(KeyType);
+  IndexK key_checker;
+  if constexpr (using_fp) {
+      key_checker = key_hash;
+  } else {
+      key_checker = *reinterpret_cast<const IndexK*>(&key);
+  }
+
   for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
     auto slot = (loc + i) % kNumSlot;
     auto _key = _[slot].key;
-    if ((h(&_[slot].key,sizeof(Key_t)) >> (8*sizeof(key_hash)-local_depth)) != pattern) {
-      CAS(&_[slot].key, &_key, INVALID);
+
+    if (i == 15) {
+        std::cout << "FULL\n";
     }
-    if (CAS(&_[slot].key, &LOCK, SENTINEL)) {
-      _[slot].value = value;
-      mfence();
-      _[slot].key = key;
-      ret = 0;
-      break;
+
+    if constexpr (using_fp) {
+        if (_key != INVALID && (_[slot].key >> pattern_shift) != pattern) {
+            // Key hash does not match this segment anymore.
+            CAS(&_[slot].key, &_key, INVALID);
+        }
     } else {
-      LOCK = INVALID;
+        if (_key != INVALID && (h(&_[slot].key, sizeof(IndexK)) >> pattern_shift) != pattern) {
+            // Key hash does not match this segment anymore.
+            CAS(&_[slot].key, &_key, INVALID);
+        }
+    }
+
+    if ((IndexK) __atomic_load_n(&_[slot].key, __ATOMIC_ACQUIRE) == key_checker) {
+        if constexpr (using_fp) {
+            // FPs matched but not necessarily the actual key.
+            const bool keys_match = key_check_fn(key, _[slot].value);
+            if (!keys_match) {
+                continue;
+            }
+        }
+
+        IndexV old_value = _[slot].value;
+        old_value.is_free = true;
+        while (!CAS(&_[slot].value.offset, &old_value.offset, value.offset)) {
+            // Cannot swap value if it is in use
+            old_value.is_free = true;
+        }
+        old_entry->offset = old_value.offset;
+        mfence();
+        ret = 0;
+        break;
+    }
+
+    if (CAS(&_[slot].key, &LOCK, SENTINEL)) {
+        IndexV old_value = _[slot].value;
+        old_value.is_free = true;
+        while (!CAS(&_[slot].value.offset, &old_value.offset, value.offset)) {
+            // Cannot swap value if it is in use
+            old_value.is_free = true;
+        }
+        old_entry->offset = old_value.offset;
+        mfence();
+        _[slot].key = key_checker;
+        ret = 0;
+        break;
+    } else {
+        LOCK = INVALID;
     }
   }
   lock = sema;
   while (!CAS(&sema, &lock, lock-1)) {
     lock = sema;
   }
-  return ret;
-#else
-    if (sema == -1) return 2;
-    if ((key_hash >> (8*sizeof(key_hash)-local_depth)) != pattern) return 2;
-    auto lock = sema;
-    int ret = 1;
-    while (!CAS(&sema, &lock, lock+1)) {
-        lock = sema;
-    }
-    K LOCK = INVALID;
-    for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
-        auto slot = (loc + i) % kNumSlot;
-        if (CAS(&_[slot].key, &LOCK, SENTINEL)) {
-            _[slot].value = value;
-            mfence();
-            _[slot].key = key;
-            ret = 0;
-            break;
-        } else {
-            LOCK = INVALID;
-        }
-    }
-    lock = sema;
-    while (!CAS(&sema, &lock, lock-1)) {
-        lock = sema;
-    }
-    return ret;
-#endif
-}
+  if (ret == 1) {
+      std::cout << "BAD RET == 1" << std::endl;
+  }
 
-void Segment::Insert4split(K& key, V value, size_t loc) {
+  return ret;
+}
+template <typename KeyType>
+void Segment<KeyType>::Insert4split(IndexK key, IndexV value, size_t loc) {
     for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
         auto slot = (loc+i) % kNumSlot;
         if (_[slot].key == INVALID) {
@@ -205,19 +407,19 @@ void Segment::Insert4split(K& key, V value, size_t loc) {
     }
 }
 
-Segment** Segment::Split(void) {
+template <typename KeyType>
+Segment<KeyType>** Segment<KeyType>::Split(void) {
     using namespace std;
     int64_t lock = 0;
-    if (!CAS(&sema, &lock, -1)) return nullptr;
+    if (!CAS(&sema, &lock, -1l)) return nullptr;
 
-#ifdef INPLACE
-    Segment** split = new Segment*[2];
-  split[0] = this;
-  split[1] = new Segment(local_depth+1);
+    Segment<KeyType>** split = new Segment<KeyType>*[2];
+    split[0] = this;
+    split[1] = new Segment<KeyType>(local_depth+1);
 
   for (unsigned i = 0; i < kNumSlot; ++i) {
-    auto key_hash = h(&_[i].key, sizeof(Key_t));
-    if (key_hash & ((size_t) 1 << ((sizeof(Key_t)*8 - local_depth - 1)))) {
+    auto key_hash = h(&_[i].key, sizeof(IndexK));
+    if (key_hash & ((size_t) 1 << ((sizeof(IndexK)*8 - local_depth - 1)))) {
       split[1]->Insert4split
         (_[i].key, _[i].value, (key_hash & kMask)*kNumPairPerCacheLine);
     }
@@ -228,223 +430,177 @@ Segment** Segment::Split(void) {
   clflush((char*)&local_depth, sizeof(size_t));
 
   return split;
-#else
-    Segment** split = new Segment*[2];
-    split[0] = new Segment(local_depth+1);
-    split[1] = new Segment(local_depth+1);
-
-    for (unsigned i = 0; i < kNumSlot; ++i) {
-        auto key_hash = h(&_[i].key, sizeof(K));
-        if (key_hash & ((size_t) 1 << ((sizeof(K)*8 - local_depth - 1)))) {
-            split[1]->Insert4split
-                (_[i].key, _[i].value, (key_hash & kMask)*kNumPairPerCacheLine);
-        } else {
-            split[0]->Insert4split
-                (_[i].key, _[i].value, (key_hash & kMask)*kNumPairPerCacheLine);
-        }
-    }
-
-    clflush((char*)split[0], sizeof(Segment));
-    clflush((char*)split[1], sizeof(Segment));
-
-    return split;
-#endif
 }
 
-CCEH::CCEH(void)
-    : dir{new Directory<K, V>(0)}
+template <typename KeyType>
+CCEH<KeyType>::CCEH(void)
+    : dir{new Directory<KeyType>(0)}
 {
     for (unsigned i = 0; i < dir->capacity; ++i) {
-        dir->_[i] = new Segment<K, V>(0);
+        dir->_[i] = new Segment<KeyType>(0);
         dir->_[i]->pattern = i;
     }
 }
 
-CCEH::CCEH(size_t initCap)
-    : dir{new Directory<K, V>(static_cast<size_t>(log2(initCap)))}
+template <typename KeyType>
+CCEH<KeyType>::CCEH(size_t initCap)
+    : dir{new Directory<KeyType>(static_cast<size_t>(log2(initCap)))}
 {
     for (unsigned i = 0; i < dir->capacity; ++i) {
-        dir->_[i] = new Segment<K, V>(static_cast<size_t>(log2(initCap)));
+        dir->_[i] = new Segment<KeyType>(static_cast<size_t>(log2(initCap)));
         dir->_[i]->pattern = i;
     }
 }
 
-CCEH::~CCEH(void)
+template <typename KeyType>
+CCEH<KeyType>::~CCEH(void)
 { }
 
-void CCEH::Insert(Key_t& key, Value_t value) {
-    STARTOVER:
-    auto key_hash = h(&key, sizeof(key));
+template <typename KeyType>
+IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value) {
+    return Insert(key, value, dummy_key_check);
+}
+
+template <typename KeyType>
+template <typename KeyCheckFn>
+IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value, KeyCheckFn key_check_fn) {
+    size_t key_hash;
+    if constexpr (std::is_same_v<KeyType, std::string>) { key_hash = h(key.data(), key.length()); }
+    else { key_hash = h(&key, sizeof(key)); }
     auto y = (key_hash & kMask) * kNumPairPerCacheLine;
 
-    RETRY:
+RETRY:
     auto x = (key_hash >> (8*sizeof(key_hash)-dir->depth));
     auto target = dir->_[x];
-    auto ret = target->Insert(key, value, y, key_hash);
+    IndexV old_entry{};
+    auto ret = target->Insert(key, value, y, key_hash, &old_entry, key_check_fn);
 
-    if (ret == 1) {
-        Segment** s = target->Split();
-        if (s == nullptr) {
-            // another thread is doing split
-            goto RETRY;
-        }
-
-        s[0]->pattern = (key_hash >> (8*sizeof(key_hash)-s[0]->local_depth+1)) << 1;
-        s[1]->pattern = ((key_hash >> (8*sizeof(key_hash)-s[1]->local_depth+1)) << 1) + 1;
-
-        // Directory management
-        while (!dir->Acquire()) {
-            asm("nop");
-        }
-        { // CRITICAL SECTION - directory update
-            x = (key_hash >> (8*sizeof(key_hash)-dir->depth));
-#ifdef INPLACE
-            if (dir->_[x]->local_depth-1 < dir->depth) {  // normal split
-#else
-            if (dir->_[x]->local_depth < dir->depth) {  // normal split
-#endif
-                unsigned depth_diff = dir->depth - s[0]->local_depth;
-                if (depth_diff == 0) {
-                    if (x%2 == 0) {
-                        dir->_[x+1] = s[1];
-#ifdef INPLACE
-                        clflush((char*) &dir->_[x+1], 8);
-#else
-                        mfence();
-                        dir->_[x] = s[0];
-                        clflush((char*) &dir->_[x], 16);
-#endif
-                    } else {
-                        dir->_[x] = s[1];
-#ifdef INPLACE
-                        clflush((char*) &dir->_[x], 8);
-#else
-                        mfence();
-                        dir->_[x-1] = s[0];
-                        clflush((char*) &dir->_[x-1], 16);
-#endif
-                    }
-                } else {
-                    int chunk_size = pow(2, dir->depth - (s[0]->local_depth - 1));
-                    x = x - (x % chunk_size);
-                    for (unsigned i = 0; i < chunk_size/2; ++i) {
-                        dir->_[x+chunk_size/2+i] = s[1];
-                    }
-                    clflush((char*)&dir->_[x+chunk_size/2], sizeof(void*)*chunk_size/2);
-#ifndef INPLACE
-                    for (unsigned i = 0; i < chunk_size/2; ++i) {
-                        dir->_[x+i] = s[0];
-                    }
-                    clflush((char*)&dir->_[x], sizeof(void*)*chunk_size/2);
-#endif
-                }
-                while (!dir->Release()) {
-                    asm("nop");
-                }
-            } else {  // directory doubling
-                auto dir_old = dir;
-                auto d = dir->_;
-                // auto _dir = new Segment*[dir->capacity*2];
-                auto _dir = new Directory(dir->depth+1);
-                for (unsigned i = 0; i < dir->capacity; ++i) {
-                    if (i == x) {
-                        _dir->_[2*i] = s[0];
-                        _dir->_[2*i+1] = s[1];
-                    } else {
-                        _dir->_[2*i] = d[i];
-                        _dir->_[2*i+1] = d[i];
-                    }
-                }
-                clflush((char*)&_dir->_[0], sizeof(Segment*)*_dir->capacity);
-                clflush((char*)&_dir, sizeof(Directory));
-                dir = _dir;
-                clflush((char*)&dir, sizeof(void*));
-                delete dir_old;
-                // TODO: requiered to do this atomically
-            }
-#ifdef INPLACE
-            s[0]->sema = 0;
-#endif
-        }  // End of critical section
-        goto RETRY;
-    } else if (ret == 2) {
-        // Insert(key, value);
-        goto STARTOVER;
-    } else {
-        clflush((char*)&dir->_[x]->_[y], 64);
-    }
-}
-
-void Directory::LSBUpdate(int local_depth, int global_depth, int dir_cap, int x, Segment** s) {
-    int depth_diff = global_depth - local_depth;
-    if (depth_diff == 0) {
-        if ((x % dir_cap) >= dir_cap/2) {
-            _[x-dir_cap/2] = s[0];
-            clflush((char*)&_[x-dir_cap/2], sizeof(Segment*));
-            _[x] = s[1];
-            clflush((char*)&_[x], sizeof(Segment*));
-        } else {
-            _[x] = s[0];
-            clflush((char*)&_[x], sizeof(Segment*));
-            _[x+dir_cap/2] = s[1];
-            clflush((char*)&_[x+dir_cap/2], sizeof(Segment*));
-        }
-    } else {
-        if ((x%dir_cap) >= dir_cap/2) {
-            LSBUpdate(local_depth+1, global_depth, dir_cap/2, x-dir_cap/2, s);
-            LSBUpdate(local_depth+1, global_depth, dir_cap/2, x, s);
-        } else {
-            LSBUpdate(local_depth+1, global_depth, dir_cap/2, x, s);
-            LSBUpdate(local_depth+1, global_depth, dir_cap/2, x+dir_cap/2, s);
-        }
-    }
-    return;
-}
-
-// This function does not allow resizing
-bool CCEH::InsertOnly(Key_t& key, Value_t value) {
-    auto key_hash = h(&key, sizeof(key));
-    auto x = (key_hash >> (8*sizeof(key_hash)-dir->depth));
-    auto y = (key_hash & kMask) * kNumPairPerCacheLine;
-
-    auto ret = dir->_[x]->Insert(key, value, y, key_hash);
     if (ret == 0) {
         clflush((char*)&dir->_[x]->_[y], 64);
-        return true;
+        return old_entry;
+    } else if (ret == 2) {
+        goto RETRY;
     }
 
-    return false;
+    Segment<KeyType>** s = target->Split();
+    if (s == nullptr) {
+        // another thread is doing split
+        goto RETRY;
+    }
+
+    std::cout << "RESIZE!\n";
+    s[0]->pattern = (key_hash >> (8*sizeof(key_hash)-s[0]->local_depth+1)) << 1;
+    s[1]->pattern = ((key_hash >> (8*sizeof(key_hash)-s[1]->local_depth+1)) << 1) + 1;
+
+    // Directory management
+    while (!dir->Acquire()) {
+        asm("nop");
+    }
+    { // CRITICAL SECTION - directory update
+        x = (key_hash >> (8*sizeof(key_hash)-dir->depth));
+        if (dir->_[x]->local_depth-1 < dir->depth) {  // normal split
+            unsigned depth_diff = dir->depth - s[0]->local_depth;
+            if (depth_diff == 0) {
+                if (x%2 == 0) {
+                    dir->_[x+1] = s[1];
+                    clflush((char*) &dir->_[x+1], 8);
+                } else {
+                    dir->_[x] = s[1];
+                    clflush((char*) &dir->_[x], 8);
+                }
+            } else {
+                int chunk_size = pow(2, dir->depth - (s[0]->local_depth - 1));
+                x = x - (x % chunk_size);
+                for (unsigned i = 0; i < chunk_size/2; ++i) {
+                    dir->_[x+chunk_size/2+i] = s[1];
+                }
+                clflush((char*)&dir->_[x+chunk_size/2], sizeof(void*)*chunk_size/2);
+            }
+            while (!dir->Release()) {
+                asm("nop");
+            }
+        } else {  // directory doubling
+            auto dir_old = dir;
+            auto d = dir->_;
+            auto _dir = new Directory<KeyType>(dir->depth+1);
+            for (unsigned i = 0; i < dir->capacity; ++i) {
+                if (i == x) {
+                    _dir->_[2*i] = s[0];
+                    _dir->_[2*i+1] = s[1];
+                } else {
+                    _dir->_[2*i] = d[i];
+                    _dir->_[2*i+1] = d[i];
+                }
+            }
+            clflush((char*)&_dir->_[0], sizeof(Segment<KeyType>*)*_dir->capacity);
+            clflush((char*)&_dir, sizeof(Directory<KeyType>));
+            dir = _dir;
+            clflush((char*)&dir, sizeof(void*));
+            delete dir_old;
+        }
+        s[0]->sema = 0;
+    }  // End of critical section
+    goto RETRY;
 }
 
 // TODO
-bool CCEH::Delete(Key_t& key) {
+template <typename KeyType>
+bool CCEH<KeyType>::Delete(const KeyType& key) {
     return false;
 }
 
-Value_t CCEH::Get(Key_t& key) {
-    auto key_hash = h(&key, sizeof(key));
-    auto x = (key_hash >> (8*sizeof(key_hash)-dir->depth));
+template <typename KeyType>
+bool CCEH<KeyType>::Get(const KeyType& key, CcehAccessor& accessor) {
+    return Get(key, accessor, dummy_key_check);
+}
+
+template <typename KeyType>
+template <typename KeyCheckFn>
+bool CCEH<KeyType>::Get(const KeyType& key, CcehAccessor& accessor, KeyCheckFn key_check_fn) {
+    size_t key_hash;
+    if constexpr (std::is_same_v<KeyType, std::string>) { key_hash = h(key.data(), key.length()); }
+    else { key_hash = h(&key, sizeof(key)); }
+
+    auto x = (key_hash >> (8 * sizeof(key_hash) - dir->depth));
     auto y = (key_hash & kMask) * kNumPairPerCacheLine;
 
     auto dir_ = dir->_[x];
 
 #ifdef INPLACE
     auto sema = dir->_[x]->sema;
-  while (!CAS(&dir->_[x]->sema, &sema, sema+1)) {
-    sema = dir->_[x]->sema;
-  }
+    while (!CAS(&dir->_[x]->sema, &sema, sema+1)) {
+      sema = dir->_[x]->sema;
+    }
 #endif
 
+
+    IndexK key_checker;
+    constexpr bool using_fp = requires_fingerprint(KeyType);
+    if constexpr (using_fp) {
+        IndexK fingerprint;
+        if constexpr (std::is_same_v<KeyType, std::string>) fingerprint = murmur2(key.data(), key.length());
+        else if constexpr(sizeof(key) > 8) fingerprint = murmur2(&key, sizeof(KeyType));
+        key_checker = fingerprint;
+    } else {
+        key_checker = *reinterpret_cast<const IndexK*>(&key);
+    }
+
     for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
-        auto slot = (y+i) % Segment::kNumSlot;
-        if (dir_->_[slot].key == key) {
+        auto slot = (y+i) % Segment<KeyType>::kNumSlot;
+        if (dir_->_[slot].key == key_checker) {
 #ifdef INPLACE
+          sema = dir->_[x]->sema;
+          while (!CAS(&dir->_[x]->sema, &sema, sema-1)) {
             sema = dir->_[x]->sema;
-      while (!CAS(&dir->_[x]->sema, &sema, sema-1)) {
-        sema = dir->_[x]->sema;
-      }
+          }
 #endif
-            return dir_->_[slot].value;
+          if constexpr (using_fp) {
+              const bool keys_match = key_check_fn(key, dir_->_[slot].value);
+              if (!keys_match) continue;
+          }
+
+          accessor.take(&(dir_->_[slot].value));
+          return true;
         }
     }
 
@@ -454,47 +610,20 @@ Value_t CCEH::Get(Key_t& key) {
     sema = dir->_[x]->sema;
   }
 #endif
-    return NONE;
+    return false;
 }
 
-double CCEH::Utilization(void) {
-    size_t sum = 0;
-    std::unordered_map<Segment*, bool> set;
+template <typename KeyType>
+size_t CCEH<KeyType>::Capacity(void) {
+    std::unordered_map<Segment<KeyType>*, bool> set;
     for (size_t i = 0; i < dir->capacity; ++i) {
         set[dir->_[i]] = true;
     }
-    for (auto& elem: set) {
-        for (unsigned i = 0; i < Segment::kNumSlot; ++i) {
-#ifdef INPLACE
-            auto key_hash = h(&elem.first->_[i].key, sizeof(elem.first->_[i].key));
-      if (key_hash >> (8*sizeof(key_hash)-elem.first->local_depth) == elem.first->pattern) sum++;
-#else
-            if (elem.first->_[i].key != INVALID) sum++;
-#endif
-        }
-    }
-    return ((double)sum)/((double)set.size()*Segment::kNumSlot)*100.0;
+    return set.size() * Segment<KeyType>::kNumSlot;
 }
 
-size_t CCEH::Capacity(void) {
-    std::unordered_map<Segment*, bool> set;
-    for (size_t i = 0; i < dir->capacity; ++i) {
-        set[dir->_[i]] = true;
-    }
-    return set.size() * Segment::kNumSlot;
-}
-
-size_t Segment::numElem(void) {
-    size_t sum = 0;
-    for (unsigned i = 0; i < kNumSlot; ++i) {
-        if (_[i].key != INVALID) {
-            sum++;
-        }
-    }
-    return sum;
-}
-
-bool CCEH::Recovery(void) {
+template <typename KeyType>
+bool CCEH<KeyType>::Recovery(void) {
     bool recovered = false;
     size_t i = 0;
     while (i < dir->capacity) {
@@ -515,24 +644,8 @@ bool CCEH::Recovery(void) {
     return recovered;
 }
 
-// for debugging
-Value_t CCEH::FindAnyway(Key_t& key) {
-    using namespace std;
-    for (size_t i = 0; i < dir->capacity; ++i) {
-        for (size_t j = 0; j < Segment::kNumSlot; ++j) {
-            if (dir->_[i]->_[j].key == key) {
-                auto key_hash = h(&key, sizeof(key));
-                auto x = (key_hash >> (8*sizeof(key_hash)-dir->depth));
-                auto y = (key_hash & kMask) * kNumPairPerCacheLine;
-                cout << bitset<32>(i) << endl << bitset<32>((x>>1)) << endl << bitset<32>(x) << endl;
-                return dir->_[i]->_[j].value;
-            }
-        }
-    }
-    return NONE;
-}
-
-void Directory::SanityCheck(void* addr) {
+template <typename KeyType>
+void Directory<KeyType>::SanityCheck(void* addr) {
     using namespace std;
     for (unsigned i = 0; i < capacity; ++i) {
         if (_[i] == addr) {
@@ -542,4 +655,5 @@ void Directory::SanityCheck(void* addr) {
     }
 }
 
-}  // namespace viper::cceh
+}  // namespace cceh
+}  // namespace viper

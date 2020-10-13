@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cceh/CCEH.h>
+#include "cceh.hpp"
 #include "common_fixture.hpp"
 #include "../benchmark.hpp"
 
@@ -20,7 +20,7 @@ class CcehFixture : public BaseFixture {
     uint64_t insert(uint64_t start_idx, uint64_t end_idx) final;
 
   protected:
-    std::unique_ptr<CCEH> dram_map_;
+    std::unique_ptr<cceh::CCEH<KeyT>> dram_map_;
     bool map_initialized_ = false;
 };
 
@@ -29,7 +29,7 @@ void CcehFixture<KeyT, ValueT>::InitMap(const uint64_t num_prefill_inserts, cons
     if (map_initialized_ && !re_init) {
         return;
     }
-    dram_map_ = std::make_unique<CCEH>(1000000);
+    dram_map_ = std::make_unique<cceh::CCEH<KeyT>>(1000000);
     prefill(num_prefill_inserts);
     map_initialized_ = true;
 }

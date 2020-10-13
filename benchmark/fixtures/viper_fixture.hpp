@@ -112,11 +112,11 @@ uint64_t ViperFixture<KeyT, ValueT, KC>::setup_and_find(uint64_t start_idx, uint
     auto rnd_engine = std::default_random_engine(rnd());
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
 
-    const auto v_client = viper_->get_const_client();
+    const auto v_client = viper_->get_read_only_client();
     uint64_t found_counter = 0;
     for (uint64_t i = 0; i < num_finds; ++i) {
         const uint64_t key = distrib(rnd_engine);
-        typename ViperT::ConstAccessor result;
+        typename ViperT::Accessor result;
         const KeyT db_key{key};
         const bool found = v_client.get(db_key, result);
         found_counter += found && (result->data[0] == key);
@@ -133,11 +133,11 @@ uint64_t ViperFixture<std::string, std::string, KeyCompare<std::string>>::setup_
     const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
     const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
 
-    const auto v_client = viper_->get_const_client();
+    auto v_client = viper_->get_read_only_client();
     uint64_t found_counter = 0;
     for (uint64_t i = 0; i < num_finds; ++i) {
         const uint64_t key = distrib(rnd_engine);
-        typename ViperT::ConstAccessor result;
+        typename ViperT::Accessor result;
         const std::string& db_key = keys[key];
         const std::string& value = values[key];
         const bool found = v_client.get(db_key, result);
@@ -257,7 +257,7 @@ uint64_t ViperFixture<KeyType8, ValueType200, TbbFixedKeyCompare<KeyType8>>::run
                 break;
             }
             case ycsb::Record::Op::GET: {
-                typename ViperT::ConstAccessor result;
+                typename ViperT::Accessor result;
                 const bool found = v_client.get(record.key, result);
                 op_count += found && result->data[0] != 0;
                 break;

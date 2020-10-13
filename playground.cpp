@@ -1,22 +1,26 @@
 #include <iostream>
 #include <memory>
-#include <iostream>
-#include "cceh/CCEH.h"
+#include "cceh.hpp"
 
 #include "viper.hpp"
 
 using namespace viper;
 
 int main() {
-    size_t capacity = 10;
-    auto cceh = std::make_unique<CCEH>(capacity);
+    size_t capacity = 1000;
+    auto cceh = std::make_unique<cceh::CCEH<size_t>>(capacity);
 
-    for (size_t i = 0; i < capacity + 10; ++i) {
-        cceh->Insert(i, i);
+    for (size_t i = 0; i < 10; ++i) {
+        IndexV old_offset = cceh->Insert(i, IndexV{i, 0, 0});
+        std::cout << "OLD: " << old_offset.block_number << std::endl;
     }
 
-    for (size_t i = 0; i < capacity + 10; ++i) {
-        size_t value = cceh->Get(i);
-        std::cout << value << std::endl;
+    for (size_t i = 0; i < 10; ++i) {
+        cceh::CcehAccessor value;
+        cceh->Get(i, value);
+        std::cout << value->block_number << std::endl;
     }
+
+    IndexV old_offset = cceh->Insert(4, IndexV{44, 0, 0});
+    std::cout << "OLD 4: " << old_offset.block_number << std::endl;
 }

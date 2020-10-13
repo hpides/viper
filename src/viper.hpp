@@ -14,6 +14,8 @@
 #include <atomic>
 #include <assert.h>
 
+#include "cceh.hpp"
+
 #ifndef NDEBUG
 #define DEBUG_LOG(msg) (std::cout << msg << std::endl)
 #else
@@ -22,10 +24,6 @@
 
 namespace viper {
 
-using offset_size_t = uint64_t;
-using block_size_t = uint64_t;
-using page_size_t = uint8_t;
-using data_offset_size_t = uint16_t;
 using version_lock_t = uint8_t;
 
 static constexpr uint16_t PAGE_SIZE = 4 * 1024; // 4kb
@@ -52,10 +50,6 @@ namespace internal {
 
 template <typename K, typename V>
 constexpr data_offset_size_t get_num_slots_per_page() {
-    if constexpr (std::is_same_v<K, std::string>) {
-        return 502;
-    }
-
     const uint32_t entry_size = sizeof(K) + sizeof(V);
     uint16_t current_page_size = PAGE_SIZE;
 
@@ -82,38 +76,6 @@ constexpr data_offset_size_t get_num_slots_per_page() {
     assert(num_slots_per_page > 0 && "Cannot fit KV pair into single page!");
     return num_slots_per_page;
 }
-
-struct KeyValueOffset {
-    static constexpr offset_size_t TOMBSTONE = 0xFFFFFFFFFFFFFFFF;
-
-    union {
-        offset_size_t offset;
-        struct {
-            block_size_t block_number : 45;
-            page_size_t page_number : 3;
-            data_offset_size_t data_offset : 16;
-        };
-    };
-
-    KeyValueOffset() : offset{TOMBSTONE} {}
-
-    explicit KeyValueOffset(const offset_size_t offset) : offset(offset) {}
-
-    KeyValueOffset(const block_size_t block_number, const page_size_t page_number, const data_offset_size_t slot)
-        : block_number{block_number}, page_number{page_number}, data_offset{slot} {}
-
-    static KeyValueOffset Tombstone() {
-        return KeyValueOffset{};
-    }
-
-    inline std::tuple<block_size_t, page_size_t, data_offset_size_t> get_offsets() const {
-        return {block_number, page_number, data_offset};
-    }
-
-    inline bool is_tombstone() const {
-        return offset == TOMBSTONE;
-    }
-};
 
 struct VarSizeEntry {
     union {
@@ -245,12 +207,24 @@ struct ViperBase {
     std::vector<ViperFileMapping> v_mappings;
 };
 
+template <typename KeyT>
+struct KeyAccessor {
+    typedef const KeyT* checker_type;
+};
+
+template <>
+struct KeyAccessor<std::string> {
+    typedef std::string_view checker_type;
+};
+
 template <typename ValueT>
 struct ValueAccessor {
     typedef ValueT* type;
+    typedef const ValueT* const_type;
     typedef ValueT* ptr_type;
     typedef const ValueT* const_ptr_type;
     typedef const ValueT& ref_type;
+    typedef const ValueT* checker_type;
 
     static ptr_type to_ptr_type(type& x) { return x; }
     static const_ptr_type to_ptr_type(const type& x) { return x; }
@@ -259,9 +233,11 @@ struct ValueAccessor {
 template <>
 struct ValueAccessor<std::string> {
     typedef std::string_view type;
+    typedef const std::string_view const_type;
     typedef std::string_view* ptr_type;
     typedef const std::string_view* const_ptr_type;
     typedef const std::string_view& ref_type;
+    typedef const std::string_view checker_type;
 
     static ptr_type to_ptr_type(type& x) { return &x; }
     static const_ptr_type to_ptr_type(const type& x) { return &x; }
@@ -271,8 +247,7 @@ template <typename K, typename V, typename HashCompare = internal::KeyCompare<K>
 class Viper {
     using ViperT = Viper<K, V, HashCompare>;
     using VPage = internal::ViperPage<K, V>;
-    using KVOffset = internal::KeyValueOffset;
-    using MapType = tbb::concurrent_hash_map<K, KVOffset, HashCompare>;
+    using KVOffset = KeyValueOffset;
     static constexpr uint64_t v_page_size = sizeof(VPage);
     static_assert(BLOCK_SIZE % v_page_size == 0, "Page needs to fit into block.");
     static constexpr page_size_t num_pages_per_block = BLOCK_SIZE / v_page_size;
@@ -286,55 +261,45 @@ class Viper {
     Viper(ViperBase v_base, bool owns_pool, ViperConfig v_config);
     ~Viper();
 
-    class ConstAccessor {
+    class Accessor {
         friend class Viper<K, V, HashCompare>;
-        using MapConstAccessor = typename MapType::const_accessor;
+        using MapAccessor = cceh::CcehAccessor;
 
       public:
-        ConstAccessor() = default;
+        Accessor() = default;
 
         const typename ValueAccessor<V>::ref_type operator*() const { return *operator->(); }
         const typename ValueAccessor<V>::const_ptr_type operator->() const { return ValueAccessor<V>::to_ptr_type(value_); }
 
-        ConstAccessor(const ConstAccessor& other) = delete;
-        ConstAccessor& operator=(const ConstAccessor& other) = delete;
-        ConstAccessor(ConstAccessor&& other) noexcept = default;
-        ConstAccessor& operator=(ConstAccessor&& other) noexcept = default;
-        ~ConstAccessor() = default;
-
-      protected:
-        MapConstAccessor map_accessor_;
-        typename ValueAccessor<V>::type value_{};
-    };
-
-    class Accessor : public ConstAccessor {
-        using MapAccessor = typename ConstAccessor::MapType::accessor;
-      public:
-        typename ValueAccessor<V>::ref_type operator*() { return *value_; }
-        typename ValueAccessor<V>::ptr_type operator->() { return value_; }
+        Accessor(const Accessor& other) = delete;
+        Accessor& operator=(const Accessor& other) = delete;
+        Accessor(Accessor&& other) noexcept = default;
+        Accessor& operator=(Accessor&& other) noexcept = default;
+        ~Accessor() = default;
 
       protected:
         MapAccessor map_accessor_;
         typename ValueAccessor<V>::type value_{};
     };
 
-    class ConstClient {
+    class ReadOnlyClient {
         friend class Viper<K, V, HashCompare>;
       public:
-        bool get(const K& key, ConstAccessor& accessor) const;
+        bool get(const K& key, Accessor& accessor) const;
       protected:
-        explicit ConstClient(const ViperT& viper);
-        inline const typename ValueAccessor<V>::type get_const_value_from_offset(KVOffset offset) const;
-        const ViperT& const_viper_;
+        explicit ReadOnlyClient(ViperT& viper);
+        inline const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>::checker_type> get_const_entry_from_offset(KVOffset offset) const;
+        inline const typename ValueAccessor<V>::const_type get_const_value_from_offset(KVOffset offset) const;
+        ViperT& viper_;
     };
 
-    class Client : public ConstClient {
+    class Client : public ReadOnlyClient {
         friend class Viper<K, V, HashCompare>;
       public:
         bool put(const K& key, const V& value);
 
         bool get(const K& key, Accessor& accessor);
-        inline bool get(const K& key, ConstAccessor& accessor) const;
+        inline bool get(const K& key, Accessor& accessor) const;
 
         template <typename UpdateFn>
         bool update(const K& key, UpdateFn update_fn);
@@ -344,16 +309,15 @@ class Viper {
         ~Client();
 
       protected:
-        Client(ViperT& viper, size_t client_num);
+        Client(ViperT& viper);
         inline void update_access_information();
         inline void update_var_size_page_information();
-        inline void info_sync(bool force = false);
         inline typename ValueAccessor<V>::type get_value_from_offset(KVOffset offset);
+        inline void info_sync(bool force = false);
         void free_occupied_slot(block_size_t block_number, page_size_t page_number, data_offset_size_t data_offset);
 
         enum PageStrategy : uint8_t { BlockBased, DimmBased };
 
-        ViperT& viper_;
         PageStrategy strategy_;
 
         // Fixed size entries
@@ -373,8 +337,7 @@ class Viper {
     };
 
     Client get_client();
-    ConstClient get_const_client() const;
-    size_t get_size_estimate() const;
+    ReadOnlyClient get_read_only_client();
 
   protected:
     static ViperBase init_pool(const std::string& pool_file, uint64_t pool_size,
@@ -392,11 +355,14 @@ class Viper {
     void recover_database();
     void trigger_resize();
 
+    bool check_key_equality(const K& key, const KVOffset offset_to_compare);
+
     ViperBase v_base_;
     const bool owns_pool_;
     ViperConfig v_config_;
 
-    MapType map_;
+    cceh::CCEH<K> map_;
+    static constexpr bool using_fp = requires_fingerprint(K);
 
     std::vector<VPageBlock*> v_blocks_;
     std::atomic<size_t> current_size_;
@@ -428,13 +394,14 @@ std::unique_ptr<Viper<K, V, HC>> Viper<K, V, HC>::open(ViperBase v_base, ViperCo
 
 template <typename K, typename V, typename HC>
 Viper<K, V, HC>::Viper(ViperBase v_base, const bool owns_pool, const ViperConfig v_config) :
-    v_base_{v_base}, map_{}, owns_pool_{owns_pool}, v_config_{v_config}, resize_threshold_{v_config.resize_threshold},
-    num_recovery_threads_{v_config.num_recovery_threads} {
-
+    v_base_{v_base}, map_{10000}, owns_pool_{owns_pool}, v_config_{v_config},
+    resize_threshold_{v_config.resize_threshold}, num_recovery_threads_{v_config.num_recovery_threads} {
     current_block_page_ = 0;
     current_size_ = 0;
     is_resizing_ = false;
     num_active_clients_ = 0;
+
+    std::cout << "MAP CAPACITY: " << map_.Capacity() << std::endl;
 
     if (v_config_.force_block_based && v_config_.force_dimm_based) {
         throw std::runtime_error("Cannot force both block- and dimm-based.");
@@ -468,11 +435,6 @@ Viper<K, V, HC>::~Viper() {
         }
         close(v_base_.file_descriptor);
     }
-}
-
-template <typename K, typename V, typename HC>
-size_t Viper<K, V, HC>::get_size_estimate() const {
-    return current_size_.load(std::memory_order_acquire);
 }
 
 template <typename K, typename V, typename HC>
@@ -626,13 +588,12 @@ void Viper<K, V, HC>::recover_database() {
                         throw std::runtime_error{"not implemented yet"};
                     } else {
                         ++num_entries;
-                        typename MapType::accessor accessor;
+                        typename Accessor::MapAccessor accessor;
                         const K& key = page.data[slot_num].first;
                         const KVOffset offset{block_num, page_num, slot_num};
-                        const bool is_new = map_.insert(accessor, {key, offset});
-                        if (!is_new) {
-                            duplicates.push_back(accessor->second);
-                            accessor->second = offset;
+                        const IndexV old_offset = map_.Insert(key, offset);
+                        if (!old_offset.is_tombstone()) {
+                            duplicates.push_back(old_offset);
                         }
                     }
                 }
@@ -758,15 +719,13 @@ void Viper<K, V, HC>::get_dimm_based_access(Client* client) {
 }
 
 template <typename K, typename V, typename HC>
-internal::KeyValueOffset Viper<K, V, HC>::get_new_block() {
+KeyValueOffset Viper<K, V, HC>::get_new_block() {
     offset_size_t raw_block_page = current_block_page_.load(std::memory_order_acquire);
     KVOffset new_offset{};
     block_size_t client_block;
-    page_size_t client_page;
     do {
         const KVOffset v_block_page{raw_block_page};
         client_block = v_block_page.block_number;
-        client_page = v_block_page.page_number;
 
         const block_size_t new_block = client_block + 1;
         assert(new_block < v_blocks_.size());
@@ -804,8 +763,8 @@ void Viper<K, V, HC>::trigger_resize() {
 
 template <typename K, typename V, typename HC>
 typename Viper<K, V, HC>::Client Viper<K, V, HC>::get_client() {
-    const auto client_num = num_active_clients_++;
-    Client client{*this, client_num};
+    num_active_clients_++;
+    Client client{*this};
     if constexpr (std::is_same_v<K, std::string>) {
         get_new_var_size_access_information(&client);
     } else {
@@ -815,14 +774,25 @@ typename Viper<K, V, HC>::Client Viper<K, V, HC>::get_client() {
 }
 
 template <typename K, typename V, typename HC>
-typename Viper<K, V, HC>::ConstClient Viper<K, V, HC>::get_const_client() const {
-    return ConstClient{*this};
+typename Viper<K, V, HC>::ReadOnlyClient Viper<K, V, HC>::get_read_only_client() {
+    return ReadOnlyClient{*this};
 }
 
 template <typename K, typename V, typename HC>
 void Viper<K, V, HC>::remove_client(Viper::Client* client) {
     client->info_sync(true);
     --num_active_clients_;
+}
+
+template <typename K, typename V, typename HC>
+bool Viper<K, V, HC>::check_key_equality(const K& key, const KVOffset offset_to_compare) {
+    if constexpr (!using_fp) {
+        throw std::runtime_error("Should not use key checker without fingerprints!");
+    }
+
+    const ReadOnlyClient client = get_read_only_client();
+    const auto& entry = client.get_const_entry_from_offset(offset_to_compare);
+    return entry.first == key;
 }
 
 template <typename K, typename V, typename HC>
@@ -856,17 +826,15 @@ bool Viper<K, V, HC>::Client::put(const K& key, const V& value) {
 
     // Store data in DRAM map.
     const KVOffset kv_offset{v_block_number_, v_page_number_, free_slot_idx};
-    bool is_new_item;
     KVOffset old_offset;
-    {
-        // Scope this so the accessor is freed as soon as possible.
-        typename MapType::accessor accessor;
-        is_new_item = viper_.map_.insert(accessor, {key, kv_offset});
-        if (!is_new_item) {
-            old_offset = accessor->second;
-            accessor->second = kv_offset;
-        }
+
+    if constexpr (using_fp) {
+        this->viper_.map_.Insert(key, kv_offset, &check_key_equality);
+    } else {
+        this->viper_.map_.Insert(key, kv_offset);
     }
+
+    bool is_new_item = old_offset.is_tombstone();
 
     // Unlock the v_page
     v_lock.store(FREE_BYTE, std::memory_order_release);
@@ -961,17 +929,9 @@ bool Viper<std::string, std::string, internal::KeyCompare<std::string>>::Client:
     const KVOffset var_offset{current_block_number, current_page_number, data_offset};
 
     // Store data in DRAM map.
-    bool is_new_item;
-    KVOffset old_offset;
-    {
-        // Scope this so the accessor is freed as soon as possible.
-        typename MapType::accessor accessor;
-        is_new_item = viper_.map_.insert(accessor, {key, var_offset});
-        if (!is_new_item) {
-            old_offset = accessor->second;
-            accessor->second = var_offset;
-        }
-    }
+    auto key_check_fn = [&](auto key, auto offset) { return this->viper_.check_key_equality(key, offset); };
+    const KVOffset old_offset = this->viper_.map_.Insert(key, var_offset, key_check_fn);
+    const bool is_new_item = old_offset.is_tombstone();
 
     // Unlock the v_page
     v_lock.store(FREE_BYTE, std::memory_order_release);
@@ -990,13 +950,18 @@ bool Viper<std::string, std::string, internal::KeyCompare<std::string>>::Client:
 }
 
 template <typename K, typename V, typename HC>
-bool Viper<K, V, HC>::Client::get(const K& key, Viper::Accessor& accessor) {
-    auto& result = accessor.map_accessor_;
-    const bool found = viper_.map_.find(result, key);
+bool Viper<K, V, HC>::Client::get(const K& key, Accessor& accessor) {
+    auto key_check_fn = [&](auto key, auto offset) {
+        if constexpr (using_fp) { return this->viper_.check_key_equality(key, offset); }
+        else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
+    };
+
+    auto& ccehAccessor = accessor.map_accessor_;
+    const bool found = this->viper_.map_.Get(key, ccehAccessor, key_check_fn);
     if (!found) {
         return false;
     }
-    const KVOffset kv_offset = result->second;
+    const KVOffset kv_offset = *ccehAccessor;
     if (kv_offset.is_tombstone()) {
         return false;
     }
@@ -1006,24 +971,33 @@ bool Viper<K, V, HC>::Client::get(const K& key, Viper::Accessor& accessor) {
 }
 
 template <typename K, typename V, typename HC>
-bool Viper<K, V, HC>::ConstClient::get(const K& key, Viper::ConstAccessor& accessor) const {
-    auto& result = accessor.map_accessor_;
-    const bool found = const_viper_.map_.find(result, key);
+bool Viper<K, V, HC>::ReadOnlyClient::get(const K& key, Viper::Accessor& accessor) const {
+    auto key_check_fn = [&](auto key, auto offset) {
+        if constexpr (using_fp) { return this->viper_.check_key_equality(key, offset); }
+        else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
+    };
+
+    auto& ccehAccessor = accessor.map_accessor_;
+    const bool found = this->viper_.map_.Get(key, ccehAccessor, key_check_fn);
     if (!found) {
         return false;
     }
-    const KVOffset kv_offset = result->second;
+    const KVOffset kv_offset = *ccehAccessor;
     if (kv_offset.is_tombstone()) {
         return false;
     }
 
-    accessor.value_ = get_const_value_from_offset(kv_offset);
+    if constexpr (std::is_same_v<K, std::string>) {
+        accessor.value_ = get_const_value_from_offset(kv_offset);
+    } else {
+        accessor.value_ = const_cast<typename ValueAccessor<V>::type>(get_const_value_from_offset(kv_offset));
+    }
     return true;
 }
 
 template <typename K, typename V, typename HC>
-bool Viper<K, V, HC>::Client::get(const K& key, Viper::ConstAccessor& accessor) const {
-    return static_cast<const Viper<K, V, HC>::ConstClient*>(this)->get(key, accessor);
+bool Viper<K, V, HC>::Client::get(const K& key, Accessor& accessor) const {
+    return static_cast<const Viper<K, V, HC>::ReadOnlyClient*>(this)->get(key, accessor);
 }
 
 template <typename K, typename V, typename HC>
@@ -1033,12 +1007,17 @@ bool Viper<K, V, HC>::Client::update(const K& key, UpdateFn update_fn) {
         throw std::runtime_error("In-place update not supported for variable length records!");
     }
 
-    typename MapType::accessor result;
-    const bool found = viper_.map_.find(result, key);
+    auto key_check_fn = [&](auto key, auto offset) {
+        if constexpr (using_fp) { return this->viper_.check_key_equality(key, offset); }
+        else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
+    };
+
+    typename Accessor::MapAccessor ccehAccessor;
+    const bool found = this->viper_.map_.Get(key, ccehAccessor, key_check_fn);
     if (!found) {
         return false;
     }
-    const KVOffset kv_offset = result->second;
+    const KVOffset kv_offset = *ccehAccessor;
     if (kv_offset.is_tombstone()) {
         return false;
     }
@@ -1050,19 +1029,24 @@ bool Viper<K, V, HC>::Client::update(const K& key, UpdateFn update_fn) {
 
 template <typename K, typename V, typename HC>
 bool Viper<K, V, HC>::Client::remove(const K& key) {
-    typename MapType::const_accessor result;
-    const bool found = viper_.map_.find(result, key);
+    auto key_check_fn = [&](auto key, auto offset) {
+        if constexpr (using_fp) { return this->viper_.check_key_equality(key, offset); }
+        else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
+    };
+
+    typename Accessor::MapAccessor ccehAccessor;
+    const bool found = this->viper_.map_.Get(key, ccehAccessor, key_check_fn);
     if (!found) {
         return false;
     }
-    const KVOffset offset = result->second;
+    const KVOffset offset = *ccehAccessor;
     if (offset.is_tombstone()) {
         return false;
     }
 
     const auto [block_number, page_number, slot_number] = offset.get_offsets();
     free_occupied_slot(block_number, page_number, slot_number);
-    viper_.map_.erase(result);
+    this->viper_.map_.Delete(key);
     return true;
 }
 
@@ -1070,10 +1054,10 @@ template <typename K, typename V, typename HC>
 void Viper<K, V, HC>::Client::free_occupied_slot(const block_size_t block_number,
                                                  const page_size_t page_number,
                                                  const data_offset_size_t data_offset) {
-    while (viper_.is_v_blocks_resizing_.load(std::memory_order_acquire)) {
+    while (this->viper_.is_v_blocks_resizing_.load(std::memory_order_acquire)) {
         // Wait for vector's memmove to complete. Otherwise we might encounter a segfault.
     }
-    VPage& v_page = viper_.v_blocks_[block_number]->v_pages[page_number];
+    VPage& v_page = this->viper_.v_blocks_[block_number]->v_pages[page_number];
     std::atomic<version_lock_t>& v_lock = v_page.version_lock;
     version_lock_t lock_value = v_lock.load(std::memory_order_acquire) & FREE_BYTE;
     while (!v_lock.compare_exchange_weak(lock_value, lock_value | LOCK_BYTE)) {
@@ -1102,18 +1086,18 @@ void Viper<K, V, HC>::Client::update_access_information() {
     if (strategy_ == PageStrategy::DimmBased) {
         if (v_block_number_ == end_v_block_number_) {
             // No more allocated pages, need new range
-            viper_.get_new_access_information(this);
+            this->viper_.get_new_access_information(this);
         } else {
             ++v_block_number_;
-            v_block_ = viper_.v_blocks_[v_block_number_];
+            v_block_ = this->viper_.v_blocks_[v_block_number_];
             v_page_ = &(v_block_->v_pages[v_page_number_]);
         }
     } else if (strategy_ == PageStrategy::BlockBased) {
-        if (++num_v_pages_processed_ == viper_.num_pages_per_block) {
+        if (++num_v_pages_processed_ == this->viper_.num_pages_per_block) {
             // No more pages, need new block
-            viper_.get_new_access_information(this);
+            this->viper_.get_new_access_information(this);
         } else {
-            v_page_number_ = (v_page_number_ + 1) % viper_.num_pages_per_block;
+            v_page_number_ = (v_page_number_ + 1) % this->viper_.num_pages_per_block;
             v_page_ = &(v_block_->v_pages[v_page_number_]);
         }
     } else {
@@ -1136,17 +1120,17 @@ void Viper<K, V, HC>::Client::update_var_size_page_information() {
 template <typename K, typename V, typename HC>
 void Viper<K, V, HC>::Client::info_sync(const bool force) {
     if (force || ++op_count_ == 1000) {
-        viper_.current_size_.fetch_add(size_delta_);
+        this->viper_.current_size_.fetch_add(size_delta_);
         op_count_ = 0;
         size_delta_ = 0;
     }
 }
 
 template <typename K, typename V, typename HC>
-Viper<K, V, HC>::ConstClient::ConstClient(const ViperT& viper) : const_viper_{viper} {}
+Viper<K, V, HC>::ReadOnlyClient::ReadOnlyClient(ViperT& viper) : viper_{viper} {}
 
 template <typename K, typename V, typename HC>
-Viper<K, V, HC>::Client::Client(ViperT& viper, size_t client_num) : ConstClient{viper}, viper_{viper} {
+Viper<K, V, HC>::Client::Client(ViperT& viper) : ReadOnlyClient{viper} {
     op_count_ = 0;
     size_delta_ = 0;
     num_v_pages_processed_ = 0;
@@ -1159,39 +1143,44 @@ Viper<K, V, HC>::Client::Client(ViperT& viper, size_t client_num) : ConstClient{
 
 template <typename K, typename V, typename HC>
 Viper<K, V, HC>::Client::~Client() {
-    viper_.remove_client(this);
+    this->viper_.remove_client(this);
 }
 
 template <typename K, typename V, typename HC>
-const typename ValueAccessor<V>::type Viper<K, V, HC>::ConstClient::get_const_value_from_offset(Viper::KVOffset offset) const {
-    const auto [block, page, slot] = offset.get_offsets();
-    return &(const_viper_.v_blocks_[block]->v_pages[page].data[slot].second);
+const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>::checker_type> Viper<K, V, HC>::ReadOnlyClient::get_const_entry_from_offset(Viper::KVOffset offset) const {
+    if constexpr (std::is_same_v<K, std::string>) {
+        const auto[block, page, data_offset] = offset.get_offsets();
+        const VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
+        const char* raw_data = &v_page.data[data_offset];
+        internal::VarEntryAccessor var_entry{raw_data};
+        if (var_entry.value_size == 0) {
+            // Value is on next page
+            const char* raw_value_data = &v_page.next_page->data[0];
+            var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
+        }
+        return {var_entry.key(), var_entry.value()};
+    } else {
+        const auto[block, page, slot] = offset.get_offsets();
+        const auto& entry = this->viper_.v_blocks_[block]->v_pages[page].data[slot];
+        return {&entry.first, &entry.second};
+    }
 }
 
-template <>
-const std::string_view Viper<std::string, std::string, internal::KeyCompare<std::string>>::ConstClient::get_const_value_from_offset(Viper::KVOffset offset) const {
-    const auto [block, page, data_offset] = offset.get_offsets();
-    const VPage& v_page = const_viper_.v_blocks_[block]->v_pages[page];
-    const char* raw_data = &v_page.data[data_offset];
-    internal::VarEntryAccessor var_entry{raw_data};
-    if (var_entry.value_size == 0) {
-        // Value is on next page
-        const char* raw_value_data = &v_page.next_page->data[0];
-        var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
-    }
-    return var_entry.value();
+template <typename K, typename V, typename HC>
+const typename ValueAccessor<V>::const_type Viper<K, V, HC>::ReadOnlyClient::get_const_value_from_offset(Viper::KVOffset offset) const {
+    return this->get_const_entry_from_offset(offset).second;
 }
 
 template <typename K, typename V, typename HC>
 typename ValueAccessor<V>::type Viper<K, V, HC>::Client::get_value_from_offset(Viper::KVOffset offset) {
     const auto [block, page, slot] = offset.get_offsets();
-    return &(viper_.v_blocks_[block]->v_pages[page].data[slot].second);
+    return &(this->viper_.v_blocks_[block]->v_pages[page].data[slot].second);
 }
 
 template <>
 std::string_view Viper<std::string, std::string, internal::KeyCompare<std::string>>::Client::get_value_from_offset(Viper::KVOffset offset) {
     const auto [block, page, data_offset] = offset.get_offsets();
-    const VPage& v_page = const_viper_.v_blocks_[block]->v_pages[page];
+    const VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
     const char* raw_data = &v_page.data[data_offset];
     internal::VarEntryAccessor var_entry{raw_data};
     if (var_entry.value_size == 0) {
