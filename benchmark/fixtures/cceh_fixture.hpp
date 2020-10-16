@@ -44,7 +44,7 @@ template <typename KeyT, typename ValueT>
 uint64_t CcehFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_idx) {
     uint64_t insert_counter = 0;
     for (uint64_t key = start_idx; key < end_idx; ++key) {
-        dram_map_->Insert(key, key);
+        dram_map_->Insert(KeyT{key}, KeyValueOffset{key});
         insert_counter++;
     }
     return insert_counter;
@@ -67,9 +67,10 @@ uint64_t CcehFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t 
 
     uint64_t found_counter = 0;
     for (uint64_t i = 0; i < num_finds; ++i) {
+        cceh::CcehAccessor accessor{};
         const uint64_t key = distrib(rnd_engine);
-        const ValueT value = dram_map_->Get(const_cast<size_t&>(key));
-        found_counter += value == key;
+        const bool found = dram_map_->Get(const_cast<size_t&>(key), accessor);
+        found_counter += found;
     }
     return found_counter;
 }

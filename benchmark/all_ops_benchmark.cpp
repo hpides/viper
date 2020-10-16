@@ -12,33 +12,40 @@
 #include "fixtures/dram_map_fixture.hpp"
 #include "fixtures/cceh_fixture.hpp"
 
+using namespace viper::kv_bm;
+
+constexpr size_t ALL_OPS_NUM_REPETITIONS = 1;
+constexpr size_t ALL_OPS_NUM_PREFILLS = 100'000'000;
+constexpr size_t ALL_OPS_NUM_INSERTS = 50'000'000;
+constexpr size_t ALL_OPS_NUM_FINDS = 50'000'000;
+constexpr size_t ALL_OPS_NUM_UPDATES = 50'000'000;
+constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
+
 #define GENERAL_ARGS \
-            ->Repetitions(3) \
+            ->Repetitions(ALL_OPS_NUM_REPETITIONS) \
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
             ->Threads(36)
 //            ->ThreadRange(1, NUM_MAX_THREADS) \
 
-// TODO: change back to 16/200
 #define DEFINE_BM(fixture, method) \
-            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, method, KeyType8, ValueType8)(benchmark::State& state) { \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, method, KeyType16, ValueType200)(benchmark::State& state) { \
                 bm_##method(state, *this); \
             } \
             BENCHMARK_REGISTER_F(fixture, method) GENERAL_ARGS
 
-#define BM_INSERT(fixture) DEFINE_BM(fixture, insert)->Args({NUM_PREFILLS, NUM_INSERTS})
-#define BM_FIND(fixture)   DEFINE_BM(fixture, get)->Args({NUM_PREFILLS, NUM_FINDS})
-#define BM_UPDATE(fixture) DEFINE_BM(fixture, update)->Args({NUM_PREFILLS, NUM_UPDATES})
-#define BM_DELETE(fixture) DEFINE_BM(fixture, delete)->Args({NUM_PREFILLS, NUM_DELETES})
+#define BM_INSERT(fixture) DEFINE_BM(fixture, insert)->Args({ALL_OPS_NUM_PREFILLS, ALL_OPS_NUM_INSERTS})
+#define BM_FIND(fixture)   DEFINE_BM(fixture, get)->Args({ALL_OPS_NUM_PREFILLS, ALL_OPS_NUM_FINDS})
+#define BM_UPDATE(fixture) DEFINE_BM(fixture, update)->Args({ALL_OPS_NUM_PREFILLS, ALL_OPS_NUM_UPDATES})
+#define BM_DELETE(fixture) DEFINE_BM(fixture, delete)->Args({ALL_OPS_NUM_PREFILLS, ALL_OPS_NUM_DELETES})
 
 #define ALL_BMS(fixture) \
             BM_FIND(fixture); \
-//            BM_INSERT(fixture); \
+            BM_INSERT(fixture); \
 //            BM_UPDATE(fixture); \
 //            BM_DELETE(fixture)
 
-using namespace viper::kv_bm;
 
 void bm_insert(benchmark::State& state, BaseFixture& fixture) {
     const uint64_t num_total_prefill = state.range(0);

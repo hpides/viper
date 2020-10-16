@@ -176,6 +176,8 @@ struct alignas(PAGE_SIZE) ViperPageBlock {
     std::array<VPage, num_pages> v_pages;
 };
 
+
+// TODO: remove keyCompare from Viper
 template <typename KeyT>
 struct KeyCompare {
     static size_t hash(const KeyT& a) {
@@ -394,14 +396,12 @@ std::unique_ptr<Viper<K, V, HC>> Viper<K, V, HC>::open(ViperBase v_base, ViperCo
 
 template <typename K, typename V, typename HC>
 Viper<K, V, HC>::Viper(ViperBase v_base, const bool owns_pool, const ViperConfig v_config) :
-    v_base_{v_base}, map_{10000}, owns_pool_{owns_pool}, v_config_{v_config},
+    v_base_{v_base}, map_{131072}, owns_pool_{owns_pool}, v_config_{v_config},
     resize_threshold_{v_config.resize_threshold}, num_recovery_threads_{v_config.num_recovery_threads} {
     current_block_page_ = 0;
     current_size_ = 0;
     is_resizing_ = false;
     num_active_clients_ = 0;
-
-    std::cout << "MAP CAPACITY: " << map_.Capacity() << std::endl;
 
     if (v_config_.force_block_based && v_config_.force_dimm_based) {
         throw std::runtime_error("Cannot force both block- and dimm-based.");
@@ -785,14 +785,18 @@ void Viper<K, V, HC>::remove_client(Viper::Client* client) {
 }
 
 template <typename K, typename V, typename HC>
-bool Viper<K, V, HC>::check_key_equality(const K& key, const KVOffset offset_to_compare) {
+inline bool Viper<K, V, HC>::check_key_equality(const K& key, const KVOffset offset_to_compare) {
     if constexpr (!using_fp) {
         throw std::runtime_error("Should not use key checker without fingerprints!");
     }
 
     const ReadOnlyClient client = get_read_only_client();
     const auto& entry = client.get_const_entry_from_offset(offset_to_compare);
-    return entry.first == key;
+    if constexpr (std::is_pointer_v<typename KeyAccessor<K>::checker_type>) {
+        return *(entry.first) == key;
+    } else {
+        return entry.first == key;
+    }
 }
 
 template <typename K, typename V, typename HC>
@@ -829,9 +833,10 @@ bool Viper<K, V, HC>::Client::put(const K& key, const V& value) {
     KVOffset old_offset;
 
     if constexpr (using_fp) {
-        this->viper_.map_.Insert(key, kv_offset, &check_key_equality);
+        auto key_check_fn = [&](auto key, auto offset) { return this->viper_.check_key_equality(key, offset); };
+        old_offset = this->viper_.map_.Insert(key, kv_offset, key_check_fn);
     } else {
-        this->viper_.map_.Insert(key, kv_offset);
+        old_offset = this->viper_.map_.Insert(key, kv_offset);
     }
 
     bool is_new_item = old_offset.is_tombstone();
@@ -937,7 +942,7 @@ bool Viper<std::string, std::string, internal::KeyCompare<std::string>>::Client:
     v_lock.store(FREE_BYTE, std::memory_order_release);
 
     // Need to free slot at old location for this key
-    if (!is_new_item && !old_offset.is_tombstone()) {
+    if (!is_new_item) {
         const auto [block_number, page_number, slot_number] = old_offset.get_offsets();
         free_occupied_slot(block_number, page_number, slot_number);
     }

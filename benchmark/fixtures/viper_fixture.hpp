@@ -62,7 +62,7 @@ void ViperFixture<KeyT, ValueT, KC>::InitMap(uint64_t num_prefill_inserts, Viper
     zero_block_device(pool_file_, size_to_zero);
 
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE, v_config);
-    prefill(num_prefill_inserts);
+    this->prefill(num_prefill_inserts);
 
     set_cpu_affinity(CPU_ISSET(0, &cpuset_before) ? 0 : 1);
     viper_initialized_ = true;

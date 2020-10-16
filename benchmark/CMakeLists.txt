@@ -37,7 +37,7 @@ include_directories(third_party/hdr_histogram/src)
 
 add_executable(all_ops_bm all_ops_benchmark.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(all_ops_bm ${LINK_LIBS})
-target_link_libraries(all_ops_bm benchmark rocksdb faster uuid aio hdr_histogram_static CCEH)
+target_link_libraries(all_ops_bm benchmark rocksdb faster uuid aio hdr_histogram_static)
 set_target_properties(all_ops_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(access_pattern_bm access_pattern_bm.cpp ${BASE_BENCHMARK_FILES})

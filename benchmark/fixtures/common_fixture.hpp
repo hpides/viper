@@ -11,6 +11,7 @@
 #include <libpmemobj++/pool.hpp>
 #include <tbb/tbb_stddef.h>
 #include <hdr_histogram.h>
+#include <thread>
 
 #include "../benchmark.hpp"
 #include "ycsb_common.hpp"
@@ -104,7 +105,7 @@ class BaseFixture : public benchmark::Fixture {
     hdr_histogram* hdr_;
     std::mutex hdr_lock_;
 
-    VarSizeKVs var_size_kvs_{};
+    static VarSizeKVs var_size_kvs_;
 };
 
 template <typename RootType>

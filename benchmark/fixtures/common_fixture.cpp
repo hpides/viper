@@ -23,6 +23,8 @@ std::string random_file(const std::filesystem::path& base_dir) {
     return base_dir / file;
 }
 
+VarSizeKVs BaseFixture::var_size_kvs_;
+
 void BaseFixture::log_find_count(benchmark::State& state, uint64_t num_found, uint64_t num_expected) {
     state.counters["found"] = num_found;
     if (num_found != num_expected) {
@@ -60,7 +62,7 @@ void BaseFixture::prefill_internal(const size_t num_prefills, PrefillFn prefill_
 #ifndef NDEBUG
     const auto end = std::chrono::high_resolution_clock::now();
     const auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
-    std::cout << "PREFILL DURATION: " << duration << " s." << std::endl;
+    std::cout << "PREFILL DURATION: " << duration << " s (~" << (num_prefills / (duration + 0.5) / 1e6) << "M/s)" << std::endl;
 #endif
 }
 
@@ -115,6 +117,14 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
     };
 
     std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
+    if (keys.size() > 0) {
+        // Data has been generated already.
+#ifndef NDEBUG
+        std::cout << "SKIPPING STRING GENERATION..." << std::endl;
+#endif
+        return;
+    }
+
     keys.resize(num_strings);
     std::vector<std::string>& values = std::get<1>(var_size_kvs_);
     values.resize(num_strings);
@@ -135,13 +145,24 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
         thread.join();
     }
 
+    set_cpu_affinity(CPU_ISSET(0, &cpuset_before) ? 0 : 1);
+
+    std::unordered_set<std::string> unique_keys{};
+    unique_keys.reserve(keys.size());
+    for (int i = 0; i < keys.size(); ++i) {
+        std::string* key = &keys[i];
+        while (unique_keys.find(*key) != unique_keys.end()) {
+            record_gen_fn(keys, i, i + 1, key_size);
+            key = &keys[i];
+        }
+        unique_keys.insert(*key);
+    }
+
 #ifndef NDEBUG
     const auto end = std::chrono::high_resolution_clock::now();
     const auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
     std::cout << "GENERATION DURATION: " << duration << " s." << std::endl;
 #endif
-
-    set_cpu_affinity(CPU_ISSET(0, &cpuset_before) ? 0 : 1);
 }
 
 bool is_init_thread(const benchmark::State& state) {
