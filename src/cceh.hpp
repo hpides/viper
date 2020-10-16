@@ -1,3 +1,7 @@
+/**
+ * This code was taken and modified from https://github.com/DICL/CCEH, the original authors of CCEH.
+ */
+
 #pragma once
 
 #include <cstring>
@@ -19,6 +23,9 @@ namespace viper {
 #define internal_cas(entry, expected, updated) \
     __atomic_compare_exchange_n(entry, expected, updated, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)
 
+#define ATOMIC_LOAD(addr) \
+    __atomic_load_n(addr, __ATOMIC_ACQUIRE)
+
 #define requires_fingerprint(KeyType) \
     std::is_same_v<KeyType, std::string> || sizeof(KeyType) > 8
 
@@ -32,6 +39,7 @@ inline bool CAS(KeyType* key, KeyType* expected, KeyType updated) {
     else if constexpr (sizeof(KeyType) == 16) return internal_cas((__int128*) key, (__int128*) expected, (__int128) updated);
     else throw std::runtime_error("CAS not supported for > 16 bytes!");
 }
+
 
 using offset_size_t = uint64_t;
 using block_size_t = uint64_t;
@@ -350,7 +358,7 @@ int Segment<KeyType>::Insert(const KeyType& key, IndexV value, size_t loc, size_
         mfence();
         ret = 0;
         break;
-    } else if ((IndexK) __atomic_load_n(&_[slot].key, __ATOMIC_ACQUIRE) == key_checker) {
+    } else if (ATOMIC_LOAD(&_[slot].key) == key_checker) {
         if constexpr (using_fp_) {
             // FPs matched but not necessarily the actual key.
             const bool keys_match = key_check_fn(key, _[slot].value);
@@ -417,6 +425,9 @@ Segment<KeyType>** Segment<KeyType>::Split(void) {
         key_hash = h(&_[i].key, sizeof(IndexK));
     }
     if (key_hash & ((size_t) 1 << ((sizeof(IndexK)*8 - local_depth - 1)))) {
+      while (!IndexV{ATOMIC_LOAD(&_[i].value.offset)}.is_free) {
+          asm("nop");
+      }
       split[1]->Insert4split(_[i].key, _[i].value, (key_hash & kMask)*kNumPairPerCacheLine);
     }
   }
