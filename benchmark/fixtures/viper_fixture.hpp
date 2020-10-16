@@ -7,12 +7,10 @@
 namespace viper {
 namespace kv_bm {
 
-using viper::internal::KeyCompare;
-
-template <typename KeyT = KeyType16, typename ValueT = ValueType200, typename KeyComp = TbbFixedKeyCompare<KeyT>>
+template <typename KeyT = KeyType16, typename ValueT = ValueType200>
 class ViperFixture : public BaseFixture {
   public:
-    using ViperT = Viper<KeyT, ValueT, KeyComp>;
+    using ViperT = Viper<KeyT, ValueT>;
 
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) override;
     void InitMap(const uint64_t num_prefill_inserts, ViperConfig v_config);
@@ -41,8 +39,8 @@ class ViperFixture : public BaseFixture {
     std::string pool_file_;
 };
 
-template <typename KeyT, typename ValueT, typename KC>
-void ViperFixture<KeyT, ValueT, KC>::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
+template <typename KeyT, typename ValueT>
+void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
     if (viper_initialized_ && !re_init) {
         return;
     }
@@ -50,8 +48,8 @@ void ViperFixture<KeyT, ValueT, KC>::InitMap(uint64_t num_prefill_inserts, const
     return InitMap(num_prefill_inserts, ViperConfig{});
 }
 
-template <typename KeyT, typename ValueT, typename KC>
-void ViperFixture<KeyT, ValueT, KC>::InitMap(uint64_t num_prefill_inserts, ViperConfig v_config) {
+template <typename KeyT, typename ValueT>
+void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConfig v_config) {
     cpu_set_t cpuset_before;
     pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
     set_cpu_affinity();
@@ -68,15 +66,15 @@ void ViperFixture<KeyT, ValueT, KC>::InitMap(uint64_t num_prefill_inserts, Viper
     viper_initialized_ = true;
 }
 
-template <typename KeyT, typename ValueT, typename KC>
-void ViperFixture<KeyT, ValueT, KC>::DeInitMap() {
+template <typename KeyT, typename ValueT>
+void ViperFixture<KeyT, ValueT>::DeInitMap() {
     BaseFixture::DeInitMap();
     viper_ = nullptr;
     viper_initialized_ = false;
 }
 
-template <typename KeyT, typename ValueT, typename KC>
-uint64_t ViperFixture<KeyT, ValueT, KC>::insert(uint64_t start_idx, uint64_t end_idx) {
+template <typename KeyT, typename ValueT>
+uint64_t ViperFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_idx) {
     uint64_t insert_counter = 0;
     auto v_client = viper_->get_client();
     for (uint64_t key = start_idx; key < end_idx; ++key) {
@@ -88,7 +86,7 @@ uint64_t ViperFixture<KeyT, ValueT, KC>::insert(uint64_t start_idx, uint64_t end
 }
 
 template <>
-uint64_t ViperFixture<std::string, std::string, KeyCompare<std::string>>::insert(uint64_t start_idx, uint64_t end_idx) {
+uint64_t ViperFixture<std::string, std::string>::insert(uint64_t start_idx, uint64_t end_idx) {
     uint64_t insert_counter = 0;
     auto v_client = viper_->get_client();
     const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
@@ -101,13 +99,13 @@ uint64_t ViperFixture<std::string, std::string, KeyCompare<std::string>>::insert
     return insert_counter;
 }
 
-template <typename KeyT, typename ValueT, typename KC>
-uint64_t ViperFixture<KeyT, ValueT, KC>::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
+template <typename KeyT, typename ValueT>
+uint64_t ViperFixture<KeyT, ValueT>::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
     return insert(start_idx, end_idx);
 }
 
-template <typename KeyT, typename ValueT, typename KC>
-uint64_t ViperFixture<KeyT, ValueT, KC>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
+template <typename KeyT, typename ValueT>
+uint64_t ViperFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
     std::random_device rnd{};
     auto rnd_engine = std::default_random_engine(rnd());
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
@@ -125,7 +123,7 @@ uint64_t ViperFixture<KeyT, ValueT, KC>::setup_and_find(uint64_t start_idx, uint
 }
 
 template <>
-uint64_t ViperFixture<std::string, std::string, KeyCompare<std::string>>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
+uint64_t ViperFixture<std::string, std::string>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
     std::random_device rnd{};
     auto rnd_engine = std::default_random_engine(rnd());
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
@@ -146,8 +144,8 @@ uint64_t ViperFixture<std::string, std::string, KeyCompare<std::string>>::setup_
     return found_counter;
 }
 
-template <typename KeyT, typename ValueT, typename KC>
-uint64_t ViperFixture<KeyT, ValueT, KC>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
+template <typename KeyT, typename ValueT>
+uint64_t ViperFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
     std::random_device rnd{};
     auto rnd_engine = std::default_random_engine(rnd());
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
@@ -163,7 +161,7 @@ uint64_t ViperFixture<KeyT, ValueT, KC>::setup_and_delete(uint64_t start_idx, ui
 }
 
 template <>
-uint64_t ViperFixture<std::string, std::string, KeyCompare<std::string>>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
+uint64_t ViperFixture<std::string, std::string>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
     std::random_device rnd{};
     auto rnd_engine = std::default_random_engine(rnd());
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
@@ -179,8 +177,8 @@ uint64_t ViperFixture<std::string, std::string, KeyCompare<std::string>>::setup_
     return delete_counter;
 }
 
-template <typename KeyT, typename ValueT, typename KC>
-uint64_t ViperFixture<KeyT, ValueT, KC>::setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
+template <typename KeyT, typename ValueT>
+uint64_t ViperFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
     std::random_device rnd{};
     auto rnd_engine = std::default_random_engine(rnd());
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
@@ -202,12 +200,12 @@ uint64_t ViperFixture<KeyT, ValueT, KC>::setup_and_update(uint64_t start_idx, ui
 }
 
 template <>
-uint64_t ViperFixture<std::string, std::string, KeyCompare<std::string>>::setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
+uint64_t ViperFixture<std::string, std::string>::setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
     throw std::runtime_error("Not supported");
 }
 
-template <typename KeyT, typename ValueT, typename KC>
-uint64_t ViperFixture<KeyT, ValueT, KC>::setup_and_get_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
+template <typename KeyT, typename ValueT>
+uint64_t ViperFixture<KeyT, ValueT>::setup_and_get_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
     std::random_device rnd{};
     auto rnd_engine = std::default_random_engine(rnd());
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
@@ -235,13 +233,13 @@ uint64_t ViperFixture<std::string, std::string>::setup_and_get_update(uint64_t s
     throw std::runtime_error("Not supported");
 }
 
-template <typename KeyT, typename ValueT, typename KC>
-uint64_t ViperFixture<KeyT, ValueT, KC>::run_ycsb(uint64_t, uint64_t, const std::vector<ycsb::Record>&, hdr_histogram*) {
+template <typename KeyT, typename ValueT>
+uint64_t ViperFixture<KeyT, ValueT>::run_ycsb(uint64_t, uint64_t, const std::vector<ycsb::Record>&, hdr_histogram*) {
     throw std::runtime_error{"YCSB not implemented for non-ycsb key/value types."};
 }
 
 template <>
-uint64_t ViperFixture<KeyType8, ValueType200, TbbFixedKeyCompare<KeyType8>>::run_ycsb(
+uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
     uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
     uint64_t op_count = 0;
     auto v_client = viper_->get_client();

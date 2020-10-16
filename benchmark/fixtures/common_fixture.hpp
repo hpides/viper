@@ -9,7 +9,6 @@
 #include <benchmark/benchmark.h>
 #include <libpmempool.h>
 #include <libpmemobj++/pool.hpp>
-#include <tbb/tbb_stddef.h>
 #include <hdr_histogram.h>
 #include <thread>
 
@@ -42,24 +41,6 @@ std::string random_file(const std::filesystem::path& base_dir);
 using VarSizeKVs = std::pair<std::vector<std::string>, std::vector<std::string>>;
 
 void zero_block_device(const std::string& block_dev, size_t length);
-
-template <typename KeyT>
-struct TbbFixedKeyCompare {
-    // Use same impl as tbb_hasher
-    static const size_t hash_multiplier = tbb::internal::select_size_t_constant<2654435769U, 11400714819323198485ULL>::value;
-    static size_t hash(const KeyT& a) {
-        return static_cast<size_t>(a.data[0]) * hash_multiplier;
-    }
-    static bool equal(const KeyT& a, const KeyT& b) { return a == b; }
-};
-
-template <>
-struct TbbFixedKeyCompare<std::string> {
-    static size_t hash(const std::string& a) {
-        return std::hash<std::string>{}(a);
-    }
-    static bool equal(const std::string& a, const std::string& b) { return a == b; }
-};
 
 class BaseFixture : public benchmark::Fixture {
   public:

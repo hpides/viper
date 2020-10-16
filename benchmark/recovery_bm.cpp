@@ -7,10 +7,10 @@ using namespace viper::kv_bm;
 
 using VFixture = ViperFixture<KeyType16, ValueType200>;
 
-constexpr size_t RECOVERY_NUM_PREFILLS = 100'000'000;
+constexpr size_t RECLAIM_NUM_PREFILLS = 100'000'000;
 
 inline void bm_recovery(benchmark::State& state, VFixture& fixture) {
-    const uint64_t num_total_prefill = RECOVERY_NUM_PREFILLS;
+    const uint64_t num_total_prefill = RECLAIM_NUM_PREFILLS;
     const uint64_t recovery_threads = state.range(0);
 
     fixture.InitMap(num_total_prefill);

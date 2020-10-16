@@ -2,7 +2,6 @@
 
 #include "benchmark.hpp"
 #include "fixtures/viper_fixture.hpp"
-#include "fixtures/dram_map_fixture.hpp"
 #include "fixtures/faster_fixture.hpp"
 #include "fixtures/pmem_kv_fixture.hpp"
 
@@ -25,7 +24,7 @@ constexpr size_t VAR_SIZES_NUM_DELETES = 50'000'000;
 
 #define DEFINE_BM_INTERNAL(fixture, method, KS, VS) \
         BENCHMARK_TEMPLATE_DEFINE_F(fixture, method ##_ ##KS ##_ ##VS,  \
-                                    std::string, std::string, viper::internal::KeyCompare<std::string>)(benchmark::State& state) { \
+                                    std::string, std::string)(benchmark::State& state) { \
             bm_##method(state, *this, KS, VS); \
         } \
         BENCHMARK_REGISTER_F(fixture, method ##_ ##KS ##_ ##VS) GENERAL_ARGS

@@ -3,7 +3,6 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <thread>
-#include <execution>
 #include <unordered_set>
 
 namespace viper::kv_bm {

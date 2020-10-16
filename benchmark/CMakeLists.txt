@@ -15,7 +15,6 @@ SET(
         fixtures/rocksdb_fixture.hpp
         fixtures/faster_fixture.hpp
         fixtures/pmem_kv_fixture.hpp
-        fixtures/dram_map_fixture.hpp
         fixtures/cceh_fixture.hpp
 )
 
@@ -54,6 +53,11 @@ add_executable(recovery_bm recovery_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(recovery_bm ${LINK_LIBS})
 target_link_libraries(recovery_bm benchmark hdr_histogram_static)
 set_target_properties(recovery_bm PROPERTIES LINKER_LANGUAGE CXX)
+
+add_executable(reclaim_bm reclaim_bm.cpp ${BASE_BENCHMARK_FILES})
+target_link_libraries(reclaim_bm ${LINK_LIBS})
+target_link_libraries(reclaim_bm benchmark hdr_histogram_static)
+set_target_properties(reclaim_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(kv_size_bm key_value_size_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(kv_size_bm ${LINK_LIBS})
