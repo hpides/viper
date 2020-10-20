@@ -11,8 +11,12 @@ constexpr size_t RECLAIM_NUM_DELETES = 33'000'000;
 template <typename VFixture>
 inline void bm_reclaim(benchmark::State& state, VFixture& fixture) {
     viper::ViperConfig v_config{};
-    v_config.enable_reclamation = true;
-    v_config.reclaim_free_percentage = 0.1;
+    v_config.enable_reclamation = false;
+    v_config.reclaim_free_percentage = 0.4;
+
+    if constexpr (std::is_same_v<typename VFixture::KeyType, std::string>) {
+        fixture.generate_strings(RECLAIM_NUM_PREFILLS, 16, 200);
+    }
 
     fixture.InitMap(RECLAIM_NUM_PREFILLS, v_config);
     fixture.setup_and_delete(0, RECLAIM_NUM_PREFILLS - 1, RECLAIM_NUM_DELETES);
@@ -35,17 +39,17 @@ inline void bm_reclaim(benchmark::State& state, VFixture& fixture) {
     fixture.DeInitMap();
 }
 
-BENCHMARK_TEMPLATE2_DEFINE_F(ViperFixture, reclaim_fixed, KeyType16, ValueType200)(benchmark::State& state) { \
-    bm_reclaim(state, *this);
-}
-BENCHMARK_REGISTER_F(ViperFixture, reclaim_fixed)
-    ->Iterations(1)->Unit(BM_TIME_UNIT)->UseRealTime();
-
-//BENCHMARK_TEMPLATE2_DEFINE_F(ViperFixture, reclaim_var, std::string, std::string)(benchmark::State& state) { \
+//BENCHMARK_TEMPLATE2_DEFINE_F(ViperFixture, reclaim_fixed, KeyType16, ValueType200)(benchmark::State& state) { \
 //    bm_reclaim(state, *this);
 //}
-//BENCHMARK_REGISTER_F(ViperFixture, reclaim_var)
+//BENCHMARK_REGISTER_F(ViperFixture, reclaim_fixed)
 //    ->Iterations(1)->Unit(BM_TIME_UNIT)->UseRealTime();
+
+BENCHMARK_TEMPLATE2_DEFINE_F(ViperFixture, reclaim_var, std::string, std::string)(benchmark::State& state) { \
+    bm_reclaim(state, *this);
+}
+BENCHMARK_REGISTER_F(ViperFixture, reclaim_var)
+    ->Iterations(1)->Unit(BM_TIME_UNIT)->UseRealTime();
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];

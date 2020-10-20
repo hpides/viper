@@ -10,6 +10,7 @@ namespace kv_bm {
 template <typename KeyT = KeyType16, typename ValueT = ValueType200>
 class ViperFixture : public BaseFixture {
   public:
+    typedef KeyT KeyType;
     using ViperT = Viper<KeyT, ValueT>;
 
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) override;

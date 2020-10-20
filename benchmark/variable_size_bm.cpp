@@ -30,10 +30,10 @@ constexpr size_t VAR_SIZES_NUM_DELETES = 50'000'000;
         BENCHMARK_REGISTER_F(fixture, method ##_ ##KS ##_ ##VS) GENERAL_ARGS
 
 #define DEFINE_BM(fixture, KS, VS) \
-        DEFINE_BM_INTERNAL(fixture, insert, KS, VS) \
-            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_INSERT_SIZE / (KS + VS)}); \
         DEFINE_BM_INTERNAL(fixture, get, KS, VS) \
             ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_FINDS}); \
+//        DEFINE_BM_INTERNAL(fixture, insert, KS, VS) \
+//            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_INSERT_SIZE / (KS + VS)}); \
 
 
 #define DEFINE_ALL_BMS(fixture) \

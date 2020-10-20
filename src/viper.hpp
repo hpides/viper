@@ -33,7 +33,7 @@ static constexpr uint8_t NUM_DIMMS = 6;
 static constexpr size_t BLOCK_SIZE = NUM_DIMMS * PAGE_SIZE;
 static constexpr size_t ONE_GB = 1024l * 1024 * 1024;
 
-static constexpr version_lock_t LOCK_BIT = 1ul << 7;
+static constexpr version_lock_t LOCK_BIT =   1ul << 7;
 static constexpr version_lock_t CLIENT_BIT = 1ul << 6;
 static constexpr version_lock_t UNUSED_BIT = 1ul << 4;
 static constexpr version_lock_t FREE_BIT_MASK = 127;
@@ -153,11 +153,11 @@ struct alignas(PAGE_SIZE) ViperPage {
 
 template <>
 struct alignas(PAGE_SIZE) ViperPage<std::string, std::string> {
-    ViperPage<std::string, std::string>* next_page;
     char* next_insert_pos;
     std::atomic<version_lock_t> version_lock;
+    uint8_t modified_percentage;
 
-    static constexpr size_t METADATA_SIZE = sizeof(version_lock) + sizeof(next_page) + sizeof(next_insert_pos);
+    static constexpr size_t METADATA_SIZE = sizeof(version_lock) + sizeof(next_insert_pos) + sizeof(modified_percentage);
     static constexpr uint16_t DATA_SIZE = PAGE_SIZE - METADATA_SIZE;
     std::array<char, DATA_SIZE> data;
 
@@ -167,8 +167,8 @@ struct alignas(PAGE_SIZE) ViperPage<std::string, std::string> {
         static_assert(PAGE_SIZE % alignof(*this) == 0, "VPage not page size conform!");
         static_assert(PAGE_SIZE == v_page_size, "VPage not 4096 Byte!");
         version_lock = 0;
-        next_page = nullptr;
         next_insert_pos = nullptr;
+        modified_percentage = 0;
     }
 };
 
@@ -356,6 +356,7 @@ class Viper {
     void recover_database();
     void trigger_resize();
     void trigger_reclaim(size_t num_reclaim_ops);
+    void compact(Client& client, VPageBlock* v_block);
 
     bool check_key_equality(const K& key, const KVOffset offset_to_compare);
 
@@ -669,7 +670,6 @@ void Viper<K, V>::get_new_var_size_access_information(Client* client) {
     }
 
     get_new_access_information(client);
-    client->v_page_->next_page = nullptr;
     client->v_page_->next_insert_pos = client->v_page_->data.data();
 
     v_base_.v_metadata->num_used_blocks++;
@@ -697,10 +697,14 @@ void Viper<K, V>::get_block_based_access(Client* client) {
         asm("nop");
     }
 
+    if (client->v_block_ != nullptr) {
+        client->v_block_->v_pages[0].version_lock &= ~CLIENT_BIT;
+    }
+
     client->v_block_ = v_blocks_[client_block];
     client->v_page_ = &(client->v_block_->v_pages[client_page]);
     client->v_page_->init();
-    client->v_block_->v_pages[0].version_lock = CLIENT_BIT;
+    client->v_block_->v_pages[0].version_lock |= CLIENT_BIT;
 
     v_base_.v_metadata->num_used_blocks++;
 }
@@ -752,7 +756,10 @@ KeyValueOffset Viper<K, V>::get_new_block() {
         assert(new_block < v_blocks_.size());
 
         // Choose random offset to evenly distribute load on all DIMMs
-        const page_size_t new_page = rand() % num_pages_per_block;
+        page_size_t new_page = 0;
+        if constexpr (!std::is_same_v<std::string, K>) {
+            new_page = rand() % num_pages_per_block;
+        }
         new_offset = KVOffset{new_block, new_page, 0};
     } while (!current_block_page_.compare_exchange_weak(raw_block_page, new_offset.offset));
 
@@ -805,50 +812,9 @@ void Viper<K, V>::trigger_reclaim(size_t num_reclaim_ops) {
     reclaim_thread_->detach();
 }
 
-template <typename K, typename V>
-void Viper<K, V>::reclaim() {
-    const size_t num_slots_per_block = num_pages_per_block * VPage::num_slots_per_page;
-
-    // At least X percent of the block should be free before reclaiming it.
-    const size_t free_threshold = v_config_.reclaim_free_percentage * num_slots_per_block;
-    size_t total_freed_slots = 0;
-
-    for (block_size_t block_num = 0; block_num < v_blocks_.size(); ++block_num) {
-        VPageBlock* v_block = v_blocks_[block_num];
-        size_t block_free_slots = 0;
-        VPage& head_page = v_block->v_pages[0];
-        if (IS_BIT_SET(head_page.version_lock, CLIENT_BIT)
-            || IS_BIT_SET(head_page.version_lock, UNUSED_BIT)) {
-            // Block in use by client or already marked as free.
-            continue;
-        }
-
-        for (VPage& v_page : v_block->v_pages) {
-            block_free_slots += v_page.free_slots.count();
-        }
-
-        if (block_free_slots > free_threshold) {
-            head_page.version_lock = UNUSED_BIT;
-            free_blocks_.enqueue(block_num);
-            total_freed_slots += block_free_slots;
-        }
-    }
-
-    std::cout << "TOTAL FREED SLOTS: " << total_freed_slots << std::endl;
-    std::cout << "TOTAL FREED BLOCKS: " << free_blocks_.size_approx() << std::endl;
-}
-
-template <>
-void Viper<std::string, std::string>::reclaim() {
-    for (VPageBlock* v_block : v_blocks_) {
-        for (VPage& v_page : v_block->v_pages) {
-            // TODO
-        }
-    }
-}
 
 template <typename K, typename V>
-typename Viper<K, V>::Client Viper<K, V>::get_client() {
+inline typename Viper<K, V>::Client Viper<K, V>::get_client() {
     num_active_clients_++;
     Client client{*this};
     if constexpr (std::is_same_v<K, std::string>) {
@@ -961,20 +927,25 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
 
     ptrdiff_t offset_in_page = insert_pos - reinterpret_cast<char*>(v_page_);
     assert(offset_in_page <= v_page_size);
+
+    if (*insert_pos != 0 && offset_in_page < v_page_size) {
+        int x = 10;
+    }
+
     block_size_t current_block_number = v_block_number_;
     page_size_t current_page_number = v_page_number_;
+    VPage* current_v_page = v_page_;
 
     if (offset_in_page + meta_size + entry_length > v_page_size) {
         // This page is not big enough to fit the record. Allocate new one.
         update_var_size_page_information();
 
-        if (offset_in_page + meta_size + entry.key_size < v_page_size) {
+        // Writing to new block. Treat this as a fresh insert.
+        const bool force_new_page = v_block_number_ != current_block_number;
+
+        if (offset_in_page + meta_size + entry.key_size <= v_page_size && !force_new_page) {
             // Key fits, value does not. Add key to old page and value to new one.
-            // 0 size indicates value is on next page.
-            entry.value_size = 0;
-            entry.data = insert_pos + meta_size;
-            pmem_memcpy_persist(entry.data, key.data(), entry.key_size);
-            pmem_memcpy_persist(insert_pos, &entry.size_info, meta_size);
+            char* key_insert_pos = insert_pos;
 
             // Add value to new page.
             // 0 size indicates key is on previous page.
@@ -985,7 +956,16 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
             pmem_memcpy(insert_pos, &value_entry.size_info, meta_size, 0);
             pmem_persist(insert_pos, meta_size + value_entry.value_size);
 
+            // 0 size indicates value is on next page.
+            entry.value_size = 0;
+            entry.data = key_insert_pos + meta_size;
+            pmem_memcpy(entry.data, key.data(), entry.key_size, 0);
+            pmem_memcpy(key_insert_pos, &entry.size_info, meta_size, 0);
+            pmem_persist(key_insert_pos, meta_size + entry.key_size);
+
+            current_v_page->next_insert_pos = reinterpret_cast<char*>(current_v_page);
             v_page_->next_insert_pos = insert_pos + meta_size + value_entry.value_size;
+            current_v_page = v_page_;
             is_inserted = true;
         } else {
             // Both key and value don't fit. Add both to new page. 0 sizes indicate that both are on next page.
@@ -995,10 +975,12 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
                 pmem_memcpy_persist(insert_pos, &next_page_entry.size_info, meta_size);
             }
 
+            current_v_page->next_insert_pos = reinterpret_cast<char*>(current_v_page);
             insert_pos = v_page_->data.data();
             offset_in_page = v_page_->METADATA_SIZE;
             current_block_number = v_block_number_;
             current_page_number = v_page_number_;
+            current_v_page = v_page_;
         }
     }
 
@@ -1009,12 +991,8 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
         pmem_memcpy(entry.data + entry.key_size, value.data(), entry.value_size, 0);
         pmem_memcpy(insert_pos, &entry.size_info, meta_size, 0);
         pmem_persist(insert_pos, meta_size + entry_length);
-        v_page_->next_insert_pos = insert_pos + meta_size + entry_length;
+        v_page_->next_insert_pos = insert_pos + (meta_size + entry_length);
     }
-
-    ptrdiff_t next_pos = v_page_->next_insert_pos - reinterpret_cast<char*>(v_page_);
-    assert(next_pos <= v_page_size);
-//    assert(*v_page_->next_insert_pos == '\0');
 
     const uint16_t data_offset = offset_in_page - v_page_->METADATA_SIZE;
     const KVOffset var_offset{current_block_number, current_page_number, data_offset};
@@ -1161,7 +1139,10 @@ void Viper<K, V>::Client::free_occupied_slot(const block_size_t block_number,
         char* raw_data = &v_page.data[data_offset];
         internal::VarSizeEntry* var_entry = reinterpret_cast<internal::VarSizeEntry*>(raw_data);
         var_entry->is_set = false;
-        pmem_persist(&var_entry->size_info, sizeof(var_entry->size_info));
+        const size_t meta_size = sizeof(var_entry->size_info);
+        pmem_persist(&var_entry->size_info, meta_size);
+        const size_t entry_size = var_entry->key_size + var_entry->value_size + meta_size;
+        v_page.modified_percentage += (entry_size * 100) / VPage::DATA_SIZE;
     } else {
         std::bitset<VPage::num_slots_per_page>* free_slots = &v_page.free_slots;
         free_slots->set(data_offset);
@@ -1202,10 +1183,7 @@ void Viper<K, V>::Client::update_access_information() {
 
 template <typename K, typename V>
 void Viper<K, V>::Client::update_var_size_page_information() {
-    VPage* current_page = v_page_;
     update_access_information();
-    current_page->next_page = v_page_;
-    v_page_->next_page = nullptr;
     v_page_->next_insert_pos = v_page_->data.data();
 }
 
@@ -1246,18 +1224,22 @@ Viper<K, V>::Client::Client(ViperT& viper) : ReadOnlyClient{viper} {
 template <typename K, typename V>
 Viper<K, V>::Client::~Client() {
     this->viper_.remove_client(this);
+    if (v_block_ != nullptr) {
+        v_block_->v_pages[0].version_lock &= ~CLIENT_BIT;
+    }
 }
 
 template <typename K, typename V>
 const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>::checker_type> Viper<K, V>::ReadOnlyClient::get_const_entry_from_offset(Viper::KVOffset offset) const {
     if constexpr (std::is_same_v<K, std::string>) {
         const auto[block, page, data_offset] = offset.get_offsets();
-        const VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
+        const VPageBlock* v_block = this->viper_.v_blocks_[block];
+        const VPage& v_page = v_block->v_pages[page];
         const char* raw_data = &v_page.data[data_offset];
         internal::VarEntryAccessor var_entry{raw_data};
         if (var_entry.value_size == 0) {
             // Value is on next page
-            const char* raw_value_data = &v_page.next_page->data[0];
+            const char* raw_value_data = &v_block->v_pages[page + 1].data[0];
             var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
         }
         return {var_entry.key(), var_entry.value()};
@@ -1282,15 +1264,153 @@ typename ValueAccessor<V>::type Viper<K, V>::Client::get_value_from_offset(Viper
 template <>
 std::string_view Viper<std::string, std::string>::Client::get_value_from_offset(Viper::KVOffset offset) {
     const auto [block, page, data_offset] = offset.get_offsets();
-    const VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
+    const VPageBlock* v_block = this->viper_.v_blocks_[block];
+    const VPage& v_page = v_block->v_pages[page];
     const char* raw_data = &v_page.data[data_offset];
     internal::VarEntryAccessor var_entry{raw_data};
     if (var_entry.value_size == 0) {
         // Value is on next page
-        const char* raw_value_data = &v_page.next_page->data[0];
+        const char* raw_value_data = &v_block->v_pages[page + 1].data[0];
         var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
     }
     return var_entry.value();
+}
+
+template <typename K, typename V>
+void Viper<K, V>::compact(Client& client, VPageBlock* v_block) {}
+
+template <>
+void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_block) {
+    const size_t meta_size = sizeof(internal::VarSizeEntry::size_info);
+
+    page_size_t current_page = 0;
+    VPage* v_page = &v_block->v_pages[current_page];
+    const char* raw_data = v_page->data.data();
+    const char* next_insert_pos = v_page->next_insert_pos;
+    bool is_last_page = reinterpret_cast<const void*>(next_insert_pos) != reinterpret_cast<const void*>(v_page);
+
+    while (true) {
+        internal::VarEntryAccessor var_entry{raw_data};
+        data_offset_size_t data_skip = meta_size + var_entry.key_size + var_entry.value_size;
+        const ptrdiff_t offset_in_page = raw_data - reinterpret_cast<char*>(v_page);
+        const bool end_of_page = (offset_in_page + meta_size) > v_page_size;
+
+        if (is_last_page && raw_data == next_insert_pos) {
+            // Previous client has not written further than this, so we can stop here.
+            break;
+        }
+
+        // No more entries in this page
+        if (end_of_page || (var_entry.key_size == 0 && var_entry.value_size == 0)) {
+            if (++current_page == num_pages_per_block) {
+                break;
+            }
+
+            v_page = &v_block->v_pages[current_page];
+            next_insert_pos = v_page->next_insert_pos;
+            raw_data = v_page->data.data();
+            is_last_page = reinterpret_cast<const void*>(next_insert_pos) != reinterpret_cast<const void*>(v_page);
+            continue;
+        }
+
+        // Value is on next page
+        if (var_entry.value_size == 0) {
+            // Value is on next page
+            if (++current_page == num_pages_per_block) {
+                break;
+            }
+
+            v_page = &v_block->v_pages[current_page];
+            next_insert_pos = v_page->next_insert_pos;
+            is_last_page = reinterpret_cast<const void*>(next_insert_pos) != reinterpret_cast<const void*>(v_page);
+            const char* raw_value_data = v_page->data.data();
+            var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
+            raw_data = raw_value_data + meta_size + var_entry.value_size;
+            data_skip = 0;
+        }
+
+        // Insert record into new block
+        if (var_entry.is_set) {
+            client.put(std::string{var_entry.key()}, std::string{var_entry.value()});
+        }
+        raw_data += data_skip;
+    }
+}
+
+template <typename K, typename V>
+void Viper<K, V>::reclaim() {
+    const size_t num_slots_per_block = num_pages_per_block * VPage::num_slots_per_page;
+    const block_size_t max_block = KVOffset{current_block_page_.load()}.block_number;
+
+    // At least X percent of the block should be free before reclaiming it.
+    const size_t free_threshold = v_config_.reclaim_free_percentage * num_slots_per_block;
+    size_t total_freed_slots = 0;
+
+    size_t skipped = 0;
+    for (block_size_t block_num = 0; block_num < max_block; ++block_num) {
+        VPageBlock* v_block = v_blocks_[block_num];
+        size_t block_free_slots = 0;
+        VPage& head_page = v_block->v_pages[0];
+        if (IS_BIT_SET(head_page.version_lock, CLIENT_BIT)
+            || IS_BIT_SET(head_page.version_lock, UNUSED_BIT)) {
+            // Block in use by client or already marked as free.
+            skipped++;
+            continue;
+        }
+
+        for (const VPage& v_page : v_block->v_pages) {
+            block_free_slots += v_page.free_slots.count();
+        }
+
+        if (block_free_slots > free_threshold) {
+            head_page.version_lock = UNUSED_BIT;
+            free_blocks_.enqueue(block_num);
+            total_freed_slots += block_free_slots;
+        }
+    }
+
+    std::cout << "TOTAL FREED SLOTS: " << total_freed_slots << std::endl;
+    std::cout << "TOTAL FREED BLOCKS: " << free_blocks_.size_approx() << std::endl;
+    std::cout << "SKIPPED : " << skipped << std::endl;
+}
+
+template <>
+void Viper<std::string, std::string>::reclaim() {
+    const block_size_t max_block = KVOffset{current_block_page_.load()}.block_number;
+    const double modified_threshold = v_config_.reclaim_free_percentage;
+    size_t skipped = 0;
+    Client client = get_client();
+
+    for (block_size_t block_num = 0; block_num < max_block; ++block_num) {
+        VPageBlock* v_block = v_blocks_[block_num];
+        VPage& head_page = v_block->v_pages[0];
+        double modified_percentage = 0;
+
+        if (IS_BIT_SET(head_page.version_lock, CLIENT_BIT)
+            || IS_BIT_SET(head_page.version_lock, UNUSED_BIT)) {
+            // Block in use by client or already marked as free.
+            skipped++;
+            continue;
+        }
+
+        for (const VPage& v_page : v_block->v_pages) {
+            modified_percentage += ((double)v_page.modified_percentage / num_pages_per_block) / 100;
+            if (modified_percentage > modified_threshold) {
+                compact(client, v_block);
+                head_page.version_lock = UNUSED_BIT;
+                free_blocks_.enqueue(block_num);
+                break;
+            }
+
+            if (v_page.next_insert_pos != reinterpret_cast<const char*>(&v_page)) {
+                // This page has not been completed, so no need to check next one.
+                break;
+            }
+        }
+    }
+
+    DEBUG_LOG("TOTAL FREED BLOCKS: " << free_blocks_.size_approx());
+    std::cout << "SKIPPED : " << skipped << std::endl;
 }
 
 }  // namespace viper
