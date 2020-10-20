@@ -1344,9 +1344,8 @@ void Viper<K, V>::reclaim() {
 
     // At least X percent of the block should be free before reclaiming it.
     const size_t free_threshold = v_config_.reclaim_free_percentage * num_slots_per_block;
-    size_t total_freed_slots = 0;
+    size_t total_freed_blocks = 0;
 
-    size_t skipped = 0;
     for (block_size_t block_num = 0; block_num < max_block; ++block_num) {
         VPageBlock* v_block = v_blocks_[block_num];
         size_t block_free_slots = 0;
@@ -1354,7 +1353,6 @@ void Viper<K, V>::reclaim() {
         if (IS_BIT_SET(head_page.version_lock, CLIENT_BIT)
             || IS_BIT_SET(head_page.version_lock, UNUSED_BIT)) {
             // Block in use by client or already marked as free.
-            skipped++;
             continue;
         }
 
@@ -1365,20 +1363,18 @@ void Viper<K, V>::reclaim() {
         if (block_free_slots > free_threshold) {
             head_page.version_lock = UNUSED_BIT;
             free_blocks_.enqueue(block_num);
-            total_freed_slots += block_free_slots;
+            total_freed_blocks++;
         }
     }
 
-    std::cout << "TOTAL FREED SLOTS: " << total_freed_slots << std::endl;
-    std::cout << "TOTAL FREED BLOCKS: " << free_blocks_.size_approx() << std::endl;
-    std::cout << "SKIPPED : " << skipped << std::endl;
+    DEBUG_LOG("TOTAL FREED BLOCKS: " << total_freed_blocks);
 }
 
 template <>
 void Viper<std::string, std::string>::reclaim() {
     const block_size_t max_block = KVOffset{current_block_page_.load()}.block_number;
     const double modified_threshold = v_config_.reclaim_free_percentage;
-    size_t skipped = 0;
+    size_t total_freed_blocks = 0;
     Client client = get_client();
 
     for (block_size_t block_num = 0; block_num < max_block; ++block_num) {
@@ -1389,7 +1385,6 @@ void Viper<std::string, std::string>::reclaim() {
         if (IS_BIT_SET(head_page.version_lock, CLIENT_BIT)
             || IS_BIT_SET(head_page.version_lock, UNUSED_BIT)) {
             // Block in use by client or already marked as free.
-            skipped++;
             continue;
         }
 
@@ -1399,6 +1394,7 @@ void Viper<std::string, std::string>::reclaim() {
                 compact(client, v_block);
                 head_page.version_lock = UNUSED_BIT;
                 free_blocks_.enqueue(block_num);
+                total_freed_blocks++;
                 break;
             }
 
@@ -1409,8 +1405,7 @@ void Viper<std::string, std::string>::reclaim() {
         }
     }
 
-    DEBUG_LOG("TOTAL FREED BLOCKS: " << free_blocks_.size_approx());
-    std::cout << "SKIPPED : " << skipped << std::endl;
+    DEBUG_LOG("TOTAL FREED BLOCKS: " << total_freed_blocks);
 }
 
 }  // namespace viper
