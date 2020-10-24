@@ -71,7 +71,7 @@ void RocksDbFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const b
         wal_dir_ = "/mnt/nvram-viper/rocksdb-wal";
     } else {
         // Disk version
-        wal_dir_ = "/home/lawrence.benson/rocksdb-wal";
+        wal_dir_ = "/hpi/fs00/home/lawrence.benson/rocksdb-wal";
     }
     options.wal_dir = wal_dir_;
     std::filesystem::remove_all(wal_dir_);

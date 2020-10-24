@@ -140,7 +140,7 @@ uint64_t ViperFixture<std::string, std::string>::setup_and_find(uint64_t start_i
         const std::string& db_key = keys[key];
         const std::string& value = values[key];
         const bool found = v_client.get(db_key, result);
-        found_counter += found && (result->at(0) == value.at(0));
+        found_counter += found && (*result == value);
     }
     return found_counter;
 }

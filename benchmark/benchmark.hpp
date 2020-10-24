@@ -68,9 +68,9 @@ using ValueType900 = BMRecord<uint32_t, 225>;
 
 static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.0";
 static constexpr char DB_NVM_DIR[] = "/mnt/nvram-viper/dbfiles";
-static constexpr char DB_FILE_DIR[] = "/home/lawrence.benson/dbfiles";
-static constexpr char RESULT_FILE_DIR[] = "/home/lawrence.benson/clion/viper/results/";
-static constexpr char CONFIG_DIR[] = "/home/lawrence.benson/clion/viper/benchmark/config/";
+static constexpr char DB_FILE_DIR[] = "/hpi/fs00/home/lawrence.benson/dbfiles";
+static constexpr char RESULT_FILE_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper/results/";
+static constexpr char CONFIG_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper/benchmark/config/";
 static constexpr uint64_t ONE_GB = (1024l*1024*1024) * 1;  // 1GB
 static constexpr uint64_t BM_POOL_SIZE = ONE_GB;
 

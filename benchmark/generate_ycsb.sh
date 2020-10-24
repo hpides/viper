@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-BASE_DIR="/home/lawrence.benson/clion/viper/benchmark"
+BASE_DIR="/hpi/fs00/home/lawrence.benson/clion/viper/benchmark"
 PREFILL_CONF="${BASE_DIR}/config/ycsb_prefill.conf"
 DATA_DIR="/hpi/fs00/home/lawrence.benson/data"
 
 CONFIGS=( "5050_uniform" "5050_zipf" "1090_uniform" "1090_zipf" )
 
-cd "/home/lawrence.benson/ycsb"
+cd "/hpi/fs00/home/lawrence.benson/ycsb"
 
 echo "GENERATING PREFILL DATA"
 ./bin/ycsb load basic -P ${PREFILL_CONF} -s > "${DATA_DIR}/raw_prefill.dat"

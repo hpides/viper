@@ -26,6 +26,9 @@ namespace viper {
 #define ATOMIC_LOAD(addr) \
     __atomic_load_n(addr, __ATOMIC_ACQUIRE)
 
+#define ATOMIC_STORE(addr, value) \
+    __atomic_store_n(addr, value, __ATOMIC_RELEASE)
+
 #define requires_fingerprint(KeyType) \
     std::is_same_v<KeyType, std::string> || sizeof(KeyType) > 8
 
@@ -146,23 +149,27 @@ struct CcehAccessor {
   IndexV& operator*() { return *offset; }
 
   inline void acquire() {
-      IndexV* expected = offset;
-      expected->is_free = true;
-      IndexV* locked = offset;
-      locked->is_free = false;
-      while (!CAS(&offset->offset, &expected->offset, locked->offset)) {
-          expected->is_free = true;
+      IndexV expected{offset->offset};
+      IndexV locked{expected.offset};
+      expected.is_free = true;
+      locked.is_free = false;
+
+      while (!CAS(&offset->offset, &expected.offset, locked.offset)) {
+          expected.is_free = true;
+          locked.offset = expected.offset;
+          locked.is_free = false;
       }
+      // If the value was locked is a tombstone, the value was deleted.
+      found = !expected.is_tombstone();
+      offset->offset = locked.offset;
       has_lock = true;
   }
 
   inline void release() {
     if (has_lock) {
-        IndexV* expected = offset;
-        expected->is_free = false;
-        IndexV* unlocked = offset;
-        unlocked->is_free = true;
-        CAS(&offset->offset, &expected->offset, unlocked->offset);
+        IndexV unlocked{offset->offset};
+        unlocked.is_free = true;
+        ATOMIC_STORE(&offset->offset, unlocked.offset);
         has_lock = false;
     }
   }
@@ -292,9 +299,13 @@ class CCEH {
     template <typename KeyCheckFn>
     bool Get(const KeyType&, CcehAccessor& accessor, KeyCheckFn);
 
+    template <typename KeyCheckFn>
+    bool Delete(const KeyType&, KeyCheckFn);
+
     IndexV Insert(const KeyType&, IndexV);
     bool Delete(const KeyType&);
     bool Get(const KeyType&, CcehAccessor& accessor);
+    void Remove(IndexV* offset);
     size_t Capacity(void);
     bool Recovery(void);
 
@@ -551,10 +562,12 @@ IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value, KeyCheckFn key_ch
     }
 }
 
-// TODO
 template <typename KeyType>
-bool CCEH<KeyType>::Delete(const KeyType& key) {
-    return false;
+void CCEH<KeyType>::Remove(IndexV* offset) {
+    offset_size_t expected_value = offset->offset;
+    CAS(&offset->offset, &expected_value, IndexV::Tombstone().offset);
+    IndexK* key_slot = reinterpret_cast<IndexK*>(offset) - 1;
+    ATOMIC_STORE(key_slot, INVALID);
 }
 
 template <typename KeyType>
@@ -602,7 +615,7 @@ bool CCEH<KeyType>::Get(const KeyType& key, CcehAccessor& accessor, KeyCheckFn k
 
           accessor.take(&(segment->_[slot].value));
           segment->sema.fetch_sub(1);
-          return true;
+          return accessor.found;
         }
     }
 

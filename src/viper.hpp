@@ -85,17 +85,17 @@ constexpr data_offset_size_t get_num_slots_per_page() {
 
 struct VarSizeEntry {
     union {
-        uint64_t size_info;
+        uint32_t size_info;
         struct {
             bool is_set : 1;
-            uint32_t key_size : 31;
-            uint32_t value_size : 32;
+            uint16_t key_size : 15;
+            uint16_t value_size : 16;
         };
     };
     char* data;
 
     VarSizeEntry(const uint64_t keySize, const uint64_t valueSize)
-        : is_set{true}, key_size{static_cast<uint32_t>(keySize)}, value_size{static_cast<uint32_t>(valueSize)} {}
+        : is_set{true}, key_size{static_cast<uint16_t>(keySize)}, value_size{static_cast<uint16_t>(valueSize)} {}
 };
 
 struct VarEntryAccessor {
@@ -310,6 +310,8 @@ class Viper {
 
       protected:
         Client(ViperT& viper);
+
+        bool put(const K& key, const V& value, IndexV* previous_offset);
         inline void update_access_information();
         inline void update_var_size_page_information();
         inline typename ValueAccessor<V>::type get_value_from_offset(KVOffset offset);
@@ -852,7 +854,7 @@ inline bool Viper<K, V>::check_key_equality(const K& key, const KVOffset offset_
 }
 
 template <typename K, typename V>
-bool Viper<K, V>::Client::put(const K& key, const V& value) {
+bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_offset) {
     // Lock v_page. We expect the lock bit to be unset.
     std::atomic<version_lock_t>& v_lock = v_page_->version_lock;
     version_lock_t lock_value = v_lock.load() & FREE_BIT_MASK;
@@ -910,7 +912,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value) {
 }
 
 template <>
-bool Viper<std::string, std::string>::Client::put(const std::string& key, const std::string& value) {
+bool Viper<std::string, std::string>::Client::put(const std::string& key, const std::string& value, IndexV* previous_offset) {
     // Lock v_page. We expect the lock bit to be unset.
     std::atomic<version_lock_t>& v_lock = v_page_->version_lock;
     version_lock_t lock_value = v_lock.load() & FREE_BIT_MASK;
@@ -996,11 +998,20 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
 
     const uint16_t data_offset = offset_in_page - v_page_->METADATA_SIZE;
     const KVOffset var_offset{current_block_number, current_page_number, data_offset};
+    bool is_new_item = true;
+    KVOffset old_offset = KVOffset::Tombstone();
 
     // Store data in DRAM map.
-    auto key_check_fn = [&](auto key, auto offset) { return this->viper_.check_key_equality(key, offset); };
-    const KVOffset old_offset = this->viper_.map_.Insert(key, var_offset, key_check_fn);
-    const bool is_new_item = old_offset.is_tombstone();
+    if (previous_offset->is_tombstone()) {
+        // Regular insert
+        auto key_check_fn = [&](auto key, auto offset) { return this->viper_.check_key_equality(key, offset); };
+        old_offset = this->viper_.map_.Insert(key, var_offset, key_check_fn);
+        is_new_item = old_offset.is_tombstone();
+        size_delta_++;
+    } else {
+        assert(!previous_offset->is_free);
+        ATOMIC_STORE(&previous_offset->offset, var_offset.offset);
+    }
 
     // Unlock the v_page
     v_lock.store(lock_value & FREE_BIT_MASK, std::memory_order_release);
@@ -1011,11 +1022,14 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
         free_occupied_slot(block_number, page_number, slot_number);
     }
 
-    // We have added one value, so +1
-    size_delta_++;
     info_sync();
-
     return is_new_item;
+}
+
+template <typename K, typename V>
+bool Viper<K, V>::Client::put(const K& key, const V& value) {
+    IndexV previous_offset = IndexV::Tombstone();
+    return put(key, value, &previous_offset);
 }
 
 template <typename K, typename V>
@@ -1115,7 +1129,7 @@ bool Viper<K, V>::Client::remove(const K& key) {
 
     const auto [block_number, page_number, slot_number] = offset.get_offsets();
     free_occupied_slot(block_number, page_number, slot_number);
-    this->viper_.map_.Delete(key);
+    this->viper_.map_.Remove(ccehAccessor.offset);
     num_reclaimable_ops_++;
     return true;
 }
@@ -1289,6 +1303,8 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
     const char* next_insert_pos = v_page->next_insert_pos;
     bool is_last_page = reinterpret_cast<const void*>(next_insert_pos) != reinterpret_cast<const void*>(v_page);
 
+    auto key_check_fn = [&](auto key, auto offset) { return check_key_equality(key, offset); };
+
     while (true) {
         internal::VarEntryAccessor var_entry{raw_data};
         data_offset_size_t data_skip = meta_size + var_entry.key_size + var_entry.value_size;
@@ -1331,7 +1347,16 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
 
         // Insert record into new block
         if (var_entry.is_set) {
-            client.put(std::string{var_entry.key()}, std::string{var_entry.value()});
+            const std::string key{var_entry.key()};
+            cceh::CcehAccessor accessor{};
+            const bool found = map_.Get(key, accessor, key_check_fn);
+            if (found) {
+                client.put(key, std::string{var_entry.value()}, accessor.offset);
+                var_entry.is_set = false;
+                pmem_persist(&var_entry.is_set, sizeof(var_entry.is_set));
+                accessor.has_lock = false;
+            }
+
         }
         raw_data += data_skip;
     }
