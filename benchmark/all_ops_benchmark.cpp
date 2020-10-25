@@ -40,8 +40,8 @@ constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
 #define BM_DELETE(fixture) DEFINE_BM(fixture, delete)->Args({ALL_OPS_NUM_PREFILLS, ALL_OPS_NUM_DELETES})
 
 #define ALL_BMS(fixture) \
-            BM_FIND(fixture); \
             BM_INSERT(fixture); \
+            BM_FIND(fixture); \
 //            BM_UPDATE(fixture); \
 //            BM_DELETE(fixture)
 
@@ -159,7 +159,7 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
 }
 
 //ALL_BMS(DramMapFixture);
-//ALL_BMS(CcehFixture);
+ALL_BMS(CcehFixture);
 ALL_BMS(ViperFixture);
 //ALL_BMS(PmemKVFixture);
 //ALL_BMS(NvmFasterFixture);

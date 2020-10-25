@@ -155,8 +155,8 @@ struct CcehAccessor {
       locked.is_free = false;
 
       while (!CAS(&offset->offset, &expected.offset, locked.offset)) {
-          expected.is_free = true;
           locked.offset = expected.offset;
+          expected.is_free = true;
           locked.is_free = false;
       }
       // If the value was locked is a tombstone, the value was deleted.
