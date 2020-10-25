@@ -206,7 +206,33 @@ uint64_t CcehFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_
 
 template <typename KeyT, typename ValueT>
 uint64_t CcehFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
-    return 0;
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
+    auto key_check_fn = [this](const KeyT& key, IndexV offset) {
+        block_size_t entry_ptr_pos = offset.block_number;
+        const pmem::obj::persistent_ptr<Entry>& entry_ptr = (*ptrs_)[entry_ptr_pos];
+        return !!entry_ptr && key == entry_ptr->first;
+    };
+
+    uint64_t delete_counter = 0;
+    for (uint64_t i = 0; i < num_deletes; ++i) {
+        cceh::CcehAccessor accessor{};
+        const uint64_t key = distrib(rnd_engine);
+        const bool found = dram_map_->Get(key, accessor, key_check_fn);
+        if (found) {
+            block_size_t entry_ptr_pos = accessor->block_number;
+            pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
+            pmem::obj::transaction::run(pmem_pool_, [&] {
+                pmem::obj::delete_persistent<Entry>(entry_ptr);
+            });
+            (*ptrs_)[entry_ptr_pos] = pmem::obj::persistent_ptr<Entry>();
+            dram_map_->Remove(accessor.offset);
+            delete_counter++;
+        }
+    }
+    return delete_counter;
 }
 
 template <typename KeyT, typename ValueT>

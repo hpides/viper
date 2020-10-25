@@ -14,8 +14,8 @@
 using namespace viper::kv_bm;
 
 constexpr size_t ALL_OPS_NUM_REPETITIONS = 1;
-constexpr size_t ALL_OPS_NUM_PREFILLS = 100'000'00;
-constexpr size_t ALL_OPS_NUM_INSERTS = 50'000'00;
+constexpr size_t ALL_OPS_NUM_PREFILLS = 100'000'000;
+constexpr size_t ALL_OPS_NUM_INSERTS = 50'000'000;
 constexpr size_t ALL_OPS_NUM_FINDS = 50'000'000;
 constexpr size_t ALL_OPS_NUM_UPDATES = 50'000'000;
 constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
@@ -25,8 +25,8 @@ constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
-            ->Threads(36)
-//            ->ThreadRange(1, NUM_MAX_THREADS) \
+            ->ThreadRange(1, NUM_MAX_THREADS) \
+            ->Threads(24)
 
 #define DEFINE_BM(fixture, method) \
             BENCHMARK_TEMPLATE2_DEFINE_F(fixture, method, KeyType16, ValueType200)(benchmark::State& state) { \
@@ -41,9 +41,9 @@ constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
 
 #define ALL_BMS(fixture) \
             BM_INSERT(fixture); \
-//            BM_FIND(fixture); \
-//            BM_UPDATE(fixture); \
-//            BM_DELETE(fixture)
+            BM_FIND(fixture); \
+            BM_UPDATE(fixture); \
+            BM_DELETE(fixture)
 
 
 void bm_insert(benchmark::State& state, BaseFixture& fixture) {
@@ -170,7 +170,7 @@ ALL_BMS(ViperFixture);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
-//    const std::string arg = get_output_file("all_ops/all_ops");
-//    return bm_main({exec_name, arg});
-    return bm_main({exec_name});
+    const std::string arg = get_output_file("all_ops/all_ops");
+    return bm_main({exec_name, arg});
+//    return bm_main({exec_name});
 }
