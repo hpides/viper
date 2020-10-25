@@ -91,9 +91,9 @@ bool CcehFixture<KeyT, ValueT>::insert_internal(const KeyT& key, const ValueT& v
 template <typename KeyT, typename ValueT>
 uint64_t CcehFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_idx) {
     uint64_t insert_counter = 0;
-    for (uint64_t key = start_idx; key < end_idx; ++key) {
-        const KeyT db_key{key};
-        const ValueT value{key};
+    for (uint64_t pos = start_idx; pos < end_idx; ++pos) {
+        const KeyT db_key{pos};
+        const ValueT value{pos};
         insert_counter += insert_internal(db_key, value);
     }
     return insert_counter;
@@ -104,9 +104,9 @@ uint64_t CcehFixture<std::string, std::string>::insert(uint64_t start_idx, uint6
     uint64_t insert_counter = 0;
     const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
     const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
-    for (uint64_t key = start_idx; key < end_idx; ++key) {
-        const std::string& db_key = keys[key];
-        const std::string& value = values[key];
+    for (uint64_t pos = start_idx; pos < end_idx; ++pos) {
+        const std::string& db_key = keys[pos];
+        const std::string& value = values[pos];
         insert_counter += insert_internal(db_key, value);
     }
     return insert_counter;
@@ -176,7 +176,32 @@ uint64_t CcehFixture<std::string, std::string>::setup_and_find(uint64_t start_id
 
 template <typename KeyT, typename ValueT>
 uint64_t CcehFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
-    return 0;
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
+    auto key_check_fn = [this](const KeyT& key, IndexV offset) {
+        block_size_t entry_ptr_pos = offset.block_number;
+        pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
+        return key == entry_ptr->first;
+    };
+
+    uint64_t update_counter = 0;
+    for (uint64_t i = 0; i < num_updates; ++i) {
+        const uint64_t key = distrib(rnd_engine);
+        const KeyT db_key{key};
+        cceh::CcehAccessor accessor{};
+        const bool found = dram_map_->Get(db_key, accessor, key_check_fn);
+        if (found) {
+            block_size_t entry_ptr_pos = accessor->block_number;
+            pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
+            ValueT& value = entry_ptr->second;
+            value.update_value();
+            pmem_persist(&value, sizeof(uint64_t));
+            update_counter++;
+        }
+    }
+    return update_counter;
 }
 
 template <typename KeyT, typename ValueT>

@@ -14,8 +14,8 @@
 using namespace viper::kv_bm;
 
 constexpr size_t ALL_OPS_NUM_REPETITIONS = 1;
-constexpr size_t ALL_OPS_NUM_PREFILLS = 100'000'000;
-constexpr size_t ALL_OPS_NUM_INSERTS = 50'000'000;
+constexpr size_t ALL_OPS_NUM_PREFILLS = 100'000'00;
+constexpr size_t ALL_OPS_NUM_INSERTS = 50'000'00;
 constexpr size_t ALL_OPS_NUM_FINDS = 50'000'000;
 constexpr size_t ALL_OPS_NUM_UPDATES = 50'000'000;
 constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
@@ -41,7 +41,7 @@ constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
 
 #define ALL_BMS(fixture) \
             BM_INSERT(fixture); \
-            BM_FIND(fixture); \
+//            BM_FIND(fixture); \
 //            BM_UPDATE(fixture); \
 //            BM_DELETE(fixture)
 
