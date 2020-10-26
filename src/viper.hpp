@@ -567,59 +567,39 @@ template <typename K, typename V>
 void Viper<K, V>::recover_database() {
     auto start = std::chrono::high_resolution_clock::now();
 
-    // Pre-size map to avoid resizing during recovery.
     const block_size_t num_used_blocks = v_base_.v_metadata->num_used_blocks;
-
     DEBUG_LOG("Re-inserting values from " << num_used_blocks << " blocks.");
 
     std::vector<std::thread> recovery_threads;
     recovery_threads.reserve(num_recovery_threads_);
 
-    std::vector<std::vector<KVOffset>> duplicate_entries;
-    duplicate_entries.resize(num_recovery_threads_);
+    auto key_check_fn = [&](auto key, auto offset) { return check_key_equality(key, offset); };
 
     auto recover = [&](const size_t thread_num, const block_size_t start_block, const block_size_t end_block) {
-        std::vector<KVOffset>& duplicates = duplicate_entries[thread_num];
-
         size_t num_entries = 0;
         for (block_size_t block_num = start_block; block_num < end_block; ++block_num) {
             VPageBlock* block = v_blocks_[block_num];
             for (page_size_t page_num = 0; page_num < num_pages_per_block; ++page_num) {
                 const VPage& page = block->v_pages[page_num];
-                if (page.version_lock == 0) {
+                if (IS_BIT_SET(page.version_lock, UNUSED_BIT)) {
                     // Page is empty
                     continue;
                 }
                 for (data_offset_size_t slot_num = 0; slot_num < VPage::num_slots_per_page; ++slot_num) {
-                    if (page.free_slots[slot_num] != 0) {
+                    if (page.free_slots[slot_num]) {
                         // No data, continue
                         continue;
                     }
-                    // Data is present
 
-                    if constexpr (std::is_same_v<K, std::string>) {
-                        throw std::runtime_error{"not implemented yet"};
-                    } else {
-                        ++num_entries;
-                        typename Accessor::MapAccessor accessor;
-                        const K& key = page.data[slot_num].first;
-                        const KVOffset offset{block_num, page_num, slot_num};
-                        const IndexV old_offset = map_.Insert(key, offset);
-                        if (!old_offset.is_tombstone()) {
-                            duplicates.push_back(old_offset);
-                        }
-                    }
+                    // Data is present
+                    const K& key = page.data[slot_num].first;
+                    const KVOffset offset{block_num, page_num, slot_num};
+                    map_.Insert(key, offset, key_check_fn);
+                    num_entries++;
                 }
             }
         }
         current_size_.fetch_add(num_entries);
-
-        if (duplicates.size() > 0) {
-            for (const KVOffset offset : duplicates) {
-                const auto[block, page, slot] = offset.get_offsets();
-                v_blocks_[block]->v_pages[page].free_slots.set(slot);
-            }
-        }
     };
 
     // We give each thread + 1 blocks to avoid leaving out blocks at the end.
@@ -842,6 +822,10 @@ template <typename K, typename V>
 inline bool Viper<K, V>::check_key_equality(const K& key, const KVOffset offset_to_compare) {
     if constexpr (!using_fp) {
         throw std::runtime_error("Should not use key checker without fingerprints!");
+    }
+
+    if (offset_to_compare.is_tombstone()) {
+        return false;
     }
 
     const ReadOnlyClient client = get_read_only_client();

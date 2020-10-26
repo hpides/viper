@@ -34,7 +34,7 @@ struct BMRecord {
     BMRecord(uint32_t x) { data.fill(static_cast<T>(x)); }
 
     inline bool operator==(const BMRecord& other) const {
-        return get_key() == other.get_key();
+        return data == other.data;
     }
 
     BMRecord<T, N>& from_str(const std::string& bytes) {

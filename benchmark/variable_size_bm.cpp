@@ -9,7 +9,7 @@
 using namespace viper::kv_bm;
 
 constexpr size_t VAR_SIZES_NUM_REPETITIONS = 1;
-constexpr size_t VAR_SIZES_PREFILL_SIZE = 10 * (1000l * 1000 * 1000);
+constexpr size_t VAR_SIZES_PREFILL_SIZE = 20 * (1000l * 1000 * 1000);
 constexpr size_t VAR_SIZES_INSERT_SIZE = VAR_SIZES_PREFILL_SIZE / 2;
 constexpr size_t VAR_SIZES_NUM_FINDS = 50'000'000;
 constexpr size_t VAR_SIZES_NUM_UPDATES = 50'000'000;
@@ -20,8 +20,8 @@ constexpr size_t VAR_SIZES_NUM_DELETES = 50'000'000;
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
-            ->Threads(36)
-//            ->ThreadRange(1, NUM_MAX_THREADS) \
+            ->ThreadRange(1, NUM_MAX_THREADS) \
+            ->Threads(24)
 
 #define DEFINE_BM_INTERNAL(fixture, method, KS, VS) \
         BENCHMARK_TEMPLATE_DEFINE_F(fixture, method ##_ ##KS ##_ ##VS,  \
@@ -33,13 +33,12 @@ constexpr size_t VAR_SIZES_NUM_DELETES = 50'000'000;
 #define DEFINE_BM(fixture, KS, VS) \
         DEFINE_BM_INTERNAL(fixture, insert, KS, VS) \
             ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_INSERT_SIZE / (KS + VS)}); \
-//        DEFINE_BM_INTERNAL(fixture, get, KS, VS) \
-//            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_FINDS}); \
+        DEFINE_BM_INTERNAL(fixture, get, KS, VS) \
+            ->Args({VAR_SIZES_PREFILL_SIZE / (KS + VS), VAR_SIZES_NUM_FINDS})
 
 
 #define DEFINE_ALL_BMS(fixture) \
         DEFINE_BM(fixture, 16, 200)
-//        DEFINE_BM(fixture, 20, 50); \
 
 void bm_insert(benchmark::State& state, BaseFixture& fixture, size_t key_size, size_t value_size) {
     const uint64_t num_total_prefill = state.range(0);
@@ -108,7 +107,7 @@ DEFINE_ALL_BMS(CcehFixture);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
-//    const std::string arg = get_output_file("kv_size/kv_size");
-//    return bm_main({exec_name, arg});
-    return bm_main({exec_name});
+    const std::string arg = get_output_file("var_size/var_size");
+    return bm_main({exec_name, arg});
+//    return bm_main({exec_name});
 }

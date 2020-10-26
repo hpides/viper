@@ -30,7 +30,6 @@ inline void bm_recovery(benchmark::State& state, VFixture& fixture) {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         rec_time_ms = duration.count();
     }
-    std::cout << "REC TIME: " << rec_time_ms << std::endl;
     state.counters["rec_time_ms"] = rec_time_ms;
 }
 

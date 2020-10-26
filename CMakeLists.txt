@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(nvm_kv_bm)
+project(viper)
 
 set(CMAKE_CXX_STANDARD 17)
 include(FetchContent)
@@ -53,5 +53,3 @@ add_compile_options(-pthread)
 
 add_executable(playground playground.cpp)
 target_link_libraries(playground ${LINK_LIBS})
-target_link_libraries(playground viper)
-

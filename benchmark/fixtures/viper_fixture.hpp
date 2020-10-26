@@ -118,7 +118,7 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t
         typename ViperT::Accessor result;
         const KeyT db_key{key};
         const bool found = v_client.get(db_key, result);
-        found_counter += found && (result->data[0] == key);
+        found_counter += found && (*result == ValueT{key});
     }
     return found_counter;
 }
@@ -230,7 +230,7 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_get_update(uint64_t start_idx, ui
 }
 
 template <>
-uint64_t ViperFixture<std::string, std::string>::setup_and_get_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
+uint64_t ViperFixture<std::string, std::string>::setup_and_get_update(uint64_t, uint64_t, uint64_t) {
     throw std::runtime_error("Not supported");
 }
 

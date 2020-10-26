@@ -137,7 +137,7 @@ uint64_t CcehFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t 
         if (found) {
             block_size_t entry_ptr_pos = accessor->block_number;
             pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
-            found_counter += (entry_ptr->second.data[0] == key);
+            found_counter += (entry_ptr->second == key);
         }
     }
     return found_counter;
@@ -204,6 +204,9 @@ uint64_t CcehFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_
     return update_counter;
 }
 
+template <>
+uint64_t CcehFixture<std::string, std::string>::setup_and_update(uint64_t, uint64_t, uint64_t) { return 0; }
+
 template <typename KeyT, typename ValueT>
 uint64_t CcehFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
     std::random_device rnd{};
@@ -220,7 +223,8 @@ uint64_t CcehFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_
     for (uint64_t i = 0; i < num_deletes; ++i) {
         cceh::CcehAccessor accessor{};
         const uint64_t key = distrib(rnd_engine);
-        const bool found = dram_map_->Get(key, accessor, key_check_fn);
+        const KeyT db_key{key};
+        const bool found = dram_map_->Get(db_key, accessor, key_check_fn);
         if (found) {
             block_size_t entry_ptr_pos = accessor->block_number;
             pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
@@ -234,6 +238,9 @@ uint64_t CcehFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_
     }
     return delete_counter;
 }
+
+template <>
+uint64_t CcehFixture<std::string, std::string>::setup_and_delete(uint64_t, uint64_t, uint64_t) { return 0; }
 
 template <typename KeyT, typename ValueT>
 uint64_t CcehFixture<KeyT, ValueT>::run_ycsb(uint64_t start_idx,

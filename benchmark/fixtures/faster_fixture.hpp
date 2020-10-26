@@ -13,7 +13,7 @@ class FasterFixture : public BaseFixture {
     static constexpr size_t data_size_max_ = MAX_DATA_SIZE * (sizeof(KeyT) + sizeof(ValueT));
     static constexpr size_t prefill_size_max_ = NUM_PREFILLS * (sizeof(KeyT) + sizeof(ValueT));
     static constexpr size_t LOG_FILE_SEGMENT_SIZE = 1 * (1024l * 1024 * 1024);
-    static constexpr size_t LOG_MEMORY_SIZE = 5 * (1024l * 1024 * 1024);
+    static constexpr size_t LOG_MEMORY_SIZE = 6 * (1024l * 1024 * 1024);
     static constexpr size_t NVM_LOG_SIZE = LOG_MEMORY_SIZE;
 //    static constexpr size_t LOG_MEMORY_SIZE = prefill_size_max_ / 4;
 //    static constexpr size_t NVM_LOG_SIZE = prefill_size_max_ / 4;
