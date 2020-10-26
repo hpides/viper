@@ -2,7 +2,7 @@
 
 #include "benchmark.hpp"
 #include "fixtures/viper_fixture.hpp"
-#include "fixtures/dram_map_fixture.hpp"
+#include "fixtures/cceh_fixture.hpp"
 #include "fixtures/faster_fixture.hpp"
 #include "fixtures/pmem_kv_fixture.hpp"
 
@@ -36,8 +36,8 @@ constexpr size_t KV_SIZES_NUM_FINDS = 50'000'000 * KV_SIZES_SCALE_FACTOR;
 
 #define DEFINE_ALL_BMS(fixture) \
         DEFINE_BM(fixture, 8, 8); \
-        DEFINE_BM(fixture, 16, 100); \
         DEFINE_BM(fixture, 16, 200); \
+        DEFINE_BM(fixture, 16, 100); \
         DEFINE_BM(fixture, 100, 900)
 
 inline void bm_insert(benchmark::State& state, BaseFixture& fixture) {
@@ -91,11 +91,10 @@ inline void bm_get(benchmark::State& state, BaseFixture& fixture) {
     }
 }
 
-DEFINE_ALL_BMS(DramMapFixture);
 DEFINE_ALL_BMS(ViperFixture);
-DEFINE_ALL_BMS(NvmFasterFixture);
-DEFINE_ALL_BMS(PmemHybridFasterFixture);
-DEFINE_ALL_BMS(PmemKVFixture);
+DEFINE_ALL_BMS(CcehFixture);
+//DEFINE_ALL_BMS(PmemHybridFasterFixture);
+//DEFINE_ALL_BMS(PmemKVFixture);
 
 
 int main(int argc, char** argv) {

@@ -50,7 +50,7 @@ void CcehFixture<KeyT, ValueT>::InitMap(const uint64_t num_prefill_inserts, cons
     pmem_pool_name_ = random_file(DB_NVM_DIR);
     int sds_write_value = 0;
     pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
-    pmem_pool_ = pmem::obj::pool<CcehPool>::create(pmem_pool_name_, "", 50ul * ONE_GB, S_IRWXU);
+    pmem_pool_ = pmem::obj::pool<CcehPool>::create(pmem_pool_name_, "", 90ul * ONE_GB, S_IRWXU);
     if (pmem_pool_.handle() == nullptr) {
         throw std::runtime_error("Could not create pool");
     }
