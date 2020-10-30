@@ -4,6 +4,12 @@
 
 #pragma once
 
+/**
+ * Define this to use CCEH in PMem instead of DRAM.
+ * Change the file location (CCEH_PMEM_POOL_FILE) above the PMemAllocator definition to a location of your choice.
+ */
+//#define CCEH_PERSISTENT
+
 #include <cstring>
 #include <cmath>
 #include <vector>
@@ -18,7 +24,70 @@
 
 #include "hash.hpp"
 
+#ifdef CCEH_PERSISTENT
+#include <libpmemobj++/allocator.hpp>
+#include <libpmempool.h>
+#endif
+
 namespace viper {
+
+#ifdef CCEH_PERSISTENT
+static constexpr char CCEH_PMEM_POOL_FILE[] = "/mnt/nvram-viper/cceh-allocator.file";
+class PMemAllocator {
+  public:
+    static PMemAllocator& get() {
+        static std::once_flag flag;
+        std::call_once(flag, []{ instance(); });
+        return instance();
+    }
+
+    void allocate(PMEMoid* pmem_ptr, size_t size) {
+        auto ctor = [](PMEMobjpool* pool, void* ptr, void* arg) { return 0; };
+        int ret = pmemobj_alloc(pmem_pool_.handle(), pmem_ptr, size, 0, ctor, nullptr);
+        if (ret != 0) {
+            throw std::runtime_error{std::string("Could not allocate! ") + std::strerror(errno)};
+        }
+    }
+
+    static PMemAllocator& instance() {
+        static PMemAllocator instance{};
+        return instance;
+    }
+
+    PMemAllocator() {
+        pool_is_open_ = false;
+        initialize();
+    }
+
+    void initialize() {
+        destroy();
+
+        int sds_write_value = 0;
+        pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
+        pmem_pool_ = pmem::obj::pool_base::create(CCEH_PMEM_POOL_FILE, "", 10ul * (1024l * 1024 * 1024), S_IRWXU);
+        if (pmem_pool_.handle() == nullptr) {
+            throw std::runtime_error("Could not open allocator pool file.");
+        }
+        pool_is_open_ = true;
+    }
+
+    void destroy() {
+        if (pool_is_open_) {
+            pmem_pool_.close();
+            pool_is_open_ = false;
+        }
+        pmempool_rm(CCEH_PMEM_POOL_FILE, PMEMPOOL_RM_FORCE);
+    }
+
+    ~PMemAllocator() {
+        destroy();
+    }
+
+    pmem::obj::pool_base pmem_pool_;
+    bool pool_is_open_;
+};
+#endif
+
 
 #define internal_cas(entry, expected, updated) \
     __atomic_compare_exchange_n(entry, expected, updated, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)
@@ -31,6 +100,8 @@ namespace viper {
 
 #define requires_fingerprint(KeyType) \
     std::is_same_v<KeyType, std::string> || sizeof(KeyType) > 8
+
+#define IS_BIT_SET(variable, mask) ((variable & mask) != 0)
 
 
 template <typename KeyType>
@@ -103,32 +174,19 @@ constexpr size_t kNumCacheLine = 4;
 constexpr uint64_t SPLIT_REQUEST_BIT = 1ul << 63;
 constexpr uint64_t EXCLUSIVE_LOCK = -1;
 
-template <typename KeyType = IndexK>
 struct Pair {
-    KeyType key;
+    IndexK key;
     IndexV value;
 
     Pair(void) : key{INVALID}, value{IndexV::Tombstone()} {}
 
-    Pair(KeyType _key, IndexV _value) : key{_key}, value{_value} {}
+    Pair(IndexK _key, IndexV _value) : key{_key}, value{_value} {}
 
     Pair& operator=(const Pair& other) {
         key = other.key;
         value = other.value;
         return *this;
     }
-
-  void* operator new(size_t size) {
-    void *ret;
-    posix_memalign(&ret, 64, size);
-    return ret;
-  }
-
-  void* operator new[](size_t size) {
-    void *ret;
-    posix_memalign(&ret, 64, size);
-    return ret;
-  }
 };
 
 struct CcehAccessor {
@@ -175,38 +233,15 @@ struct CcehAccessor {
   }
 };
 
-static inline void CPUPause(void) {
-    __asm__ volatile("pause":::"memory");
-}
-
-static inline unsigned long ReadTSC(void) {
-    unsigned long var;
-    unsigned int hi, lo;
-    asm volatile("rdtsc":"=a"(lo),"=d"(hi));
-    var = ((unsigned long long int) hi << 32) | lo;
-    return var;
-}
-
-inline void mfence(void) {
+inline void persist(void* data, size_t len) {
 #ifdef CCEH_PERSISTENT
-    asm volatile("mfence":::"memory");
-#endif
-}
-
-inline void clflush(char* data, size_t len) {
-#ifdef CCEH_PERSISTENT
-    volatile char *ptr = (char*)((unsigned long)data & (~(CACHE_LINE_SIZE-1)));
-  mfence();
-  for (; ptr < data+len; ptr+=CACHE_LINE_SIZE) {
-    asm volatile("clflush %0" : "+m" (*(volatile char*)ptr));
-  }
-  mfence();
+  pmem_persist(data, len);
 #endif
 }
 
 template <typename KeyType>
 struct Segment {
-    static const size_t kNumSlot = kSegmentSize / sizeof(Pair<KeyType>);
+    static const size_t kNumSlot = kSegmentSize / sizeof(Pair);
 
     Segment(void)
         : local_depth{0}
@@ -216,19 +251,16 @@ struct Segment {
         :local_depth{depth}
     { }
 
-    ~Segment(void) {
-    }
-
     void* operator new(size_t size) {
+#ifdef CCEH_PERSISTENT
+        PMEMoid ret;
+        PMemAllocator::get().allocate(&ret, size);
+        return pmemobj_direct(ret);
+#else
         void* ret;
         posix_memalign(&ret, 64, size);
         return ret;
-    }
-
-    void* operator new[](size_t size) {
-        void* ret;
-        posix_memalign(&ret, 64, size);
-        return ret;
+#endif
     }
 
     template <typename KeyCheckFn>
@@ -237,7 +269,7 @@ struct Segment {
     void Insert4split(IndexK, IndexV, size_t);
     Segment** Split(void);
 
-    Pair<IndexK> _[kNumSlot];
+    Pair _[kNumSlot];
     size_t local_depth;
     std::atomic<uint64_t> sema = 0;
     size_t pattern = 0;
@@ -251,6 +283,9 @@ struct Directory {
     size_t capacity;
     size_t depth;
     bool lock;
+#ifdef CCEH_PERSISTENT
+    PMEMoid pmem_seg_loc_;
+#endif
 
     Directory(void) {
         depth = kDefaultDepth;
@@ -262,12 +297,21 @@ struct Directory {
     Directory(size_t _depth) {
         depth = _depth;
         capacity = pow(2, depth);
+#ifdef CCEH_PERSISTENT
+        PMemAllocator::get().allocate(&pmem_seg_loc_, sizeof(Segment<KeyType>*) * capacity);
+        _ = (Segment<KeyType>**) pmemobj_direct(pmem_seg_loc_);
+#else
         _ = new Segment<KeyType>*[capacity];
+#endif
         lock = false;
     }
 
     ~Directory(void) {
+#ifdef CCEH_PERSISTENT
+        pmemobj_free(&pmem_seg_loc_);
+#else
         delete [] _;
+#endif
     }
 
     bool Acquire(void) {
@@ -279,6 +323,22 @@ struct Directory {
         bool locked = true;
         return CAS(&lock, &locked, false);
     }
+
+    void* operator new(size_t size) {
+#ifdef CCEH_PERSISTENT
+        PMEMoid ret;
+        PMemAllocator::get().allocate(&ret, size);
+        return pmemobj_direct(ret);
+#else
+        void* ret;
+        posix_memalign(&ret, 64, size);
+        return ret;
+#endif
+    }
+
+#ifdef CCEH_PERSISTENT
+    void operator delete(void* addr) {}
+#endif
 };
 
 template <typename KeyType>
@@ -289,9 +349,8 @@ class CCEH {
         return true;
     };
 
-    CCEH(void);
     CCEH(size_t);
-    ~CCEH(void);
+    ~CCEH();
 
     template <typename KeyCheckFn>
     IndexV Insert(const KeyType&, IndexV, KeyCheckFn);
@@ -307,13 +366,6 @@ class CCEH {
     bool Get(const KeyType&, CcehAccessor& accessor);
     void Remove(IndexV* offset);
     size_t Capacity(void);
-    bool Recovery(void);
-
-    void* operator new(size_t size) {
-        void *ret;
-        posix_memalign(&ret, 64, size);
-        return ret;
-    }
 
   private:
     Directory<KeyType>* dir;
@@ -328,7 +380,7 @@ int Segment<KeyType>::Insert(const KeyType& key, IndexV value, size_t loc, size_
                              IndexV* old_entry, KeyCheckFn key_check_fn) {
   uint64_t lock = sema.load();
   if (lock == EXCLUSIVE_LOCK) return 2;
-  if ((lock & SPLIT_REQUEST_BIT) != 0) return 1;
+  if (IS_BIT_SET(lock, SPLIT_REQUEST_BIT)) return 1;
 
   const size_t pattern_shift = 8 * sizeof(key_hash) - local_depth;
   if ((key_hash >> pattern_shift) != pattern) return 2;
@@ -336,7 +388,7 @@ int Segment<KeyType>::Insert(const KeyType& key, IndexV value, size_t loc, size_
   int ret = 1;
   while (!sema.compare_exchange_weak(lock, lock+1)) {
       if (lock == EXCLUSIVE_LOCK) return 2;
-      if ((lock & SPLIT_REQUEST_BIT) != 0) return 1;
+      if (IS_BIT_SET(lock, SPLIT_REQUEST_BIT)) return 1;
   }
 
   IndexK LOCK = INVALID;
@@ -366,7 +418,7 @@ int Segment<KeyType>::Insert(const KeyType& key, IndexV value, size_t loc, size_
         old_entry->offset = _[slot].value.offset;
         _[slot].value = value;
         _[slot].key = key_checker;
-        mfence();
+        persist(&_[slot], sizeof(Pair));
         ret = 0;
         break;
     } else if (ATOMIC_LOAD(&_[slot].key) == key_checker) {
@@ -383,7 +435,7 @@ int Segment<KeyType>::Insert(const KeyType& key, IndexV value, size_t loc, size_
             old_value.is_free = true;
         }
         old_entry->offset = old_value.offset;
-        mfence();
+        persist(&_[slot].value, sizeof(IndexV));
         ret = 0;
         break;
     } else {
@@ -394,6 +446,7 @@ int Segment<KeyType>::Insert(const KeyType& key, IndexV value, size_t loc, size_
   sema.fetch_sub(1);
   return ret;
 }
+
 template <typename KeyType>
 void Segment<KeyType>::Insert4split(IndexK key, IndexV value, size_t loc) {
     for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
@@ -401,6 +454,7 @@ void Segment<KeyType>::Insert4split(IndexK key, IndexV value, size_t loc) {
         if (_[slot].key == INVALID) {
             _[slot].key = key;
             _[slot].value = value;
+            persist(&_[slot], sizeof(Pair));
             return;
         }
     }
@@ -443,21 +497,11 @@ Segment<KeyType>** Segment<KeyType>::Split(void) {
     }
   }
 
-  clflush((char*)split[1], sizeof(Segment));
-  local_depth = local_depth + 1;
-  clflush((char*)&local_depth, sizeof(size_t));
+    persist((char*) split[1], sizeof(Segment));
+    local_depth = local_depth + 1;
+    persist((char*) &local_depth, sizeof(size_t));
 
-  return split;
-}
-
-template <typename KeyType>
-CCEH<KeyType>::CCEH(void)
-    : dir{new Directory<KeyType>(0)}
-{
-    for (unsigned i = 0; i < dir->capacity; ++i) {
-        dir->_[i] = new Segment<KeyType>(0);
-        dir->_[i]->pattern = i;
-    }
+    return split;
 }
 
 template <typename KeyType>
@@ -469,10 +513,6 @@ CCEH<KeyType>::CCEH(size_t initCap)
         dir->_[i]->pattern = i;
     }
 }
-
-template <typename KeyType>
-CCEH<KeyType>::~CCEH(void)
-{ }
 
 template <typename KeyType>
 IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value) {
@@ -494,7 +534,6 @@ IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value, KeyCheckFn key_ch
         auto ret = target->Insert(key, value, loc, key_hash, &old_entry, key_check_fn);
 
         if (ret == 0) {
-            clflush((char*) &dir->_[x]->_[loc], 64);
             return old_entry;
         } else if (ret == 2) {
             continue;
@@ -522,10 +561,10 @@ IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value, KeyCheckFn key_ch
                 if (depth_diff == 0) {
                     if (x % 2 == 0) {
                         dir->_[x + 1] = s[1];
-                        clflush((char*) &dir->_[x + 1], 8);
+                        persist((char*) &dir->_[x + 1], 8);
                     } else {
                         dir->_[x] = s[1];
-                        clflush((char*) &dir->_[x], 8);
+                        persist((char*) &dir->_[x], 8);
                     }
                 } else {
                     int chunk_size = pow(2, dir->depth - (s[0]->local_depth - 1));
@@ -533,7 +572,7 @@ IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value, KeyCheckFn key_ch
                     for (unsigned i = 0; i < chunk_size / 2; ++i) {
                         dir->_[x + chunk_size / 2 + i] = s[1];
                     }
-                    clflush((char*) &dir->_[x + chunk_size / 2], sizeof(void*) * chunk_size / 2);
+                    persist((char*) &dir->_[x + chunk_size / 2], sizeof(void*) * chunk_size / 2);
                 }
                 dir->Release();
             } else {  // directory doubling
@@ -549,12 +588,12 @@ IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value, KeyCheckFn key_ch
                         _dir->_[2 * i + 1] = d[i];
                     }
                 }
-                clflush((char*) &_dir->_[0], sizeof(Segment < KeyType > *) * _dir->capacity);
-                clflush((char*) &_dir, sizeof(Directory < KeyType > ));
+                persist((char*) &_dir->_[0], sizeof(Segment<KeyType>*) * _dir->capacity);
+                persist((char*) &_dir, sizeof(Directory<KeyType>));
                 if (!CAS(&dir, &dir_old, _dir)) {
                     throw std::runtime_error("Could not swap dirs. This should never happen!");
                 }
-                clflush((char*) &dir, sizeof(void*));
+                persist((char*) &dir, sizeof(void*));
                 delete dir_old;
             }
             s[0]->sema.store(0);
@@ -633,25 +672,14 @@ size_t CCEH<KeyType>::Capacity(void) {
 }
 
 template <typename KeyType>
-bool CCEH<KeyType>::Recovery(void) {
-    bool recovered = false;
-    size_t i = 0;
-    while (i < dir->capacity) {
-        size_t depth_cur = dir->_[i]->local_depth;
-        size_t stride = pow(2, dir->depth - depth_cur);
-        size_t buddy = i + stride;
-        if (buddy == dir->capacity) break;
-        for (int j = buddy - 1; i < j; j--) {
-            if (dir->_[j]->local_depth != depth_cur) {
-                dir->_[j] = dir->_[i];
-            }
-        }
-        i = i+stride;
+CCEH<KeyType>::~CCEH() {
+    std::unordered_map<Segment<KeyType>*, bool> set;
+    for (size_t i = 0; i < dir->capacity; ++i) {
+        set[dir->_[i]] = true;
     }
-    if (recovered) {
-        clflush((char*)&dir->_[0], sizeof(void*)*dir->capacity);
+    for (auto const& [seg, foo] : set) {
+        delete seg;
     }
-    return recovered;
 }
 
 }  // namespace cceh

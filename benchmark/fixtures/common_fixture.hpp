@@ -56,7 +56,7 @@ class BaseFixture : public benchmark::Fixture {
     void prefill_internal(size_t num_prefills, PrefillFn prefill_fn);
 
     void prefill(size_t num_prefills);
-    void prefill_ycsb(const std::vector<ycsb::Record>& data);
+    virtual void prefill_ycsb(const std::vector<ycsb::Record>& data);
 
     void generate_strings(size_t num_strings, size_t key_size, size_t value_size);
 
@@ -119,6 +119,7 @@ class BasePmemFixture : public BaseFixture {
                 pool_file_.clear();
             }
         }
+        BaseFixture::TearDown(state);
     }
 
   protected:

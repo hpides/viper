@@ -4,6 +4,7 @@
 #include "common_fixture.hpp"
 #include "viper.hpp"
 
+
 namespace viper {
 namespace kv_bm {
 
@@ -51,6 +52,10 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const boo
 
 template <typename KeyT, typename ValueT>
 void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConfig v_config) {
+#ifdef CCEH_PERSISTENT
+    PMemAllocator::get().initialize();
+#endif
+
     cpu_set_t cpuset_before;
     pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
     set_cpu_affinity();
@@ -58,7 +63,7 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
     pool_file_ = VIPER_POOL_FILE;
     const size_t expected_size = MAX_DATA_SIZE * (sizeof(KeyT) + sizeof(ValueT));
     const size_t size_to_zero = ONE_GB * (std::ceil(expected_size / ONE_GB) + 5);
-    zero_block_device(pool_file_, size_to_zero);
+//    zero_block_device(pool_file_, size_to_zero);
 
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE, v_config);
     this->prefill(num_prefill_inserts);
@@ -244,6 +249,7 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
     uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
     uint64_t op_count = 0;
     auto v_client = viper_->get_client();
+    const ValueType200 null_value{0ul};
 
     for (int op_num = start_idx; op_num < end_idx; ++op_num) {
         const ycsb::Record& record = data[op_num];
@@ -252,17 +258,21 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
 
         switch (record.op) {
             case ycsb::Record::Op::INSERT: {
-                op_count += v_client.put(record.key, record.value);
+                v_client.put(record.key, record.value);
+                op_count++;
                 break;
             }
             case ycsb::Record::Op::GET: {
                 typename ViperT::Accessor result;
                 const bool found = v_client.get(record.key, result);
-                op_count += found && result->data[0] != 0;
+                op_count += found && (*result != null_value);
                 break;
             }
             case ycsb::Record::Op::UPDATE: {
-                auto update_fn = [&](ValueType200* value) { *value = record.value; };
+                auto update_fn = [&](ValueType200* value) {
+                    value->data[0] = record.value.data[0];
+                    pmem_persist(value->data.data(), sizeof(uint64_t));
+                };
                 op_count += v_client.update(record.key, update_fn);
                 break;
             }
@@ -270,6 +280,7 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
                 throw std::runtime_error("Unknown operation: " + std::to_string(record.op));
             }
         }
+
 
         if (hdr == nullptr) {
             continue;

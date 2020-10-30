@@ -24,8 +24,6 @@
 
 namespace viper {
 
-#define IS_BIT_SET(variable, mask) ((variable & mask) != 0)
-
 using version_lock_t = uint8_t;
 
 static constexpr uint16_t PAGE_SIZE = 4 * 1024; // 4kb
@@ -914,10 +912,6 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
     ptrdiff_t offset_in_page = insert_pos - reinterpret_cast<char*>(v_page_);
     assert(offset_in_page <= v_page_size);
 
-    if (*insert_pos != 0 && offset_in_page < v_page_size) {
-        int x = 10;
-    }
-
     block_size_t current_block_number = v_block_number_;
     page_size_t current_page_number = v_page_number_;
     VPage* current_v_page = v_page_;
@@ -938,15 +932,15 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
             insert_pos = v_page_->data.data();
             internal::VarSizeEntry value_entry{0, value.size()};
             value_entry.data = insert_pos + meta_size;
-            pmem_memcpy(value_entry.data, value.data(), value_entry.value_size, 0);
-            pmem_memcpy(insert_pos, &value_entry.size_info, meta_size, 0);
+            memcpy(value_entry.data, value.data(), value_entry.value_size);
+            memcpy(insert_pos, &value_entry.size_info, meta_size);
             pmem_persist(insert_pos, meta_size + value_entry.value_size);
 
             // 0 size indicates value is on next page.
             entry.value_size = 0;
             entry.data = key_insert_pos + meta_size;
-            pmem_memcpy(entry.data, key.data(), entry.key_size, 0);
-            pmem_memcpy(key_insert_pos, &entry.size_info, meta_size, 0);
+            memcpy(entry.data, key.data(), entry.key_size);
+            memcpy(key_insert_pos, &entry.size_info, meta_size);
             pmem_persist(key_insert_pos, meta_size + entry.key_size);
 
             current_v_page->next_insert_pos = reinterpret_cast<char*>(current_v_page);
@@ -973,10 +967,11 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
     if (!is_inserted) {
         // Entire record fits into current page.
         entry.data = insert_pos + meta_size;
-        pmem_memcpy(entry.data, key.data(), entry.key_size, 0);
-        pmem_memcpy(entry.data + entry.key_size, value.data(), entry.value_size, 0);
-        pmem_memcpy(insert_pos, &entry.size_info, meta_size, 0);
-        pmem_persist(insert_pos, meta_size + entry_length);
+        memcpy(entry.data, key.data(), entry.key_size);
+        memcpy(entry.data + entry.key_size, value.data(), entry.value_size);
+        pmem_persist(entry.data, entry_length);
+        memcpy(insert_pos, &entry.size_info, meta_size);
+        pmem_persist(insert_pos, meta_size);
         v_page_->next_insert_pos = insert_pos + (meta_size + entry_length);
     }
 

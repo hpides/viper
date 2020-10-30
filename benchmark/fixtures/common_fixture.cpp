@@ -92,6 +92,15 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         "0123456789";
 
+    std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
+    if (keys.size() > 0) {
+        // Data has been generated already.
+#ifndef NDEBUG
+        std::cout << "SKIPPING STRING GENERATION..." << std::endl;
+#endif
+        return;
+    }
+
     cpu_set_t cpuset_before;
     pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
     set_cpu_affinity();
@@ -114,15 +123,6 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
             records[i] = std::move(str);
         }
     };
-
-    std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
-    if (keys.size() > 0) {
-        // Data has been generated already.
-#ifndef NDEBUG
-        std::cout << "SKIPPING STRING GENERATION..." << std::endl;
-#endif
-        return;
-    }
 
     keys.resize(num_strings);
     std::vector<std::string>& values = std::get<1>(var_size_kvs_);

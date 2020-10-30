@@ -50,7 +50,7 @@ void PmemKVFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const bo
     pool_file_ = random_file(DB_NVM_DIR);
     pmem_db_ = std::make_unique<pmem::kv::db>();
 
-    const size_t expected_pool_file_size = 180 * ONE_GB;
+    const size_t expected_pool_file_size = 90 * ONE_GB;
     pmem::kv::config config{};
     config.put_string("path", pool_file_);
     config.put_uint64("size", expected_pool_file_size);
@@ -87,6 +87,19 @@ uint64_t PmemKVFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_id
     return insert_counter;
 }
 
+template <>
+uint64_t PmemKVFixture<std::string, std::string>::insert(uint64_t start_idx, uint64_t end_idx) {
+    uint64_t insert_counter = 0;
+    const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
+    const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
+        const std::string& db_key = keys[key];
+        const std::string& value = values[key];
+        insert_counter += pmem_db_->put(db_key, value) == pmem::kv::status::OK;
+    }
+    return insert_counter;
+}
+
 template <typename KeyT, typename ValueT>
 uint64_t PmemKVFixture<KeyT, ValueT>::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
     return insert(start_idx, end_idx);
@@ -109,6 +122,28 @@ uint64_t PmemKVFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_
         if (found) {
             found_counter += ValueT{}.from_str(value).data[0] == key;
         }
+    }
+    return found_counter;
+}
+
+template <>
+uint64_t PmemKVFixture<std::string, std::string>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
+    const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
+    const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
+
+    uint64_t found_counter = 0;
+    for (uint64_t i = 0; i < num_finds; ++i) {
+        const uint64_t key = distrib(rnd_engine);
+        const std::string& db_key = keys[key];
+        const std::string& value = values[key];
+        std::string result{};
+
+        const bool found = pmem_db_->get(db_key, &result) == pmem::kv::status::OK;
+        found_counter += found && result == value;
     }
     return found_counter;
 }
@@ -152,6 +187,16 @@ uint64_t PmemKVFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint6
         }
     }
     return update_counter;
+}
+
+template <>
+uint64_t PmemKVFixture<std::string, std::string>::setup_and_update(uint64_t, uint64_t, uint64_t) {
+    return 0;
+}
+
+template <>
+uint64_t PmemKVFixture<std::string, std::string>::setup_and_delete(uint64_t, uint64_t, uint64_t) {
+    return 0;
 }
 
 template <typename KeyT, typename ValueT>

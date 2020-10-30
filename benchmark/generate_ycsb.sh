@@ -8,7 +8,7 @@ CONFIGS=( "5050_uniform" "5050_zipf" "1090_uniform" "1090_zipf" )
 
 cd "/hpi/fs00/home/lawrence.benson/ycsb"
 
-echo "GENERATING PREFILL DATA"
+#echo "GENERATING PREFILL DATA"
 ./bin/ycsb load basic -P ${PREFILL_CONF} -s > "${DATA_DIR}/raw_prefill.dat"
 
 echo "GENERATING YCSB DATA"

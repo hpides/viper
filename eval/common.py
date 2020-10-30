@@ -23,10 +23,14 @@ PMEMKV = ('PmemKV', "PmemKV")
 VIPER = ('Viper', 'Viper')
 DRAM_MAP = ('DramMap', 'TBB Map')
 HYBRID_FASTER = ('PmemHybridFaster', 'FASTER')
-NVM_FASTER = ('NvmFaster', 'FASTER-NVM')
+NVM_FASTER = ('NvmFaster', 'FASTER-PMem')
 CCEH = ('Cceh', 'CCEH')
+VIPER_PMEM = ('PMemVip', 'Viper-PMem')
 
-ALL_FIXTURES = [VIPER, ROCKS, PMEMKV, DRAM_MAP, HYBRID_FASTER, NVM_FASTER, CCEH]
+ALL_FIXTURES = [
+    VIPER, ROCKS, PMEMKV, DRAM_MAP, HYBRID_FASTER, NVM_FASTER, CCEH, VIPER_PMEM
+]
+
 ALL_BM_TYPES = [
     'insert', 'get', 'update', 'delete',
     '5050_uniform', '1090_uniform', '5050_zipf', '1090_zipf',
@@ -38,11 +42,12 @@ MARKERS = [('X', 12), ("s", 8),  ("d", 10), ("o", 10), ("^", 10), ('v', 10)]
 
 STYLES = {
     VIPER[0]:         Style('#990000', 'X', 12, 'x'),
-    DRAM_MAP[0]:      Style('#404040', 'o', 10, '//'),
+    VIPER_PMEM[0]:    Style('#404040', 'o', 10, 'o'),
     CCEH[0]:          Style('#000099', 's',  8, '//'),
     PMEMKV[0]:        Style('#006600', 'd', 10, ''),
-    NVM_FASTER[0]:    Style('#666600', 'v', 10, '\\\\'),
-    HYBRID_FASTER[0]: Style('#990099', '^', 10, '-'),
+    NVM_FASTER[0]:    Style('#666600', 'v', 10, '-'),
+    HYBRID_FASTER[0]: Style('#990099', '^', 10, '\\\\'),
+    # DRAM_MAP[0]:      Style('#404040', 'o', 10, '//'),
     # ROCKS[0]:         Style('#000099', 's',  8, ''),
 }
 

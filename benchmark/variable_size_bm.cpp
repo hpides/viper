@@ -56,11 +56,13 @@ void bm_insert(benchmark::State& state, BaseFixture& fixture, size_t key_size, s
     const uint64_t start_idx = (state.thread_index * num_inserts_per_thread) + num_total_prefill;
     const uint64_t end_idx = start_idx + num_inserts_per_thread;
 
+    uint64_t insert_counter = 0;
     for (auto _ : state) {
-        fixture.setup_and_insert(start_idx, end_idx);
+        insert_counter = fixture.setup_and_insert(start_idx, end_idx);
     }
 
     state.SetItemsProcessed(num_inserts_per_thread);
+    fixture.log_find_count(state, insert_counter, num_inserts_per_thread);
 
     if (is_init_thread(state)) {
         fixture.DeInitMap();
@@ -96,13 +98,10 @@ void bm_get(benchmark::State& state, BaseFixture& fixture, size_t key_size, size
     }
 }
 
-//DEFINE_ALL_BMS(DramMapFixture);
-DEFINE_ALL_BMS(ViperFixture);
+//DEFINE_ALL_BMS(ViperFixture);
 DEFINE_ALL_BMS(CcehFixture);
-//DEFINE_ALL_BMS(NvmFasterFixture);
 //DEFINE_ALL_BMS(PmemHybridFasterFixture);
 //DEFINE_ALL_BMS(PmemKVFixture);
-
 
 
 int main(int argc, char** argv) {

@@ -37,20 +37,32 @@ class FasterFixture : public BaseFixture {
     virtual bool is_nvm_log() { return false; };
 
   protected:
+    template <typename FK, typename FV>
+    class ReadContext;
+    template <typename FK, typename FV>
+    class UpsertContext;
+
     class FasterKey {
+        template <typename FK, typename FV>
+        friend class ReadContext;
+        template <typename FK, typename FV>
+        friend class UpsertContext;
       public:
-        FasterKey(uint64_t key)
+        explicit FasterKey(uint64_t key)
             : key_{ key } {
         }
-        FasterKey(const KeyT key)
+        explicit FasterKey(const KeyT& key)
             : key_{ key } {
+        }
+        explicit FasterKey(const FasterKey& other)
+            : key_{other.key_} {
         }
 
         inline static constexpr uint32_t size() {
             return static_cast<uint32_t>(sizeof(FasterKey));
         }
         inline KeyHash GetHash() const {
-            return KeyHash{ Utility::GetHashCode(key_.data[0]) };
+            return KeyHash{ Utility::HashBytes((uint16_t*) key_.data.data(), key_.data.size() * 2) };
         }
 
         inline bool operator==(const FasterKey& other) const {
@@ -60,13 +72,78 @@ class FasterFixture : public BaseFixture {
             return !(key_ == other.key_);
         }
 
-        inline const KeyT key() const { return key_; }
+        inline const KeyT& key() const { return key_; }
 
       private:
         KeyT key_;
     };
 
+    class FasterKeyVar {
+        template <typename FK, typename FV>
+        friend class ReadContext;
+        template <typename FK, typename FV>
+        friend class UpsertContext;
+      public:
+        explicit FasterKeyVar(uint64_t key_idx) : key_{static_cast<uint32_t>(key_idx)} {
+            const std::string& key_ref = var_size_kvs_.first[key_idx];
+            key_buf_ = key_ref.data();
+            key_length_ = key_ref.size();
+        }
+
+        explicit FasterKeyVar(const FasterKeyVar& other)
+            : key_length_{other.key_length_}, key_{other.key_} {
+            key_buf_ = nullptr;
+            if (other.key_buf_ == nullptr) {
+                memcpy(buffer(), other.buffer(), key_length_);
+            } else {
+                memcpy(buffer(), other.key_buf_, key_length_);
+            }
+        }
+
+        uint32_t size() const {
+            return static_cast<uint32_t>(sizeof(FasterKeyVar) + key_length_);
+
+        }
+        inline KeyHash GetHash() const {
+            if (key_buf_ != nullptr) {
+                return KeyHash(Utility::HashBytes((uint16_t*) key_buf_, key_length_ / 2));
+            }
+            return KeyHash(Utility::HashBytes((uint16_t*) buffer(), key_length_ / 2));
+        }
+
+        inline bool operator==(const FasterKeyVar& other) const {
+            return key_ == other.key_;
+            if (key_length_ != other.key_length_) return false;
+            if (key_buf_ != nullptr) {
+                return memcmp(key_buf_, other.buffer(), key_length_) == 0;
+            }
+            return memcmp(buffer(), other.buffer(), key_length_) == 0;
+        }
+
+        inline bool operator!=(const FasterKeyVar& other) const {
+            return !(*this == other);
+        }
+
+        inline const uint32_t key_idx() const { return key_; }
+
+      private:
+        const uint32_t key_;
+        uint32_t key_length_;
+        const char* key_buf_;
+
+        inline const char* buffer() const {
+            return reinterpret_cast<const char*>(this + 1);
+        }
+        inline char* buffer() {
+            return reinterpret_cast<char*>(this + 1);
+        }
+    };
+
     class FasterValue {
+        template <typename FK, typename FV>
+        friend class ReadContext;
+        template <typename FK, typename FV>
+        friend class UpsertContext;
       public:
         FasterValue()
             : value_{} {
@@ -80,6 +157,30 @@ class FasterFixture : public BaseFixture {
         }
 
         ValueT value_;
+    };
+
+    class FasterValueVar {
+        template <typename FK, typename FV>
+        friend class ReadContext;
+        template <typename FK, typename FV>
+        friend class UpsertContext;
+      public:
+        FasterValueVar()
+            : length_{0} {
+        }
+
+        uint32_t size() const {
+            return length_;
+        }
+
+        const char* buffer() const {
+            return reinterpret_cast<const char*>(this + 1);
+        }
+        char* buffer() {
+            return reinterpret_cast<char*>(this + 1);
+        }
+
+        uint32_t length_;
     };
 
     struct BaseContext {
@@ -102,12 +203,13 @@ class FasterFixture : public BaseFixture {
         NanoTime start;
     };
 
+    template <typename FK, typename FV>
     class UpsertContext : public IAsyncContext {
       public:
-        typedef FasterKey key_t;
-        typedef FasterValue value_t;
+        typedef FK key_t;
+        typedef FV value_t;
 
-        UpsertContext(const FasterKey& key, uint64_t input)
+        UpsertContext(const FK& key, uint64_t input)
             : UpsertContext{ key, input, BaseContext{false} } {
         }
 
@@ -119,46 +221,58 @@ class FasterFixture : public BaseFixture {
             , base_{ other.base_ } {
         }
 
-        UpsertContext(const FasterKey& key, uint64_t input, const BaseContext& base)
-            : key_{ key }
+        UpsertContext(const FK& key, uint64_t input, const BaseContext& base)
+            : key_{ key.key_ }
             , input_{ input }
             , value_{ nullptr }
             , base_{ base } {
+            if constexpr (std::is_same_v<FV, FasterValueVar>) {
+                value_ = &var_size_kvs_.second[input_];
+            }
         }
 
-        UpsertContext(const FasterKey& key, const ValueT* value, const BaseContext& base)
-            : key_{ key }
+        UpsertContext(const FK& key, const ValueT* value, const BaseContext& base)
+            : key_{ key.key_ }
             , input_{ 0 }
             , value_{ value }
             , base_{ base } {
         }
 
         /// The implicit and explicit interfaces require a key() accessor.
-        inline const FasterKey& key() const {
+        inline const FK& key() const {
             return key_;
         }
 
-        inline static constexpr uint32_t value_size() {
-            return sizeof(value_t);
-        }
-        inline static constexpr uint32_t value_size(const FasterValue& old_value) {
-            return sizeof(value_t);
+        uint32_t value_size() const {
+            if constexpr (std::is_same_v<FV, FasterValueVar>) {
+                return sizeof(FasterValueVar) + value_->size();
+            } else {
+                return sizeof(value_t);
+            }
         }
 
         inline void Put(value_t& value) {
-            PutAtomic(value);
+            if constexpr (std::is_same_v<FV, FasterValueVar>) {
+                value.length_ = value_->size();
+                std::memcpy(value.buffer(), value_->data(), value_->size());
+
+                if (base_.is_nvm) {
+                    pmem_persist(value.buffer(), sizeof(value_->size()));
+                }
+            } else {
+                if (value_ != nullptr) {
+                    value.value_ = *value_;
+                } else {
+                    value.value_ = input_;
+                }
+                if (base_.is_nvm) {
+                    pmem_persist(&value.value_, sizeof(value.value_));
+                }
+            }
         }
 
         inline bool PutAtomic(value_t& value) {
-            if (value_ != nullptr) {
-                value.value_ = *value_;
-            } else {
-                value.value_ = input_;
-            }
-            if (base_.is_nvm) {
-                pmem_persist(&value.value_, sizeof(value.value_));
-            }
-            return true;
+            return false;
         }
 
         inline const BaseContext& getBaseContext() const {
@@ -172,7 +286,7 @@ class FasterFixture : public BaseFixture {
         }
 
       private:
-        FasterKey key_;
+        const FK key_;
         const uint64_t input_;
         const ValueT* value_;
         const BaseContext base_;
@@ -219,15 +333,19 @@ class FasterFixture : public BaseFixture {
         }
 
         inline bool RmwAtomic(FasterValue& value) {
-            if (new_value_ != nullptr) {
-                value.value_ = *new_value_;
+            if constexpr (std::is_same_v<ValueT, std::string>) {
+                return false;
             } else {
-                value.value_.update_value();
+                if (new_value_ != nullptr) {
+                    value.value_ = *new_value_;
+                } else {
+                    value.value_.update_value();
+                }
+                if (base_.is_nvm) {
+                    pmem_persist(&value.value_, sizeof(value.value_));
+                }
+                return true;
             }
-            if (base_.is_nvm) {
-                pmem_persist(&value.value_, sizeof(value.value_));
-            }
-            return true;
         }
 
         inline const BaseContext& getBaseContext() const {
@@ -244,21 +362,20 @@ class FasterFixture : public BaseFixture {
         FasterKey key_;
         const BaseContext base_;
         const ValueT* new_value_ = nullptr;
-        bool is_nvm_;
         uint64_t* success_counter_;
     };
 
-/// Context to read the store (after recovery).
+    template <typename FK, typename FV>
     class ReadContext : public IAsyncContext {
       public:
-        typedef FasterKey key_t;
-        typedef FasterValue value_t;
+        typedef FK key_t;
+        typedef FV value_t;
 
-        ReadContext(const FasterKey& key, ValueT* result)
+        ReadContext(const FK& key, ValueT* result)
             : ReadContext{key, result, BaseContext{false}} {}
 
-        ReadContext(const FasterKey& key, ValueT* result, const BaseContext& base)
-            : key_{ key }
+        ReadContext(const FK& key, ValueT* result, const BaseContext& base)
+            : key_{ key.key_ }
             , result_{ result }
             , base_{ base } {
         }
@@ -271,15 +388,21 @@ class FasterFixture : public BaseFixture {
         }
 
         /// The implicit and explicit interfaces require a key() accessor.
-        inline const FasterKey& key() const {
+        inline const FK& key() const {
             return key_;
         }
 
         inline void Get(const value_t& value) {
-            *result_ = value.value_;
+            if constexpr (std::is_same_v<FV, FasterValueVar>) {
+                result_->resize(value.size());
+                result_->assign(value.buffer(), value.size());
+            } else {
+                *result_ = value.value_;
+            }
         }
+
         inline void GetAtomic(const value_t& value) {
-            *result_ = value.value_;
+            return Get(value);
         }
 
         inline const ValueT* getResult() const {
@@ -297,7 +420,7 @@ class FasterFixture : public BaseFixture {
         }
 
       private:
-        FasterKey key_;
+        FK key_;
         ValueT* result_;
         const BaseContext base_;
     };
@@ -341,9 +464,11 @@ class FasterFixture : public BaseFixture {
         uint64_t* success_counter_;
     };
 
+    typedef typename std::conditional<std::is_same_v<KeyT, std::string>, FasterKeyVar, FasterKey>::type FK_T;
+    typedef typename std::conditional<std::is_same_v<ValueT, std::string>, FasterValueVar, FasterValue>::type FV_T;
     typedef FASTER::environment::QueueIoHandler handler_t;
     typedef FASTER::device::FileSystemDisk<handler_t, LOG_FILE_SEGMENT_SIZE> disk_t;
-    typedef FASTER::core::FasterKv<FasterKey, FasterValue, disk_t> faster_t;
+    typedef FASTER::core::FasterKv<FK_T, FV_T, disk_t> faster_t;
 
     std::unique_ptr<faster_t> db_;
     std::filesystem::path base_dir_;
@@ -420,7 +545,7 @@ template <typename KeyT, typename ValueT>
 uint64_t FasterFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_idx) {
     uint64_t insert_counter = 0;
     auto callback = [](IAsyncContext* ctxt, Status result) {
-        CallbackContext<UpsertContext> context{ctxt};
+//        CallbackContext<UpsertContext> context{ctxt};
         if (result != Status::Ok) {
             throw new std::runtime_error("Bad insert");
         }
@@ -439,8 +564,13 @@ uint64_t FasterFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_id
         }
 
         BaseContext base{is_nvm, &insert_counter};
-        UpsertContext context{key, key, base};
-        insert_counter += db_->Upsert(context, callback, key) == Status::Ok;
+        if constexpr (std::is_same_v<KeyT, std::string>) {
+            UpsertContext<FasterKeyVar, FasterValueVar> context{FasterKeyVar{key}, key, base};
+            insert_counter += db_->Upsert(context, callback, key) == Status::Ok;
+        } else {
+            UpsertContext<FasterKey, FasterValue> context{FasterKey{key}, key, base};
+            insert_counter += db_->Upsert(context, callback, key) == Status::Ok;
+        }
     }
 
     db_->Refresh();
@@ -457,10 +587,21 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_insert(uint64_t start_idx, uint6
 template <typename KeyT, typename ValueT>
 uint64_t FasterFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
     auto callback = [](IAsyncContext* ctxt, Status result) {
-        CallbackContext<ReadContext> context{ctxt};
-        const uint64_t key = context->key().key().data[0];
-        const bool success = result == Status::Ok && (context->getResult()->data[0] == key);
-        *context->getBaseContext().success_counter += success;
+        if constexpr (std::is_same_v<KeyT, std::string>) {
+            CallbackContext<ReadContext<FasterKeyVar, FasterValueVar>> context{ctxt};
+            if (result != Status::Ok) { return; }
+            const size_t key_idx = context->key().key_idx();
+            const std::string& value = var_size_kvs_.second[key_idx];
+            const bool success = *context->getResult() == value;
+            *context->getBaseContext().success_counter += success;
+        } else {
+            if (result != Status::Ok) { return; }
+            CallbackContext<ReadContext<FasterKey, FasterValue>> context{ctxt};
+            const auto key = context->key().key().data[0];
+            ValueT value{key};
+            const bool success = *context->getResult() == value;
+            *context->getBaseContext().success_counter += success;
+        }
     };
 
     uint64_t found_counter = 0;
@@ -472,6 +613,7 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_
     auto rnd_engine = std::default_random_engine(rnd());
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
 
+    std::vector<ValueT> results{num_finds};
     for (uint64_t i = 0; i < num_finds; ++i) {
         if (i % kRefreshInterval == 0) {
             db_->Refresh();
@@ -481,11 +623,24 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_
         }
 
         const uint64_t key = distrib(rnd_engine);
-        ValueT result;
+        ValueT& result = results[i];
+        ValueT value{};
+        if constexpr (std::is_same_v<KeyT, std::string>) {
+            value = var_size_kvs_.second[key];
+        } else {
+            value = ValueT{key};
+        }
+
         BaseContext base{is_nvm, &found_counter};
-        ReadContext context{key, &result, base};
-        const bool found = db_->Read(context, callback, i) == FASTER::core::Status::Ok;
-        found_counter += found && (result.data[0] == key);
+        bool found;
+        if constexpr (std::is_same_v<KeyT, std::string>) {
+            ReadContext<FasterKeyVar, FasterValueVar> context{FasterKeyVar{key}, &result, base};
+            found = db_->Read(context, callback, i) == FASTER::core::Status::Ok;
+        } else {
+            ReadContext<FasterKey, FasterValue> context{FasterKey{key}, &result, base};
+            found = db_->Read(context, callback, i) == FASTER::core::Status::Ok;
+        }
+        found_counter += found && (result == value);
     }
 
     db_->Refresh();
@@ -518,7 +673,7 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint6
         }
 
         const uint64_t key = distrib(rnd_engine);
-        DeleteContext context{key};
+        DeleteContext context{FasterKey{key}};
         delete_counter += db_->Delete(context, callback, i) == FASTER::core::Status::Ok;
     }
 
@@ -555,7 +710,7 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint6
 
         const uint64_t key = distrib(rnd_engine);
         BaseContext base{is_nvm, &update_counter};
-        RmwContext context{key, base};
+        RmwContext context{FasterKey{key}, base};
         update_counter += db_->Rmw(context, callback, i) == Status::Ok;
     }
 
@@ -564,6 +719,16 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint6
     db_->StopSession();
 
     return update_counter;
+}
+
+template <>
+uint64_t FasterFixture<std::string, std::string>::setup_and_update(uint64_t, uint64_t, uint64_t) {
+    return 0;
+}
+
+template <>
+uint64_t FasterFixture<std::string, std::string>::setup_and_delete(uint64_t, uint64_t, uint64_t) {
+    return 0;
 }
 
 template <typename KeyT, typename ValueT>
@@ -595,7 +760,7 @@ uint64_t FasterFixture<KeyType8, ValueType200>::run_ycsb(
         switch (record.op) {
             case ycsb::Record::Op::INSERT: {
                 auto callback = [](IAsyncContext* ctxt, Status result) {
-                    CallbackContext<UpsertContext> context{ctxt};
+                    CallbackContext<UpsertContext<FasterKey, FasterValue>> context{ctxt};
                     const BaseContext& base = context->getBaseContext();
                     *base.success_counter += result == Status::Ok;
                     if (base.hdr != nullptr) {
@@ -606,7 +771,7 @@ uint64_t FasterFixture<KeyType8, ValueType200>::run_ycsb(
                 };
 
                 BaseContext base{is_nvm, &op_count, hdr, start};
-                UpsertContext context{record.key, &record.value, base};
+                UpsertContext<FasterKey, FasterValue> context{FasterKey{record.key}, &record.value, base};
                 const bool success = db_->Upsert(context, callback, op_num) == Status::Ok;
                 if (success) {
                     op_count++;
@@ -616,7 +781,7 @@ uint64_t FasterFixture<KeyType8, ValueType200>::run_ycsb(
             }
             case ycsb::Record::Op::GET: {
                 auto callback = [](IAsyncContext* ctxt, Status result) {
-                    CallbackContext<ReadContext> context{ctxt};
+                    CallbackContext<ReadContext<FasterKey, FasterValue>> context{ctxt};
                     const BaseContext& base = context->getBaseContext();
                     const bool success = result == Status::Ok && (context->getResult()->data[0] != 0);
                     *base.success_counter += success;
@@ -629,7 +794,7 @@ uint64_t FasterFixture<KeyType8, ValueType200>::run_ycsb(
 
                 ValueType200 result;
                 BaseContext base{is_nvm, &op_count, hdr, start};
-                ReadContext context{record.key, &result, base};
+                ReadContext<FasterKey, FasterValue> context{FasterKey{record.key}, &result, base};
                 const bool found = db_->Read(context, callback, op_num) == FASTER::core::Status::Ok;
                 const bool success = found && (result.data[0] != 0);
                 if (success) {
@@ -650,7 +815,7 @@ uint64_t FasterFixture<KeyType8, ValueType200>::run_ycsb(
                     }
                 };
                 BaseContext base{is_nvm, &op_count, hdr, start};
-                RmwContext context{record.key, &record.value, base};
+                RmwContext context{FasterKey{record.key}, &record.value, base};
                 const bool success = db_->Rmw(context, callback, op_num) == Status::Ok;
                 if (success) {
                     op_count++;

@@ -10,7 +10,7 @@
 #include "fixtures/viper_fixture.hpp"
 #include "fixtures/faster_fixture.hpp"
 #include "fixtures/pmem_kv_fixture.hpp"
-#include "fixtures/dram_map_fixture.hpp"
+#include "fixtures/cceh_fixture.hpp"
 #include "fixtures/ycsb_common.hpp"
 
 using namespace viper::kv_bm;
@@ -19,7 +19,7 @@ static constexpr char BASE_DIR[] = "/hpi/fs00/home/lawrence.benson/data";
 static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
 
 #define GENERAL_ARGS \
-            ->Repetitions(NUM_REPETITIONS) \
+            ->Repetitions(1) \
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
@@ -27,11 +27,16 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
             ->Threads(24)
 
 #define DEFINE_BM(fixture, workload, data) \
-            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload, KeyType8, ValueType200)(benchmark::State& state) { \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _tp, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
-                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat"); \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false); \
             } \
-            BENCHMARK_REGISTER_F(fixture, workload) GENERAL_ARGS
+            BENCHMARK_REGISTER_F(fixture, workload ## _tp) GENERAL_ARGS;  \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _lat, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", true); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _lat) GENERAL_ARGS
 
 #define ALL_BMS(fixture) \
             DEFINE_BM(fixture, 5050_uniform, data_uniform_50_50); \
@@ -47,7 +52,7 @@ static std::vector<ycsb::Record> data_zipf_50_50;
 static std::vector<ycsb::Record> data_zipf_10_90;
 
 void ycsb_run(benchmark::State& state, BaseFixture& fixture, std::vector<ycsb::Record>* data,
-              const std::filesystem::path& wl_file) {
+              const std::filesystem::path& wl_file, bool log_latency) {
     set_cpu_affinity(state.thread_index);
 
     if (is_init_thread(state)) {
@@ -61,7 +66,11 @@ void ycsb_run(benchmark::State& state, BaseFixture& fixture, std::vector<ycsb::R
     }
 
     struct hdr_histogram* hdr;
-    hdr_init(1, 1000000000, 4, &hdr);
+    if (log_latency) {
+        hdr_init(1, 1000000000, 4, &hdr);
+    } else {
+        hdr = nullptr;
+    }
 
     uint64_t start_idx = 0;
     uint64_t end_idx = 0;
@@ -76,37 +85,43 @@ void ycsb_run(benchmark::State& state, BaseFixture& fixture, std::vector<ycsb::R
         // Actual benchmark
         op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr);
 
-        fixture.merge_hdr(hdr);
+        state.SetItemsProcessed(num_ops_per_thread);
+        if (log_latency) {
+            fixture.merge_hdr(hdr);
+        }
     }
 
-    state.SetItemsProcessed(op_counter);
-
     if (is_init_thread(state)) {
-        hdr_histogram* global_hdr = fixture.get_hdr();
-        state.counters["hdr_max"] = hdr_max(global_hdr);
-        state.counters["hdr_avg"] = hdr_mean(global_hdr);
-        state.counters["hdr_min"] = hdr_min(global_hdr);
-        state.counters["hdr_std"] = hdr_stddev(global_hdr);
-        state.counters["hdr_median"] = hdr_value_at_percentile(global_hdr, 50.0);
-        state.counters["hdr_90"] = hdr_value_at_percentile(global_hdr, 90.0);
-        state.counters["hdr_95"] = hdr_value_at_percentile(global_hdr, 95.0);
-        state.counters["hdr_99"] = hdr_value_at_percentile(global_hdr, 99.0);
-        state.counters["hdr_999"] = hdr_value_at_percentile(global_hdr, 99.9);
-        state.counters["hdr_9999"] = hdr_value_at_percentile(global_hdr, 99.99);
+        if (log_latency) {
+            hdr_histogram* global_hdr = fixture.get_hdr();
+            state.counters["hdr_max"] = hdr_max(global_hdr);
+            state.counters["hdr_avg"] = hdr_mean(global_hdr);
+            state.counters["hdr_min"] = hdr_min(global_hdr);
+            state.counters["hdr_std"] = hdr_stddev(global_hdr);
+            state.counters["hdr_median"] = hdr_value_at_percentile(global_hdr, 50.0);
+            state.counters["hdr_90"] = hdr_value_at_percentile(global_hdr, 90.0);
+            state.counters["hdr_95"] = hdr_value_at_percentile(global_hdr, 95.0);
+            state.counters["hdr_99"] = hdr_value_at_percentile(global_hdr, 99.0);
+            state.counters["hdr_999"] = hdr_value_at_percentile(global_hdr, 99.9);
+            state.counters["hdr_9999"] = hdr_value_at_percentile(global_hdr, 99.99);
+            // hdr_percentiles_print(global_hdr, stdout, 3, 1.0, CLASSIC);
+            hdr_close(hdr);
+        }
 
-        hdr_percentiles_print(global_hdr, stdout, 3, 1.0, CLASSIC);
 
         fixture.DeInitMap();
     }
 
-    BaseFixture::log_find_count(state, op_counter, end_idx - start_idx);
+    if (op_counter == 0) {
+        BaseFixture::log_find_count(state, op_counter, end_idx - start_idx);
+    }
 }
 
 ALL_BMS(PmemHybridFasterFixture);
-ALL_BMS(NvmFasterFixture);
 ALL_BMS(ViperFixture);
-ALL_BMS(DramMapFixture);
+ALL_BMS(CcehFixture);
 ALL_BMS(PmemKVFixture);
+ALL_BMS(NvmFasterFixture);
 
 int main(int argc, char** argv) {
     std::filesystem::path prefill_file = BASE_DIR + std::string{PREFILL_FILE};

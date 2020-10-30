@@ -37,6 +37,10 @@ struct BMRecord {
         return data == other.data;
     }
 
+    inline bool operator!=(const BMRecord& other) const {
+        return data != other.data;
+    }
+
     BMRecord<T, N>& from_str(const std::string& bytes) {
         assert(bytes.size() == total_size);
         const char* raw = static_cast<const char*>(bytes.data());

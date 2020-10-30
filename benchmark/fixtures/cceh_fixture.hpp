@@ -29,6 +29,7 @@ class CcehFixture : public BaseFixture {
     uint64_t run_ycsb(uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data,
                       hdr_histogram* hdr) final;
     uint64_t insert(uint64_t start_idx, uint64_t end_idx) final;
+    void prefill_ycsb(const std::vector<ycsb::Record>& data) override;
 
   protected:
     std::unique_ptr<cceh::CCEH<KeyT>> dram_map_;
@@ -50,7 +51,7 @@ void CcehFixture<KeyT, ValueT>::InitMap(const uint64_t num_prefill_inserts, cons
     pmem_pool_name_ = random_file(DB_NVM_DIR);
     int sds_write_value = 0;
     pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
-    pmem_pool_ = pmem::obj::pool<CcehPool>::create(pmem_pool_name_, "", 90ul * ONE_GB, S_IRWXU);
+    pmem_pool_ = pmem::obj::pool<CcehPool>::create(pmem_pool_name_, "", 80ul * ONE_GB, S_IRWXU);
     if (pmem_pool_.handle() == nullptr) {
         throw std::runtime_error("Could not create pool");
     }
@@ -243,11 +244,71 @@ template <>
 uint64_t CcehFixture<std::string, std::string>::setup_and_delete(uint64_t, uint64_t, uint64_t) { return 0; }
 
 template <typename KeyT, typename ValueT>
-uint64_t CcehFixture<KeyT, ValueT>::run_ycsb(uint64_t start_idx,
-                                             uint64_t end_idx,
-                                             const std::vector<ycsb::Record>& data,
-                                             hdr_histogram* hdr) {
-    return BaseFixture::run_ycsb(start_idx, end_idx, data, hdr);
+uint64_t CcehFixture<KeyT, ValueT>::run_ycsb(uint64_t, uint64_t, const std::vector<ycsb::Record>&, hdr_histogram*) {
+    throw std::runtime_error{"YCSB not implemented for non-ycsb key/value types."};
+}
+
+template <>
+uint64_t CcehFixture<KeyType8, ValueType200>::run_ycsb(uint64_t start_idx,
+    uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
+
+    uint64_t op_count = 0;
+    for (int op_num = start_idx; op_num < end_idx; ++op_num) {
+        const ycsb::Record& record = data[op_num];
+
+        const auto start = std::chrono::high_resolution_clock::now();
+
+        switch (record.op) {
+            case ycsb::Record::Op::INSERT: {
+                insert_internal(record.key, record.value);
+                op_count++;
+                break;
+            }
+            case ycsb::Record::Op::GET: {
+                cceh::CcehAccessor accessor{};
+                const bool found = dram_map_->Get(record.key, accessor);
+                if (found) {
+                    block_size_t entry_ptr_pos = accessor->block_number;
+                    pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
+                    op_count += (entry_ptr->second == record.value);
+                }
+                break;
+            }
+            case ycsb::Record::Op::UPDATE: {
+//                cceh::CcehAccessor accessor{};
+//                const bool found = dram_map_->Get(record.key, accessor);
+//                if (found) {
+//                    block_size_t entry_ptr_pos = accessor->block_number;
+//                    pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
+//                    entry_ptr->second.update_value();
+//                    pmem_persist(&entry_ptr->second, sizeof(uint64_t));
+//                    op_count++;
+//                }
+                insert_internal(record.key, record.value);
+                op_count++;
+                break;
+            }
+            default: {
+                throw std::runtime_error("Unknown operation: " + std::to_string(record.op));
+            }
+        }
+
+        if (hdr == nullptr) {
+            continue;
+        }
+
+        const auto end = std::chrono::high_resolution_clock::now();
+        const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+        hdr_record_value(hdr, duration.count());
+    }
+
+    return op_count;
+}
+
+template <typename KeyT, typename ValueT>
+void CcehFixture<KeyT, ValueT>::prefill_ycsb(const std::vector<ycsb::Record>& data) {
+    ptrs_->resize(data.size() * 2);
+    BaseFixture::prefill_ycsb(data);
 }
 
 }  // namespace
