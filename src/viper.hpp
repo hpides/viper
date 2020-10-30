@@ -22,6 +22,27 @@
 #define DEBUG_LOG(msg) do {} while(0)
 #endif
 
+#define INIT_TIMERS() \
+    BreakDownTime map_fetch_start; \
+    BreakDownTime value_fetch_start; \
+    BreakDownTime value_modify_start; \
+    BreakDownTime pmem_write_start; \
+    BreakDownTime map_update_start; \
+    BreakDownTime lock_wait_start;
+
+
+#define START_TIMER(step) \
+    if (this->viper_.track_op_breakdown_) { \
+        step##_start = Timer::now(); \
+    }
+
+#define END_TIMER(step) \
+    if (this->viper_.track_op_breakdown_) { \
+        BreakDownTime end = Timer::now(); \
+        step##_ns_ += (end - step##_start).count(); \
+    }
+
+
 namespace viper {
 
 using version_lock_t = uint8_t;
@@ -48,6 +69,7 @@ struct ViperConfig {
     bool force_dimm_based = false;
     bool force_block_based = false;
     bool enable_reclamation = false;
+    bool track_op_breakdown = false;
 };
 
 namespace internal {
@@ -306,6 +328,14 @@ class Viper {
 
         ~Client();
 
+        // Operation breakdown timers
+        uint64_t map_fetch_ns_ = 0;
+        uint64_t value_fetch_ns_ = 0;
+        uint64_t value_modify_ns_ = 0;
+        uint64_t pmem_write_ns_ = 0;
+        uint64_t map_update_ns_ = 0;
+        uint64_t lock_wait_ns_ = 0;
+
       protected:
         Client(ViperT& viper);
 
@@ -384,6 +414,11 @@ class Viper {
 
     std::atomic<uint8_t> num_active_clients_;
     const uint8_t num_recovery_threads_;
+
+    // Operation breakdown timers
+    using Timer = std::chrono::high_resolution_clock;
+    using BreakDownTime = std::chrono::time_point<Timer>;
+    const bool track_op_breakdown_;
 };
 
 template <typename K, typename V>
@@ -406,7 +441,7 @@ template <typename K, typename V>
 Viper<K, V>::Viper(ViperBase v_base, const bool owns_pool, const ViperConfig v_config) :
     v_base_{v_base}, map_{131072}, owns_pool_{owns_pool}, v_config_{v_config},
     resize_threshold_{v_config.resize_threshold}, reclaim_threshold_{v_config.reclaim_threshold},
-    num_recovery_threads_{v_config.num_recovery_threads} {
+    num_recovery_threads_{v_config.num_recovery_threads}, track_op_breakdown_{v_config.track_op_breakdown} {
     current_block_page_ = 0;
     current_size_ = 0;
     reclaimable_ops_ = 0;
@@ -837,6 +872,9 @@ inline bool Viper<K, V>::check_key_equality(const K& key, const KVOffset offset_
 
 template <typename K, typename V>
 bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_offset) {
+    INIT_TIMERS()
+    START_TIMER(lock_wait)
+
     // Lock v_page. We expect the lock bit to be unset.
     std::atomic<version_lock_t>& v_lock = v_page_->version_lock;
     version_lock_t lock_value = v_lock.load() & FREE_BIT_MASK;
@@ -844,6 +882,8 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_off
     while (!v_lock.compare_exchange_weak(lock_value, lock_value | LOCK_BIT)) {
         lock_value &= FREE_BIT_MASK;
     }
+
+    END_TIMER(lock_wait)
 
     // We now have the lock on this page
     std::bitset<VPage::num_slots_per_page>* free_slots = &v_page_->free_slots;
@@ -856,6 +896,8 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_off
         return put(key, value);
     }
 
+    START_TIMER(pmem_write)
+
     // We have found a free slot on this page. Persist data.
     v_page_->data[free_slot_idx] = {key, value};
     typename VPage::VEntry* entry_ptr = v_page_->data.data() + free_slot_idx;
@@ -864,6 +906,8 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_off
     free_slots->reset(free_slot_idx);
     pmem_persist(free_slots, sizeof(*free_slots));
 
+    END_TIMER(pmem_write)
+    START_TIMER(map_update)
     // Store data in DRAM map.
     const KVOffset kv_offset{v_block_number_, v_page_number_, free_slot_idx};
     KVOffset old_offset;
@@ -876,6 +920,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_off
     }
 
     bool is_new_item = old_offset.is_tombstone();
+    END_TIMER(map_update)
 
     // Unlock the v_page
     v_lock.store(lock_value & FREE_BIT_MASK, std::memory_order_release);
@@ -1018,6 +1063,9 @@ bool Viper<K, V>::Client::get(const K& key, Accessor& accessor) {
         else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
     };
 
+    INIT_TIMERS()
+    START_TIMER(map_fetch)
+
     auto& ccehAccessor = accessor.map_accessor_;
     const bool found = this->viper_.map_.Get(key, ccehAccessor, key_check_fn);
     if (!found) {
@@ -1027,8 +1075,10 @@ bool Viper<K, V>::Client::get(const K& key, Accessor& accessor) {
     if (kv_offset.is_tombstone()) {
         return false;
     }
-
+    END_TIMER(map_fetch)
+    START_TIMER(value_fetch)
     accessor.value_ = get_value_from_offset(kv_offset);
+    END_TIMER(value_fetch)
     return true;
 }
 
@@ -1074,6 +1124,8 @@ bool Viper<K, V>::Client::update(const K& key, UpdateFn update_fn) {
         else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
     };
 
+    INIT_TIMERS()
+    START_TIMER(map_fetch)
     typename Accessor::MapAccessor ccehAccessor;
     const bool found = this->viper_.map_.Get(key, ccehAccessor, key_check_fn);
     if (!found) {
@@ -1083,9 +1135,14 @@ bool Viper<K, V>::Client::update(const K& key, UpdateFn update_fn) {
     if (kv_offset.is_tombstone()) {
         return false;
     }
+    END_TIMER(map_fetch)
 
+    START_TIMER(value_fetch)
     V* value = get_value_from_offset(kv_offset);
+    END_TIMER(value_fetch)
+    START_TIMER(value_modify)
     update_fn(value);
+    END_TIMER(value_modify)
     return true;
 }
 
@@ -1096,6 +1153,8 @@ bool Viper<K, V>::Client::remove(const K& key) {
         else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
     };
 
+    INIT_TIMERS()
+    START_TIMER(map_fetch)
     typename Accessor::MapAccessor ccehAccessor;
     const bool found = this->viper_.map_.Get(key, ccehAccessor, key_check_fn);
     if (!found) {
@@ -1105,10 +1164,13 @@ bool Viper<K, V>::Client::remove(const K& key) {
     if (offset.is_tombstone()) {
         return false;
     }
+    END_TIMER(map_fetch)
 
     const auto [block_number, page_number, slot_number] = offset.get_offsets();
     free_occupied_slot(block_number, page_number, slot_number);
+    START_TIMER(map_update)
     this->viper_.map_.Remove(ccehAccessor.offset);
+    END_TIMER(map_update)
     num_reclaimable_ops_++;
     return true;
 }
@@ -1117,6 +1179,9 @@ template <typename K, typename V>
 void Viper<K, V>::Client::free_occupied_slot(const block_size_t block_number,
                                                  const page_size_t page_number,
                                                  const data_offset_size_t data_offset) {
+    INIT_TIMERS()
+    START_TIMER(lock_wait)
+
     while (this->viper_.is_v_blocks_resizing_.load(std::memory_order_acquire)) {
         // Wait for vector's memmove to complete. Otherwise we might encounter a segfault.
     }
@@ -1126,7 +1191,8 @@ void Viper<K, V>::Client::free_occupied_slot(const block_size_t block_number,
     while (!v_lock.compare_exchange_weak(lock_value, lock_value | LOCK_BIT)) {
         lock_value &= FREE_BIT_MASK;
     }
-
+    END_TIMER(lock_wait)
+    START_TIMER(pmem_write)
     // We have the lock now. Free slot or data.
     if constexpr (std::is_same_v<K, std::string>) {
         char* raw_data = &v_page.data[data_offset];
@@ -1141,6 +1207,7 @@ void Viper<K, V>::Client::free_occupied_slot(const block_size_t block_number,
         free_slots->set(data_offset);
         pmem_persist(free_slots, sizeof(*free_slots));
     }
+    END_TIMER(pmem_write)
 
     v_lock.store(lock_value & FREE_BIT_MASK, std::memory_order_release);
 
