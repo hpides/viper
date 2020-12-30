@@ -7,29 +7,40 @@ include(FetchContent)
 message("Build type: ${CMAKE_BUILD_TYPE}")
 if (CMAKE_BUILD_TYPE MATCHES Debug)
     message("BUILDING DEBUG")
-    find_library(libpmemobj REQUIRED PATHS /usr/local/lib64/pmdk_debug)
-    set(PMEM_LIB_PATH /usr/local/lib64/pmdk_debug)
 else()
     message("BUILDING RELEASE")
-    find_library(libpmemobj REQUIRED)
-    set(PMEM_LIB_PATH /usr/local/lib64/)
     add_compile_options(-march=native -mtune=native)
 endif()
 
-# Intel TBB
-set(TBB_DIR ${TBB_ROOT}/cmake)
-find_package(TBB REQUIRED tbb)
-include_directories(BEFORE ${TBB_ROOT}/include)
+# PMDK
+set(PMDK_INCLUDE_HINTS ${CMAKE_INCLUDE_PATH} "/usr/include" "/usr/local/include")
+set(PMDK_HINTS "/usr/local/lib64" "/usr/local/lib" "/usr/lib" "/usr/lib64")
+find_path(PMEM_INCLUDE_DIRS libpmem.h REQUIRED HINTS ${PMDK_INCLUDE_HINTS})
+find_library(PMEM_LIBRARIES NAMES pmem libpmem REQUIRED HINTS ${PMDK_HINTS})
 
-find_library(libpmemobj++ REQUIRED PATHS /usr/local/include)
-find_library(libpmemkv REQUIRED)
-find_library(memkind REQUIRED PATHS /usr/local/lib/)
+if (NOT PMEM_INCLUDE_DIRS OR "${PMEM_INCLUDE_DIRS}" STREQUAL "")
+    message(FATAL_ERROR "ERROR: libpmem include directory not found.")
+endif ()
+if (NOT PMEM_LIBRARIES OR "${PMEM_LIBRARIES}" STREQUAL "")
+    message(FATAL_ERROR "ERROR: libpmem library not found.")
+endif ()
 
-SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${PMEM_LIB_PATH};/usr/local/lib")
-set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PATH}:${PMEM_LIB_PATH}:/usr/local/lib")
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+include_directories(${LIBPMEM_INCLUDE_DIRS})
+message(STATUS "PMDK provided. Including ${PMEM_INCLUDE_DIRS} and linking ${PMEM_LIBRARIES}.")
 
-SET(LINK_LIBS pthread pmem pmemobj pmemkv pmempool pmemlog /usr/local/lib/libmemkind.so.0 ${TBB_IMPORTED_TARGETS})
+# memkind
+find_library(MEMKIND_LIBS NAMES memkind REQUIRED HINTS ${PMDK_HINTS})
+if (NOT MEMKIND_LIBS OR "${MEMKIND_LIBS}" STREQUAL "")
+    message(FATAL_ERROR "ERROR: libmemkind library not found.")
+endif ()
+message(STATUS "Found memkind at ${MEMKIND_LIBS}.")
+
+#SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${PMEM_LIB_PATH};/usr/local/lib")
+#set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PATH}:${PMEM_LIB_PATH}:/usr/local/lib")
+#set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
+SET(LINK_LIBS pthread pmem pmemobj pmempool ${MEMKIND_LIBS})
+#pmemkv pmemlog /usr/local/lib/libmemkind.so.0
 
 # Concurrent Queue
 FetchContent_Declare(
@@ -49,7 +60,5 @@ add_subdirectory(benchmark)
 
 # VIPER
 add_compile_options(-pthread)
-#add_subdirectory(src)
-
 add_executable(playground playground.cpp)
 target_link_libraries(playground ${LINK_LIBS})

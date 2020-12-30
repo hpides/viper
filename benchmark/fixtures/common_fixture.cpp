@@ -57,7 +57,7 @@ void BaseFixture::prefill_internal(const size_t num_prefills, PrefillFn prefill_
         thread.join();
     }
 
-    set_cpu_affinity(CPU_ISSET(0, &cpuset_before) ? 0 : 1);
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
 #ifndef NDEBUG
     const auto end = std::chrono::high_resolution_clock::now();
     const auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
@@ -144,7 +144,7 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
         thread.join();
     }
 
-    set_cpu_affinity(CPU_ISSET(0, &cpuset_before) ? 0 : 1);
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
 
     std::unordered_set<std::string> unique_keys{};
     unique_keys.reserve(keys.size());
@@ -170,15 +170,18 @@ bool is_init_thread(const benchmark::State& state) {
 }
 
 void set_cpu_affinity(const uint16_t from, const uint16_t to) {
-    if (from >= CPUS.size() || to > CPUS.size() || from < 0 || to < 0 || to <= from) {
+    const uint16_t from_cpu = from + CPU_AFFINITY_OFFSET;
+    const uint16_t to_cpu = to + CPU_AFFINITY_OFFSET;
+    if (from_cpu >= CPUS.size() || to_cpu > CPUS.size() || from < 0 || to < 0 || to < from) {
         throw std::runtime_error("Thread range invalid! " +
-                                 std::to_string(from) + " -> " + std::to_string(to));
+                                 std::to_string(from) + " -> " + std::to_string(to) + " with cpu offset "
+                                 + std::to_string(CPU_AFFINITY_OFFSET));
     }
 
     const auto native_thread_handle = pthread_self();
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
-    for (int cpu = from; cpu < to; ++cpu) {
+    for (int cpu = from_cpu; cpu < to_cpu; ++cpu) {
         CPU_SET(CPUS[cpu], &cpuset);
     }
     int rc = pthread_setaffinity_np(native_thread_handle, sizeof(cpu_set_t), &cpuset);
@@ -188,7 +191,15 @@ void set_cpu_affinity(const uint16_t from, const uint16_t to) {
 }
 
 void set_cpu_affinity() {
-    return set_cpu_affinity(0, CPUS.size());
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    for (int cpu = 0; cpu < CPUS.size(); ++cpu) {
+        CPU_SET(CPUS[cpu], &cpuset);
+    }
+    int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    if (rc != 0) {
+        std::cerr << "Error calling pthread_setaffinity_np: " << rc << "\n";
+    }
 }
 
 void set_cpu_affinity(uint16_t thread_idx) {

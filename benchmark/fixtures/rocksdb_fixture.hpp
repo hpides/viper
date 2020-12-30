@@ -4,6 +4,8 @@
 #include <rocksdb/table.h>
 #include "common_fixture.hpp"
 #include "rocksdb/db.h"
+#include "env_dcpmm.h"
+#include "cache_dcpmm.h"
 
 namespace viper {
 namespace kv_bm {
@@ -52,29 +54,41 @@ void RocksDbFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const b
 
     const std::string config_file = CONFIG_DIR + std::string("rocksdb.conf");
     rocksdb::Options options;
-    rocksdb::Env* env = rocksdb::Env::Default();
-    std::vector<rocksdb::ColumnFamilyDescriptor> cfd;
-//    rocksdb::Status s = rocksdb::LoadOptionsFromFile(config_file, env, &options, &cfd);
-    auto cache = rocksdb::NewLRUCache(671088640);
-    rocksdb::Status s = rocksdb::LoadOptionsFromFile(config_file, env, &options, &cfd, false, &cache);
-    if (!s.ok()) {
-        throw std::runtime_error("Could not load RocksDb config file.");
-    }
+//    rocksdb::Env* env = rocksdb::Env::Default();
+    rocksdb::Env* env = rocksdb::NewDCPMMEnv(rocksdb::DCPMMEnvOptions());
 
-    options.create_if_missing = true;
-    options.error_if_exists = true;
+//    std::vector<rocksdb::ColumnFamilyDescriptor> cfd;
+//    rocksdb::Status s = rocksdb::LoadOptionsFromFile(config_file, env, &options, &cfd);
+//    auto cache = rocksdb::NewLRUCache(671088640);
+//    rocksdb::Status s = rocksdb::LoadOptionsFromFile(config_file, env, &options, &cfd, false, &cache);
+//    if (!s.ok()) {
+//        throw std::runtime_error("Could not load RocksDb config file.");
+//    }
+
     base_dir_ = get_base_dir();
     db_dir_ = random_file(base_dir_);
+    wal_dir_ = db_dir_ / "rocksdb-wal";
 
-    if (base_dir_.string().rfind("/mnt/nvram", 0) == 0) {
-        // Is NVM version
-        wal_dir_ = "/mnt/nvram-viper/rocksdb-wal";
-    } else {
-        // Disk version
-        wal_dir_ = "/hpi/fs00/home/lawrence.benson/rocksdb-wal";
-    }
+    auto cache = rocksdb::NewLRUCache(4294967296);
+    rocksdb::BlockBasedTableOptions table_options;
+    table_options.block_cache = cache;
+    options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+
+    options.dcpmm_kvs_mmapped_file_fullpath = db_dir_ / "rocksdb.value";
+    options.dcpmm_kvs_mmapped_file_size = 50 * ONE_GB;
+    options.dcpmm_kvs_value_thres = 64;
+    options.dcpmm_compress_value = true;
     options.wal_dir = wal_dir_;
-    std::filesystem::remove_all(wal_dir_);
+    options.create_if_missing = true;
+    options.error_if_exists = true;
+    options.enable_write_thread_adaptive_yield = false;
+    options.disable_auto_compactions = false;
+    options.max_background_compactions = 32;
+    options.max_background_flushes = 4;
+    options.enable_pipelined_write = true;
+    options.allow_concurrent_memtable_write = true;
+    options.use_direct_io_for_flush_and_compaction = true;
+    options.target_file_size_base = 67108864;
 
     rocksdb::Status status = rocksdb::DB::Open(options, db_dir_, &db_);
     if (!status.ok()) {
@@ -183,7 +197,7 @@ std::string DiskRocksDbFixture<KeyT, ValueT>::get_base_dir() {
 
 template <typename KeyT, typename ValueT>
 std::string PmemRocksDbFixture<KeyT, ValueT>::get_base_dir() {
-    return DB_NVM_DIR;
+    return DB_NVM_DIR + std::string("/rocks");
 }
 
 }  // namespace kv_bm

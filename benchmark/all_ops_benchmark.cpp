@@ -5,10 +5,10 @@
 
 #include "benchmark.hpp"
 #include "fixtures/common_fixture.hpp"
-#include "fixtures/pmem_kv_fixture.hpp"
+//#include "fixtures/pmem_kv_fixture.hpp"
 #include "fixtures/viper_fixture.hpp"
 #include "fixtures/rocksdb_fixture.hpp"
-#include "fixtures/faster_fixture.hpp"
+//#include "fixtures/faster_fixture.hpp"
 #include "fixtures/cceh_fixture.hpp"
 
 using namespace viper::kv_bm;
@@ -159,12 +159,12 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
 }
 
 //ALL_BMS(CcehFixture);
-ALL_BMS(ViperFixture);
+//ALL_BMS(ViperFixture);
 //ALL_BMS(PmemKVFixture);
 //ALL_BMS(NvmFasterFixture);
 //ALL_BMS(PmemHybridFasterFixture);
 //ALL_BMS(DiskHybridFasterFixture);
-//ALL_BMS(PmemRocksDbFixture);
+ALL_BMS(PmemRocksDbFixture);
 
 
 int main(int argc, char** argv) {
