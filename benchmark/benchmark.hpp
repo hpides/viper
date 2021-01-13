@@ -60,6 +60,7 @@ struct BMRecord {
     std::array<T, N> data;
 };
 
+
 using Offset = uint64_t;
 
 using KeyType8 = BMRecord<uint32_t, 2>;
@@ -102,3 +103,9 @@ std::string get_output_file(const std::string& bm_name);
 int bm_main(std::vector<std::string> args);
 
 }  // namespace viper::kv_bm
+
+template <typename T, size_t N>
+std::ostream& operator<<(std::ostream& s, const viper::kv_bm::BMRecord<T, N>& rec) {
+    s << "BMRecord[s" << N << ", data=" << rec.data[0] << "]";
+    return s;
+}

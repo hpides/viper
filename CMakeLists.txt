@@ -4,12 +4,13 @@ project(viper)
 set(CMAKE_CXX_STANDARD 17)
 include(FetchContent)
 
+add_compile_options(-march=native)
 message("Build type: ${CMAKE_BUILD_TYPE}")
 if (CMAKE_BUILD_TYPE MATCHES Debug)
     message("BUILDING DEBUG")
 else()
     message("BUILDING RELEASE")
-    add_compile_options(-march=native -mtune=native)
+    add_compile_options(-O3 -Ofast -mtune=native)
 endif()
 
 # PMDK

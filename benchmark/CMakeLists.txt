@@ -18,6 +18,7 @@ SET(
         fixtures/faster_fixture.hpp
         fixtures/pmem_kv_fixture.hpp
         fixtures/cceh_fixture.hpp
+        fixtures/dash_fixture.hpp
 )
 
 cmake_host_system_information(RESULT host_name QUERY HOSTNAME)
@@ -111,17 +112,74 @@ link_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb)
 include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/include)
 include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/dcpmm)
 
+
+# Dash
+FetchContent_Declare(
+        epoch_reclaimer
+        GIT_REPOSITORY https://github.com/XiangpengHao/epoch-reclaimer.git
+        GIT_TAG        master
+)
+if (NOT epoch_reclaimer_POPULATED)
+    FetchContent_Populate(epoch_reclaimer)
+endif ()
+include_directories(${epoch_reclaimer_SOURCE_DIR})
+add_definitions(-DPMEM)
+FetchContent_Declare(
+        dash
+        GIT_REPOSITORY https://github.com/baotonglu/dash.git
+        GIT_TAG        7e1551f
+)
+if (NOT dash_POPULATED)
+    FetchContent_Populate(dash)
+endif ()
+include_directories(${dash_SOURCE_DIR}/src)
+execute_process(COMMAND sed -i -e "s/, (void\\*)pool_addr//g" ${dash_SOURCE_DIR}/src/allocator.h)
+execute_process(COMMAND sed -i -e "s/pmemobj_create_addr/pmemobj_create/g" ${dash_SOURCE_DIR}/src/allocator.h)
+execute_process(COMMAND sed -i -e "s/pmemobj_open_addr/pmemobj_open/g" ${dash_SOURCE_DIR}/src/allocator.h)
+
+# TBB
+set(TBB_TEST OFF CACHE INTERNAL "")
+set(TBB_EXAMPLES OFF CACHE INTERNAL "")
+FetchContent_Declare(
+        oneTBB
+        GIT_REPOSITORY https://github.com/oneapi-src/oneTBB.git
+        GIT_TAG        v2021.1.1
+)
+FetchContent_MakeAvailable(oneTBB)
+include_directories(${oneTBB_SOURCE_DIR}/include)
+
 # FASTER
-include_directories(third_party/faster/cc/src)
-add_subdirectory(third_party/faster/cc)
+#set(FASTER_VERSION 1.8.0)
+#set(FASTER_DOWNLOAD_PATH https://github.com/microsoft/FASTER/archive/v${FASTER_VERSION}.tar.gz)
+#set(FASTER_DOWNLOAD_DIR ${CMAKE_CURRENT_BINARY_DIR}/faster.tar.gz)
+#file(DOWNLOAD ${FASTER_DOWNLOAD_PATH} ${FASTER_DOWNLOAD_DIR})
+#execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf "${FASTER_DOWNLOAD_DIR}" WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+#set(FASTER_DIR ${CMAKE_CURRENT_BINARY_DIR}/FASTER-${FASTER_VERSION}/cc)
+#set(FASTER_INCLUDE_PATH ${FASTER_DIR}/src)
+#include_directories(${FASTER_INCLUDE_PATH})
+#add_subdirectory(${FASTER_DIR} ${CMAKE_CURRENT_BINARY_DIR}/faster)
+
+FetchContent_Declare(
+        faster
+        GIT_REPOSITORY https://github.com/lawben/faster.git
+        GIT_TAG        08bd5c4
+        SOURCE_SUBDIR  cc
+)
+FetchContent_MakeAvailable(faster)
+include_directories(${faster_SOURCE_DIR}/cc/src)
 
 # HdrHistogram
-add_subdirectory(third_party/hdr_histogram)
-include_directories(third_party/hdr_histogram/src)
+set(HDR_HISTOGRAM_BUILD_PROGRAMS OFF CACHE INTERNAL "")
+FetchContent_Declare(
+        hdr_histogram
+        GIT_REPOSITORY https://github.com/HdrHistogram/HdrHistogram_c.git
+        GIT_TAG 0.11.2
+)
+FetchContent_MakeAvailable(hdr_histogram)
 
 add_executable(all_ops_bm all_ops_benchmark.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(all_ops_bm ${LINK_LIBS})
-target_link_libraries(all_ops_bm benchmark rocksdb snappy faster uuid aio hdr_histogram_static)
+target_link_libraries(all_ops_bm benchmark rocksdb snappy faster tbb uuid aio hdr_histogram_static)
 set_target_properties(all_ops_bm PROPERTIES LINKER_LANGUAGE CXX)
 add_dependencies(all_ops_bm pmem_rocksdb)
 

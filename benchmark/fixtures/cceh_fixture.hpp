@@ -138,7 +138,8 @@ uint64_t CcehFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t 
         if (found) {
             block_size_t entry_ptr_pos = accessor->block_number;
             pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
-            found_counter += (entry_ptr->second == key);
+            ValueT found_val = entry_ptr->second;
+            found_counter += (found_val.data[0] == key);
         }
     }
     return found_counter;
