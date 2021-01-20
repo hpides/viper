@@ -18,14 +18,19 @@ std::string get_output_file(const std::string& bm_name) {
 
 
 int bm_main(std::vector<std::string> args) {
+    args.push_back("--benchmark_counters_tabular=true");
+
     std::vector<char*> cstrings;
     cstrings.reserve(args.size());
-
+    bool found_out_file = false;
     for (size_t i = 0; i < args.size(); ++i) {
+        if (args[i].find("--benchmark_out=") != std::string::npos) {
+            found_out_file = true;
+        }
         cstrings.push_back(const_cast<char*>(args[i].c_str()));
     }
 
-    if (args.size() == 1) {
+    if (!found_out_file) {
         std::cout << "NOT STORING RESULTS!" << std::endl;
     }
 

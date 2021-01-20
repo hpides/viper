@@ -16,13 +16,14 @@
 using namespace viper::kv_bm;
 
 static constexpr size_t DRAM_BM = 0;
-static constexpr size_t PMEM_BM = 1;
-static constexpr size_t SSD_BM  = 2;
+static constexpr size_t DEVDAX_BM = 1;
+static constexpr size_t FSDAX_BM = 2;
 
-static constexpr size_t SEQ_READ   = 0;
-static constexpr size_t RND_READ   = 1;
-static constexpr size_t SEQ_WRITE  = 2;
-static constexpr size_t RND_WRITE  = 3;
+static constexpr size_t SEQ_READ          = 0;
+static constexpr size_t RND_READ          = 1;
+static constexpr size_t SEQ_WRITE         = 2;
+static constexpr size_t RND_WRITE         = 3;
+static constexpr size_t SEQ_WRITE_GROUPED = 4;
 
 static const char WRITE_DATA[] __attribute__((aligned(256))) =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-"
@@ -34,12 +35,23 @@ static constexpr size_t THREAD_CHUNK_SIZE = ONE_GB;
 static constexpr size_t JUMP_4K = 64 * CACHE_LINE_SIZE;
 static constexpr size_t NUM_OPS_PER_THREAD = THREAD_CHUNK_SIZE / JUMP_4K;
 static constexpr size_t NUM_ACCESSES_PER_THREAD = THREAD_CHUNK_SIZE / CACHE_LINE_SIZE;
-static constexpr size_t NUM_OPS_PER_INNER_LOOP = 8;
-static constexpr size_t NUM_OPS_PER_OUTER_LOOP = NUM_OPS_PER_THREAD / NUM_OPS_PER_INNER_LOOP;
+static constexpr size_t NUM_ACCESSES_PER_OP = JUMP_4K / CACHE_LINE_SIZE;
+static constexpr size_t PAGE_SIZE = 2 * (1024ul * 1024); // 2 MB
 
 #define WRITE(addr) \
-    _mm512_store_si512((__m512i*) addr, *data);\
-    _mm_clwb(addr);\
+    _mm512_store_si512((__m512i*) (addr), *data);\
+    _mm_clwb((addr));\
+    _mm_sfence()
+
+#define WRITE256(addr) \
+    _mm512_store_si512((__m512i*) ((addr) + (0 * CACHE_LINE_SIZE)), *data);\
+    _mm512_store_si512((__m512i*) ((addr) + (1 * CACHE_LINE_SIZE)), *data);\
+    _mm512_store_si512((__m512i*) ((addr) + (2 * CACHE_LINE_SIZE)), *data);\
+    _mm512_store_si512((__m512i*) ((addr) + (3 * CACHE_LINE_SIZE)), *data);\
+    _mm_clwb((addr) + (0 * CACHE_LINE_SIZE));\
+    _mm_clwb((addr) + (1 * CACHE_LINE_SIZE));\
+    _mm_clwb((addr) + (2 * CACHE_LINE_SIZE));\
+    _mm_clwb((addr) + (3 * CACHE_LINE_SIZE));\
     _mm_sfence()
 
 #define _RD(off) "vmovntdqa " #off "*64(%[addr]), %%zmm0 \n"
@@ -57,18 +69,12 @@ static constexpr size_t NUM_OPS_PER_OUTER_LOOP = NUM_OPS_PER_THREAD / NUM_OPS_PE
 struct BMData {
     size_t storage_type;
     size_t bm_type;
-
     std::filesystem::path pmem_file;
-    std::filesystem::path ssd_file;
-
     int pmem_fd;
-    int ssd_fd;
-
     char* dram_data;
     char* pmem_data;
-    char* ssd_data;
-
     std::vector<size_t> thread_starts;
+    size_t max_num_write_groups;
 };
 
 static BMData bm_data{};
@@ -85,73 +91,78 @@ void check_fd(int fd, const std::string& file) {
     }
 }
 
-inline uint64_t write_nt(char* start_addr, const size_t thread_jump) {
+inline uint64_t write_data(char* start_addr, const size_t thread_jump) {
     const __m512i* data = (__m512i*)(WRITE_DATA);
-    uint64_t duration = 0;
 
+    const auto start = std::chrono::high_resolution_clock::now();
     char* cur_addr = start_addr;
-    for (uint32_t num_op = 0; num_op < NUM_OPS_PER_OUTER_LOOP; ++num_op) {
-        const auto start = std::chrono::high_resolution_clock::now();
-
-        for (uint32_t loop = 0; loop < NUM_OPS_PER_INNER_LOOP; ++loop) {
-            // Write 4096 Byte per iteration
-            #pragma unroll 64
-            for (auto i = 0; i < 64; ++i) {
-                char* addr = cur_addr + (i * CACHE_LINE_SIZE);
-                WRITE(addr);
-            }
-            cur_addr += thread_jump;
+    for (size_t num_op = 0; num_op < NUM_OPS_PER_THREAD; ++num_op) {
+        // Write 4096 Byte per iteration
+        for (size_t i = 0; i < 64; i += 8) {
+            WRITE(cur_addr + ((i + 0) * CACHE_LINE_SIZE));
+            WRITE(cur_addr + ((i + 1) * CACHE_LINE_SIZE));
+            WRITE(cur_addr + ((i + 2) * CACHE_LINE_SIZE));
+            WRITE(cur_addr + ((i + 3) * CACHE_LINE_SIZE));
+            WRITE(cur_addr + ((i + 4) * CACHE_LINE_SIZE));
+            WRITE(cur_addr + ((i + 5) * CACHE_LINE_SIZE));
+            WRITE(cur_addr + ((i + 6) * CACHE_LINE_SIZE));
+            WRITE(cur_addr + ((i + 7) * CACHE_LINE_SIZE));
         }
-
-        const auto end = std::chrono::high_resolution_clock::now();
-        duration += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+        cur_addr += thread_jump;
     }
 
-    return duration;
+    const auto end = std::chrono::high_resolution_clock::now();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 }
 
-inline uint64_t read_nt(char* start_addr, const size_t thread_jump) {
-    uint64_t duration = 0;
+inline uint64_t write_grouped(char *start_addr, const size_t thread_jump, const size_t loop_jump, const size_t num_threads_per_group) {
+    const __m512i* data = (__m512i*)(WRITE_DATA);
+    const size_t num_ops_per_tight_loop = NUM_ACCESSES_PER_OP / num_threads_per_group;
+    const auto start = std::chrono::high_resolution_clock::now();
+
+    char* cur_addr = start_addr;
+    for (size_t num_op = 0; num_op < NUM_OPS_PER_THREAD * num_threads_per_group; ++num_op) {
+        // Write 4096 Byte per iteration
+        for (size_t i = 0; i < num_ops_per_tight_loop; i += 2) {
+            WRITE(cur_addr);
+            cur_addr += thread_jump;
+            WRITE(cur_addr);
+            cur_addr += thread_jump;
+        }
+        cur_addr += loop_jump;
+    }
+
+    const auto end = std::chrono::high_resolution_clock::now();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+}
+
+inline uint64_t read_data(char* start_addr, const size_t thread_jump) {
+    const auto start = std::chrono::high_resolution_clock::now();
 
     char buffer[JUMP_4K];
     char* cur_addr = start_addr;
-    for (uint32_t num_op = 0; num_op < NUM_OPS_PER_OUTER_LOOP; ++num_op) {
-        const auto start = std::chrono::high_resolution_clock::now();
-
-        for (uint32_t loop = 0; loop < NUM_OPS_PER_INNER_LOOP; ++loop) {
-            // Read 4096 Byte per iteration
-            READ_4K(cur_addr);
-            cur_addr += thread_jump;
-        }
-
-        const auto end = std::chrono::high_resolution_clock::now();
-        duration += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+    for (size_t num_op = 0; num_op < NUM_OPS_PER_THREAD; ++num_op) {
+        // Read 4096 Byte per iteration
+        READ_4K(cur_addr);
+        cur_addr += thread_jump;
     }
 
-    return duration;
+    const auto end = std::chrono::high_resolution_clock::now();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 }
 
 inline uint64_t rnd_read(char* start_addr, char* base_addr) {
-    uint64_t duration = 0;
+    const auto start = std::chrono::high_resolution_clock::now();
 
     char* cur_addr = start_addr;
-    for (uint32_t num_op = 0; num_op < NUM_OPS_PER_OUTER_LOOP; ++num_op) {
-        const auto start = std::chrono::high_resolution_clock::now();
-
-        for (uint32_t loop = 0; loop < NUM_OPS_PER_INNER_LOOP; ++loop) {
-            // Read 4096 Byte per iteration
-            // 64 loop == 1 op
-            for (int i = 0; i < 64; ++i) {
-//                __m512i data = _mm512_stream_load_si512(cur_addr);
-                __m512i data = _mm512_load_si512(cur_addr);
-                const size_t offset = *(size_t *) &data;
-                cur_addr = base_addr + offset;
-            }
-        }
-
-        const auto end = std::chrono::high_resolution_clock::now();
-        duration += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+    for (size_t num_op = 0; num_op < NUM_ACCESSES_PER_THREAD; ++num_op) {
+        __m512i data = _mm512_load_si512(cur_addr);
+        const size_t offset = *(size_t *) &data;
+        cur_addr = base_addr + offset;
     }
+
+    const auto end = std::chrono::high_resolution_clock::now();
+    const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 
     std::ofstream out_file("/dev/null");
     out_file << (start_addr - base_addr) << " --> " << (cur_addr - base_addr);
@@ -167,44 +178,56 @@ inline size_t rnd_write(char* base_addr, const size_t total_mem_range, const siz
     };
 
     __m512i* data = (__m512i*) WRITE_DATA;
-    uint64_t duration = 0;
-    char* cur_addr = next_addr();
+    const auto start = std::chrono::high_resolution_clock::now();
 
-    for (uint32_t num_op = 0; num_op < NUM_OPS_PER_OUTER_LOOP; ++num_op) {
-        const auto start = std::chrono::high_resolution_clock::now();
-
-        for (uint32_t loop = 0; loop < NUM_OPS_PER_INNER_LOOP; ++loop) {
-            // Write 4096 Byte per iteration
-            // 64 loop == 1 op == 4KiB
-            for (int i = 0; i < 64; ++i) {
-                WRITE(cur_addr);
-                cur_addr = next_addr();
-            }
-        }
-
-        const auto end = std::chrono::high_resolution_clock::now();
-        duration += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+    for (size_t num_access = 0; num_access < NUM_ACCESSES_PER_THREAD; ++num_access) {
+        char* addr = next_addr();
+        WRITE(addr);
     }
 
-    return duration;
+    const auto end = std::chrono::high_resolution_clock::now();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 }
 
 inline size_t do_mem_op(benchmark::State& state, const size_t bm_type) {
-    const size_t total_mem_range = state.threads * THREAD_CHUNK_SIZE;
     const size_t thread_jump = state.threads * JUMP_4K;
     char* base_addr = bm_data.storage_type == DRAM_BM ? bm_data.dram_data : bm_data.pmem_data;
     char* start_addr = base_addr + (state.thread_index * JUMP_4K);
 
-    if (bm_type == RND_READ) {
-        start_addr = base_addr + bm_data.thread_starts[state.thread_index];
-    }
-
     switch (bm_type) {
-        case SEQ_WRITE: return write_nt(start_addr, thread_jump);
-        case SEQ_READ:  return read_nt(start_addr, thread_jump);
-        case RND_WRITE: return rnd_write(base_addr, total_mem_range, state.thread_index);
-        case RND_READ:  return rnd_read(start_addr, base_addr);
-        default:        throw std::runtime_error("not supported");
+        case SEQ_WRITE: {
+            return write_data(start_addr, thread_jump);
+        }
+        case SEQ_WRITE_GROUPED: {
+            const size_t max_num_write_groups = bm_data.max_num_write_groups;
+            if (state.threads > max_num_write_groups && state.threads % max_num_write_groups != 0) {
+                throw std::runtime_error("#threads must be < or multiple of " + std::to_string(max_num_write_groups));
+            }
+            const size_t max_write_groups = std::min((size_t) state.threads, max_num_write_groups);
+            const size_t num_write_groups = std::max(1ul, max_write_groups);
+            const size_t num_threads_per_write_group = state.threads / num_write_groups;
+            const size_t grouped_thread_jump = num_threads_per_write_group * CACHE_LINE_SIZE;
+            const size_t loop_jump = (num_write_groups - 1) * JUMP_4K;
+            const size_t thread_group = state.thread_index / num_threads_per_write_group;
+            const size_t thread_offset = state.thread_index % num_threads_per_write_group;
+            const size_t thread_addr_offset = (thread_group * JUMP_4K) + (thread_offset * CACHE_LINE_SIZE);
+            start_addr = base_addr + thread_addr_offset;
+            return write_grouped(start_addr, grouped_thread_jump, loop_jump, num_threads_per_write_group);
+        }
+        case SEQ_READ: {
+            return read_data(start_addr, thread_jump);
+        }
+        case RND_WRITE: {
+            const size_t total_mem_range = state.threads * THREAD_CHUNK_SIZE;
+            return rnd_write(base_addr, total_mem_range, state.thread_index);
+        }
+        case RND_READ: {
+            start_addr = base_addr + bm_data.thread_starts[state.thread_index];
+            return rnd_read(start_addr, base_addr);
+        }
+        default: {
+            throw std::runtime_error("not supported");
+        }
     }
 }
 
@@ -226,6 +249,7 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
     bm_data.bm_type = bm_type;
 
     std::stringstream label;
+    auto start_mmap = std::chrono::high_resolution_clock::now();
     switch (storage_type) {
         case DRAM_BM: {
             void* data = mmap(nullptr, data_len, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_POPULATE, -1, 0);
@@ -234,7 +258,7 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
             label << "dram";
             break;
         }
-        case PMEM_BM: {
+        case FSDAX_BM: {
             const auto pmem_file = random_file(DB_NVM_DIR + std::string("/latency"));
             const int fd = ::open(pmem_file.c_str(), O_CREAT | O_RDWR | O_DIRECT, 0600);
             check_fd(fd, pmem_file);
@@ -244,24 +268,45 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
             bm_data.pmem_file = pmem_file;
             bm_data.pmem_fd = fd;
             bm_data.pmem_data = (char*) data;
-            label << "pmem";
+            label << "fsdax";
             break;
         }
-        case SSD_BM: {
-            bm_data.ssd_file = random_file(DB_FILE_DIR + std::string("/latency"));
-            label << "ssd";
+        case DEVDAX_BM: {
+            const auto pmem_file = VIPER_POOL_FILE;
+            const int fd = ::open(pmem_file, O_RDWR);
+            check_fd(fd, pmem_file);
+            void* data = mmap(nullptr, data_len, viper::VIPER_MAP_PROT, viper::VIPER_MAP_FLAGS, fd, 0);
+            check_mmap(data);
+            bm_data.pmem_file = pmem_file;
+            bm_data.pmem_fd = fd;
+            bm_data.pmem_data = (char*) data;
+            label << "devdax";
             break;
         }
         default:
             throw std::runtime_error("Unknown BM TYPE " + std::to_string(storage_type));
     }
+    auto end_mmap = std::chrono::high_resolution_clock::now();
+    state.counters["mmap_ns"] = (end_mmap - start_mmap).count();
+
+    char* data = (storage_type == DRAM_BM) ? bm_data.dram_data : bm_data.pmem_data;
+
+    // prefault pages
+    const size_t num_prefault_pages = data_len / PAGE_SIZE;
+    auto start_prefault = std::chrono::high_resolution_clock::now();
+    for (size_t prefault_offset = 0; prefault_offset < num_prefault_pages; ++prefault_offset) {
+        data[prefault_offset * PAGE_SIZE] = '\0';
+    }
+    auto end_prefault = std::chrono::high_resolution_clock::now();
+    const long prefault_dur = (end_prefault - start_prefault).count();
+    state.counters["prefault_ns"] = prefault_dur;
+    state.counters["prefault_ns_page"] = prefault_dur / num_prefault_pages;
 
     // prepare file to read from
     std::vector<std::thread> threads{};
-    char* data = (storage_type == DRAM_BM) ? bm_data.dram_data : bm_data.pmem_data;
     if (bm_type == SEQ_READ) {
         auto write_fn = [](char* addr, size_t idx, size_t num_threads) {
-            write_nt(addr + (idx * JUMP_4K), JUMP_4K * num_threads);
+            write_data(addr + (idx * JUMP_4K), JUMP_4K * num_threads);
         };
         for (size_t i = 0; i < state.threads; ++i) {
             threads.emplace_back(write_fn, data, i, state.threads);
@@ -297,14 +342,19 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
         bm_data.thread_starts = thread_starts;
     }
 
+    if (bm_type == SEQ_WRITE_GROUPED) {
+        bm_data.max_num_write_groups = state.range(2);
+    }
+
     std::string bm_type_label;
     switch (bm_type) {
-        case (SEQ_READ)  : bm_type_label = "seq_read";  break;
-        case (RND_READ)  : bm_type_label = "rnd_read";  break;
-        case (SEQ_WRITE) : bm_type_label = "seq_write"; break;
-        case (RND_WRITE) : bm_type_label = "rnd_write"; break;
+        case (SEQ_READ)          : bm_type_label = "seq_read";  break;
+        case (RND_READ)          : bm_type_label = "rnd_read";  break;
+        case (SEQ_WRITE)         : bm_type_label = "seq_write"; break;
+        case (RND_WRITE)         : bm_type_label = "rnd_write"; break;
+        case (SEQ_WRITE_GROUPED) : bm_type_label = "seq_write_grp_" + std::to_string(bm_data.max_num_write_groups); break;
     }
-    label << "-threads_" << state.threads << "-" << bm_type_label;
+    label << "-t" << state.threads << "-" << bm_type_label;
     state.SetLabel(label.str());
 }
 
@@ -321,16 +371,7 @@ void latency_bw_bm(benchmark::State& state) {
 
     size_t duration;
     for (auto _ : state) {
-        switch (storage_type) {
-            case DRAM_BM:
-            case PMEM_BM: {
-                duration = do_mem_op(state, bm_type);
-                break;
-            }
-            case SSD_BM: {
-                break;
-            }
-        }
+        duration = do_mem_op(state, bm_type);
     }
 
     const size_t avg_lat = duration / NUM_ACCESSES_PER_THREAD;
@@ -344,29 +385,68 @@ void latency_bw_bm(benchmark::State& state) {
     if (is_init_thread(state)) {
         munmap(bm_data.dram_data, data_len);
         munmap(bm_data.pmem_data, data_len);
-        munmap(bm_data.ssd_data, data_len);
-
         ::close(bm_data.pmem_fd);
-        ::close(bm_data.ssd_fd);
-
-        std::filesystem::remove(bm_data.pmem_file);
-        std::filesystem::remove(bm_data.ssd_file);
+        if (bm_data.pmem_file.string().find("/dev/dax") == std::string::npos) {
+            std::filesystem::remove(bm_data.pmem_file);
+        }
+        bm_data.dram_data = nullptr;
+        bm_data.pmem_data = nullptr;
+        bm_data.pmem_fd = -1;
+        bm_data.pmem_file = "";
     }
 
 }
 
-BENCHMARK(latency_bw_bm)
-    ->Repetitions(1)->Iterations(1)->Unit(BM_TIME_UNIT)->UseRealTime()
-    ->Threads(1) // Warmup run
+#define BM_ARGS Repetitions(1)->Iterations(1)->Unit(BM_TIME_UNIT)->UseRealTime()
+
+BENCHMARK(latency_bw_bm)->BM_ARGS
     ->Threads(1)
     ->Threads(4)
-    ->Threads(18)
-    ->Threads(36)
-//    ->Threads(1)->Threads(4)->Threads(8)->Threads(16)->Threads(24)->Threads(36)
-    ->Args({DRAM_BM, RND_WRITE})->Args({PMEM_BM, RND_WRITE})
-    ->Args({DRAM_BM, RND_READ})->Args({PMEM_BM, RND_READ})
-    ->Args({DRAM_BM, SEQ_WRITE})->Args({PMEM_BM, SEQ_WRITE})
-    ->Args({DRAM_BM, SEQ_READ}) ->Args({PMEM_BM, SEQ_READ});
+    ->Threads(8)
+    ->Threads(16)
+    ->Threads(24)
+    ->Threads(32)
+    // DRAM
+    ->Args({DRAM_BM, SEQ_READ})
+    ->Args({DRAM_BM, SEQ_WRITE})
+    ->Args({DRAM_BM, RND_READ})
+    ->Args({DRAM_BM, RND_WRITE})
+    // DEVDAX
+    ->Args({DEVDAX_BM, SEQ_READ})
+    ->Args({DEVDAX_BM, SEQ_WRITE})
+    ->Args({DEVDAX_BM, RND_READ})
+    ->Args({DEVDAX_BM, RND_WRITE})
+    // FSVDAX
+    ->Args({FSDAX_BM, SEQ_READ})
+    ->Args({FSDAX_BM, SEQ_WRITE})
+    ->Args({FSDAX_BM, RND_READ})
+    ->Args({FSDAX_BM, RND_WRITE});
+
+BENCHMARK(latency_bw_bm)->BM_ARGS
+    ->Threads(1)
+    ->Threads(4)
+    ->Threads(8)
+    ->Threads(16)
+    ->Threads(24)
+    ->Threads(32)
+    // DRAM
+    ->Args({DRAM_BM, SEQ_WRITE_GROUPED, 1})
+    ->Args({DRAM_BM, SEQ_WRITE_GROUPED, 4})
+    ->Args({DRAM_BM, SEQ_WRITE_GROUPED, 8})
+    ->Args({DRAM_BM, SEQ_WRITE_GROUPED, 16})
+    ->Args({DRAM_BM, SEQ_WRITE_GROUPED, 32})
+    // DEVDAX
+    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 1})
+    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 4})
+    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 8})
+    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 16})
+    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 32})
+    // FSVDAX
+    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 1})
+    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 4})
+    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 8})
+    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 16})
+    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 32});
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];

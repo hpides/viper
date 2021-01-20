@@ -7,9 +7,9 @@
 #include "fixtures/common_fixture.hpp"
 #include "fixtures/viper_fixture.hpp"
 //#include "fixtures/pmem_kv_fixture.hpp"
-//#include "fixtures/rocksdb_fixture.hpp"
+#include "fixtures/rocksdb_fixture.hpp"
 //#include "fixtures/faster_fixture.hpp"
-//#include "fixtures/cceh_fixture.hpp"
+#include "fixtures/cceh_fixture.hpp"
 #include "fixtures/dash_fixture.hpp"
 
 using namespace viper::kv_bm;
@@ -42,9 +42,9 @@ constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
 
 #define ALL_BMS(fixture) \
             BM_FIND(fixture); \
-            BM_INSERT(fixture); \
+            BM_DELETE(fixture)
+//            BM_INSERT(fixture); \
 //            BM_UPDATE(fixture); \
-//            BM_DELETE(fixture)
 
 
 void bm_insert(benchmark::State& state, BaseFixture& fixture) {
@@ -160,7 +160,7 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
 }
 
 ALL_BMS(DashFixture);
-//ALL_BMS(CcehFixture);
+ALL_BMS(CcehFixture);
 //ALL_BMS(ViperFixture);
 //ALL_BMS(PmemKVFixture);
 //ALL_BMS(NvmFasterFixture);

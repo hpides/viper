@@ -78,6 +78,8 @@ static constexpr char DB_FILE_DIR[] = "/scratch/viper";
 static constexpr char RESULT_FILE_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper1/results/";
 static constexpr char CONFIG_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper1/benchmark/config/";
 static constexpr size_t CPU_AFFINITY_OFFSET = 36;
+//static constexpr size_t CPU_AFFINITY_OFFSET = 0;
+//static constexpr char DB_NVM_DIR[] = "/mnt/nvrams1/viper";
 #elif defined(NVRAM02)
 static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.0";
 static constexpr char DB_NVM_DIR[] = "/mnt/nvram-viper";
