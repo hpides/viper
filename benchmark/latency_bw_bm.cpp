@@ -370,7 +370,7 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
         case (RND_READ)          : bm_type_label = "rnd_read";  break;
         case (SEQ_WRITE)         : bm_type_label = "seq_write"; break;
         case (RND_WRITE)         : bm_type_label = "rnd_write"; break;
-        case (SEQ_WRITE_GROUPED) : bm_type_label = "seq_write_grp_" + std::to_string(bm_data.max_num_write_groups); break;
+        case (SEQ_WRITE_GROUPED) : bm_type_label = "seq_grp_write_" + std::to_string(bm_data.max_num_write_groups); break;
     }
     label << "-t" << state.threads << "-" << (should_prefault ? "prefault" : "no_prefault") << "-" << bm_type_label;
     state.SetLabel(label.str());
@@ -444,7 +444,6 @@ BENCHMARK(latency_bw_bm)->BM_ARGS
     ->Threads(4)
     ->Threads(8)
     ->Threads(16)
-    ->Threads(24)
     ->Threads(32)
     ->ADD_STORAGE_TYPE(DRAM_BM)
     ->ADD_STORAGE_TYPE(DEVDAX_BM)
@@ -452,7 +451,7 @@ BENCHMARK(latency_bw_bm)->BM_ARGS
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
-    const std::string arg = get_output_file("latency_bw/latency_bw"); 
+    const std::string arg = get_output_file("latency_bw/latency_bw");
     return bm_main({exec_name, arg});
 //    return bm_main({exec_name});
 }
