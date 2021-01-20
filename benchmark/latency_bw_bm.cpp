@@ -25,6 +25,9 @@ static constexpr size_t SEQ_WRITE         = 2;
 static constexpr size_t RND_WRITE         = 3;
 static constexpr size_t SEQ_WRITE_GROUPED = 4;
 
+static constexpr size_t NO_PREFAULT = 0;
+static constexpr size_t DO_PREFAULT = 1;
+
 static const char WRITE_DATA[] __attribute__((aligned(256))) =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-"
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-"
@@ -36,7 +39,8 @@ static constexpr size_t JUMP_4K = 64 * CACHE_LINE_SIZE;
 static constexpr size_t NUM_OPS_PER_THREAD = THREAD_CHUNK_SIZE / JUMP_4K;
 static constexpr size_t NUM_ACCESSES_PER_THREAD = THREAD_CHUNK_SIZE / CACHE_LINE_SIZE;
 static constexpr size_t NUM_ACCESSES_PER_OP = JUMP_4K / CACHE_LINE_SIZE;
-static constexpr size_t PAGE_SIZE = 2 * (1024ul * 1024); // 2 MB
+static constexpr size_t DRAM_PAGE_SIZE = 4 * 1024ul; // 4 KiB
+static constexpr size_t PMEM_PAGE_SIZE = 2 * (1024ul * 1024); // 2 MiB
 
 #define WRITE(addr) \
     _mm512_store_si512((__m512i*) (addr), *data);\
@@ -252,7 +256,7 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
     auto start_mmap = std::chrono::high_resolution_clock::now();
     switch (storage_type) {
         case DRAM_BM: {
-            const auto map_flags = MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB | MAP_POPULATE;
+            const auto map_flags = viper::DRAM_MMAP;
             void* data = mmap(nullptr, data_len, PROT_READ | PROT_WRITE, map_flags, -1, 0);
             check_mmap(data);
             bm_data.dram_data = (char*) data;
@@ -293,15 +297,28 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
     char* data = (storage_type == DRAM_BM) ? bm_data.dram_data : bm_data.pmem_data;
 
     // prefault pages
-    const size_t num_prefault_pages = data_len / PAGE_SIZE;
-    auto start_prefault = std::chrono::high_resolution_clock::now();
-    for (size_t prefault_offset = 0; prefault_offset < num_prefault_pages; ++prefault_offset) {
-        data[prefault_offset * PAGE_SIZE] = '\0';
+    bool should_prefault = true;
+    if (bm_type == SEQ_WRITE || bm_type == RND_WRITE) {
+        should_prefault = state.range(2);
+    } else if (bm_type == SEQ_WRITE_GROUPED) {
+        should_prefault = state.range(3);
     }
-    auto end_prefault = std::chrono::high_resolution_clock::now();
-    const long prefault_dur = (end_prefault - start_prefault).count();
-    state.counters["prefault_ns"] = prefault_dur;
-    state.counters["prefault_ns_page"] = prefault_dur / num_prefault_pages;
+
+    if (should_prefault) {
+        const size_t page_size = storage_type == DRAM_BM ? DRAM_PAGE_SIZE : PMEM_PAGE_SIZE;
+        const size_t num_prefault_pages = data_len / page_size;
+        auto start_prefault = std::chrono::high_resolution_clock::now();
+        for (size_t prefault_offset = 0; prefault_offset < num_prefault_pages; ++prefault_offset) {
+            data[prefault_offset * page_size] = '\0';
+        }
+        auto end_prefault = std::chrono::high_resolution_clock::now();
+        const long prefault_dur = (end_prefault - start_prefault).count();
+        state.counters["prefault_ns"] = prefault_dur;
+        state.counters["prefault_ns_page"] = prefault_dur / num_prefault_pages;
+    } else {
+        state.counters["prefault_ns"] = 0;
+        state.counters["prefault_ns_page"] = 0;
+    }
 
     // prepare file to read from
     std::vector<std::thread> threads{};
@@ -355,7 +372,7 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
         case (RND_WRITE)         : bm_type_label = "rnd_write"; break;
         case (SEQ_WRITE_GROUPED) : bm_type_label = "seq_write_grp_" + std::to_string(bm_data.max_num_write_groups); break;
     }
-    label << "-t" << state.threads << "-" << bm_type_label;
+    label << "-t" << state.threads << "-" << (should_prefault ? "prefault" : "no_prefault") << "-" << bm_type_label;
     state.SetLabel(label.str());
 }
 
@@ -400,29 +417,26 @@ void latency_bw_bm(benchmark::State& state) {
 
 #define BM_ARGS Repetitions(1)->Iterations(1)->Unit(BM_TIME_UNIT)->UseRealTime()
 
-BENCHMARK(latency_bw_bm)->BM_ARGS
-    ->Threads(1) // Warm up run
-    ->Threads(1)
-    ->Threads(4)
-    ->Threads(8)
-    ->Threads(16)
-    ->Threads(24)
-    ->Threads(32)
-    // DRAM
-    ->Args({DRAM_BM, SEQ_READ})
-    ->Args({DRAM_BM, SEQ_WRITE})
-    ->Args({DRAM_BM, RND_READ})
-    ->Args({DRAM_BM, RND_WRITE})
-    // DEVDAX
-    ->Args({DEVDAX_BM, SEQ_READ})
-    ->Args({DEVDAX_BM, SEQ_WRITE})
-    ->Args({DEVDAX_BM, RND_READ})
-    ->Args({DEVDAX_BM, RND_WRITE})
-    // FSVDAX
-    ->Args({FSDAX_BM, SEQ_READ})
-    ->Args({FSDAX_BM, SEQ_WRITE})
-    ->Args({FSDAX_BM, RND_READ})
-    ->Args({FSDAX_BM, RND_WRITE});
+#define ADD_GROUPED_STORAGE_TYPE(storage_type)\
+      Args({storage_type, SEQ_WRITE_GROUPED,  1, DO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_GROUPED,  1, NO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_GROUPED,  4, DO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_GROUPED,  4, NO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_GROUPED,  8, DO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_GROUPED,  8, NO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_GROUPED, 16, DO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_GROUPED, 16, NO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_GROUPED, 32, DO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_GROUPED, 32, NO_PREFAULT})
+
+#define ADD_STORAGE_TYPE(storage_type)\
+      Args({storage_type, SEQ_READ})\
+    ->Args({storage_type, SEQ_WRITE, DO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE, NO_PREFAULT})\
+    ->Args({storage_type, RND_READ})\
+    ->Args({storage_type, RND_WRITE, DO_PREFAULT})\
+    ->Args({storage_type, RND_WRITE, NO_PREFAULT})\
+    ->ADD_GROUPED_STORAGE_TYPE(storage_type)
 
 BENCHMARK(latency_bw_bm)->BM_ARGS
     ->Threads(1) // Warm up run
@@ -432,28 +446,13 @@ BENCHMARK(latency_bw_bm)->BM_ARGS
     ->Threads(16)
     ->Threads(24)
     ->Threads(32)
-    // DRAM
-    ->Args({DRAM_BM, SEQ_WRITE_GROUPED, 1})
-    ->Args({DRAM_BM, SEQ_WRITE_GROUPED, 4})
-    ->Args({DRAM_BM, SEQ_WRITE_GROUPED, 8})
-    ->Args({DRAM_BM, SEQ_WRITE_GROUPED, 16})
-    ->Args({DRAM_BM, SEQ_WRITE_GROUPED, 32})
-    // DEVDAX
-    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 1})
-    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 4})
-    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 8})
-    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 16})
-    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 32})
-    // FSVDAX
-    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 1})
-    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 4})
-    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 8})
-    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 16})
-    ->Args({DEVDAX_BM, SEQ_WRITE_GROUPED, 32});
+    ->ADD_STORAGE_TYPE(DRAM_BM)
+    ->ADD_STORAGE_TYPE(DEVDAX_BM)
+    ->ADD_STORAGE_TYPE(FSDAX_BM);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
-    const std::string arg = get_output_file("latency_bw/latency_bw");
+    const std::string arg = get_output_file("latency_bw/latency_bw"); 
     return bm_main({exec_name, arg});
 //    return bm_main({exec_name});
 }
