@@ -252,7 +252,8 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
     auto start_mmap = std::chrono::high_resolution_clock::now();
     switch (storage_type) {
         case DRAM_BM: {
-            void* data = mmap(nullptr, data_len, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_POPULATE, -1, 0);
+            const auto map_flags = MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB | MAP_POPULATE;
+            void* data = mmap(nullptr, data_len, PROT_READ | PROT_WRITE, map_flags, -1, 0);
             check_mmap(data);
             bm_data.dram_data = (char*) data;
             label << "dram";
@@ -400,6 +401,7 @@ void latency_bw_bm(benchmark::State& state) {
 #define BM_ARGS Repetitions(1)->Iterations(1)->Unit(BM_TIME_UNIT)->UseRealTime()
 
 BENCHMARK(latency_bw_bm)->BM_ARGS
+    ->Threads(1) // Warm up run
     ->Threads(1)
     ->Threads(4)
     ->Threads(8)
@@ -423,6 +425,7 @@ BENCHMARK(latency_bw_bm)->BM_ARGS
     ->Args({FSDAX_BM, RND_WRITE});
 
 BENCHMARK(latency_bw_bm)->BM_ARGS
+    ->Threads(1) // Warm up run
     ->Threads(1)
     ->Threads(4)
     ->Threads(8)
