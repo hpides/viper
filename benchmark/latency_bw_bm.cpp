@@ -24,6 +24,7 @@ static constexpr size_t RND_READ          = 1;
 static constexpr size_t SEQ_WRITE         = 2;
 static constexpr size_t RND_WRITE         = 3;
 static constexpr size_t SEQ_WRITE_GROUPED = 4;
+static constexpr size_t SEQ_WRITE_OFFSET  = 5;
 
 static constexpr size_t NO_PREFAULT = 0;
 static constexpr size_t DO_PREFAULT = 1;
@@ -47,17 +48,6 @@ static constexpr size_t PMEM_PAGE_SIZE = 2 * (1024ul * 1024); // 2 MiB
     _mm_clwb((addr));\
     _mm_sfence()
 
-#define WRITE256(addr) \
-    _mm512_store_si512((__m512i*) ((addr) + (0 * CACHE_LINE_SIZE)), *data);\
-    _mm512_store_si512((__m512i*) ((addr) + (1 * CACHE_LINE_SIZE)), *data);\
-    _mm512_store_si512((__m512i*) ((addr) + (2 * CACHE_LINE_SIZE)), *data);\
-    _mm512_store_si512((__m512i*) ((addr) + (3 * CACHE_LINE_SIZE)), *data);\
-    _mm_clwb((addr) + (0 * CACHE_LINE_SIZE));\
-    _mm_clwb((addr) + (1 * CACHE_LINE_SIZE));\
-    _mm_clwb((addr) + (2 * CACHE_LINE_SIZE));\
-    _mm_clwb((addr) + (3 * CACHE_LINE_SIZE));\
-    _mm_sfence()
-
 #define _RD(off) "vmovntdqa " #off "*64(%[addr]), %%zmm0 \n"
 
 #define READ_4K(cur_addr) \
@@ -79,6 +69,7 @@ struct BMData {
     char* pmem_data;
     std::vector<size_t> thread_starts;
     size_t max_num_write_groups;
+    size_t write_offset;
 };
 
 static BMData bm_data{};
@@ -111,6 +102,30 @@ inline uint64_t write_data(char* start_addr, const size_t thread_jump) {
             WRITE(cur_addr + ((i + 5) * CACHE_LINE_SIZE));
             WRITE(cur_addr + ((i + 6) * CACHE_LINE_SIZE));
             WRITE(cur_addr + ((i + 7) * CACHE_LINE_SIZE));
+        }
+        cur_addr += thread_jump;
+    }
+
+    const auto end = std::chrono::high_resolution_clock::now();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+}
+
+inline uint64_t write_offset(char* start_addr, const size_t thread_jump, const size_t offset) {
+    const __m512i* data = (__m512i*)(WRITE_DATA);
+
+    const auto start = std::chrono::high_resolution_clock::now();
+    char* cur_addr = start_addr;
+    for (size_t num_op = 0; num_op < NUM_OPS_PER_THREAD - 1; ++num_op) {
+        // Write 4096 Byte per iteration
+        for (size_t i = 0; i < 64; i += 8) {
+            WRITE(cur_addr + ((i + 0) * CACHE_LINE_SIZE) + offset);
+            WRITE(cur_addr + ((i + 1) * CACHE_LINE_SIZE) + offset);
+            WRITE(cur_addr + ((i + 2) * CACHE_LINE_SIZE) + offset);
+            WRITE(cur_addr + ((i + 3) * CACHE_LINE_SIZE) + offset);
+            WRITE(cur_addr + ((i + 4) * CACHE_LINE_SIZE) + offset);
+            WRITE(cur_addr + ((i + 5) * CACHE_LINE_SIZE) + offset);
+            WRITE(cur_addr + ((i + 6) * CACHE_LINE_SIZE) + offset);
+            WRITE(cur_addr + ((i + 7) * CACHE_LINE_SIZE) + offset);
         }
         cur_addr += thread_jump;
     }
@@ -201,6 +216,9 @@ inline size_t do_mem_op(benchmark::State& state, const size_t bm_type) {
     switch (bm_type) {
         case SEQ_WRITE: {
             return write_data(start_addr, thread_jump);
+        }
+        case SEQ_WRITE_OFFSET: {
+            return write_offset(start_addr, thread_jump, bm_data.write_offset);
         }
         case SEQ_WRITE_GROUPED: {
             const size_t max_num_write_groups = bm_data.max_num_write_groups;
@@ -300,7 +318,7 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
     bool should_prefault = true;
     if (bm_type == SEQ_WRITE || bm_type == RND_WRITE) {
         should_prefault = state.range(2);
-    } else if (bm_type == SEQ_WRITE_GROUPED) {
+    } else if (bm_type == SEQ_WRITE_GROUPED || bm_type == SEQ_WRITE_OFFSET) {
         should_prefault = state.range(3);
     }
 
@@ -364,6 +382,10 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
         bm_data.max_num_write_groups = state.range(2);
     }
 
+    if (bm_type == SEQ_WRITE_OFFSET) {
+        bm_data.write_offset = state.range(2);
+    }
+
     std::string bm_type_label;
     switch (bm_type) {
         case (SEQ_READ)          : bm_type_label = "seq_read";  break;
@@ -371,6 +393,7 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
         case (SEQ_WRITE)         : bm_type_label = "seq_write"; break;
         case (RND_WRITE)         : bm_type_label = "rnd_write"; break;
         case (SEQ_WRITE_GROUPED) : bm_type_label = "seq_grp_write_" + std::to_string(bm_data.max_num_write_groups); break;
+        case (SEQ_WRITE_OFFSET)  : bm_type_label = "seq_off_write_" + std::to_string(bm_data.write_offset); break;
     }
     label << "-t" << state.threads << "-" << (should_prefault ? "prefault" : "no_prefault") << "-" << bm_type_label;
     state.SetLabel(label.str());
@@ -392,7 +415,12 @@ void latency_bw_bm(benchmark::State& state) {
         duration = do_mem_op(state, bm_type);
     }
 
-    const size_t avg_lat = duration / NUM_ACCESSES_PER_THREAD;
+    // Offset writing does one op fewer to avoid segfaults at the end of the file
+    const size_t num_total_accesses = bm_type == SEQ_WRITE_OFFSET
+            ? NUM_ACCESSES_PER_THREAD - NUM_ACCESSES_PER_OP
+            : NUM_ACCESSES_PER_THREAD;
+
+    const size_t avg_lat = duration / num_total_accesses;
     state.counters["avg_latency_ns"] = benchmark::Counter(avg_lat, benchmark::Counter::kAvgThreads);
 
     const double thread_dur_s = duration / 1e9;
@@ -429,14 +457,20 @@ void latency_bw_bm(benchmark::State& state) {
     ->Args({storage_type, SEQ_WRITE_GROUPED, 32, DO_PREFAULT})\
     ->Args({storage_type, SEQ_WRITE_GROUPED, 32, NO_PREFAULT})
 
+//#define ADD_STORAGE_TYPE(storage_type)\
+//      Args({storage_type, SEQ_READ})\
+//    ->Args({storage_type, SEQ_WRITE, DO_PREFAULT})\
+//    ->Args({storage_type, SEQ_WRITE, NO_PREFAULT})\
+//    ->Args({storage_type, RND_READ})\
+//    ->Args({storage_type, RND_WRITE, DO_PREFAULT})\
+//    ->Args({storage_type, RND_WRITE, NO_PREFAULT})\
+//    ->ADD_GROUPED_STORAGE_TYPE(storage_type)
+
 #define ADD_STORAGE_TYPE(storage_type)\
-      Args({storage_type, SEQ_READ})\
-    ->Args({storage_type, SEQ_WRITE, DO_PREFAULT})\
-    ->Args({storage_type, SEQ_WRITE, NO_PREFAULT})\
-    ->Args({storage_type, RND_READ})\
-    ->Args({storage_type, RND_WRITE, DO_PREFAULT})\
-    ->Args({storage_type, RND_WRITE, NO_PREFAULT})\
-    ->ADD_GROUPED_STORAGE_TYPE(storage_type)
+      Args({storage_type, SEQ_WRITE_OFFSET,    0, DO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_OFFSET, 1024, DO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_OFFSET, 2048, DO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE_OFFSET, 3072, DO_PREFAULT})
 
 BENCHMARK(latency_bw_bm)->BM_ARGS
     ->Threads(1) // Warm up run
