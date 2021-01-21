@@ -22,6 +22,11 @@
 #define DEBUG_LOG(msg) do {} while(0)
 #endif
 
+/**
+ * Define this to use Viper in DRAM instead of PMem. This will allocate all VPages in DRAM.
+ */
+#define VIPER_DRAM
+
 namespace viper {
 
 using version_lock_t = uint8_t;
@@ -37,7 +42,8 @@ static constexpr version_lock_t UNUSED_BIT = 1ul << 4;
 static constexpr version_lock_t FREE_BIT_MASK = 127;
 
 static constexpr auto VIPER_MAP_PROT = PROT_WRITE | PROT_READ | PROT_EXEC;
-static constexpr auto VIPER_MAP_FLAGS = MAP_SHARED | MAP_SYNC;
+static constexpr auto VIPER_MAP_FLAGS = MAP_SHARED_VALIDATE | MAP_SYNC;
+static constexpr auto DRAM_MMAP = MAP_ANONYMOUS | MAP_PRIVATE;
 
 struct ViperConfig {
     double resize_threshold = 0.85;
@@ -368,6 +374,7 @@ class Viper {
     static constexpr bool using_fp = requires_fingerprint(K);
 
     std::vector<VPageBlock*> v_blocks_;
+    std::atomic<size_t> num_v_blocks_;
     std::atomic<size_t> current_size_;
     std::atomic<size_t> reclaimable_ops_;
     std::atomic<offset_size_t> current_block_page_;
@@ -451,6 +458,13 @@ Viper<K, V>::~Viper() {
 template <typename K, typename V>
 ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_size,
                                      bool is_new_pool, ViperConfig v_config) {
+#ifdef VIPER_DRAM
+    std::cout << "Running Viper completely in DRAM." << std::endl;
+    if (!is_new_pool) {
+      throw std::runtime_error("Cannot use existing Viper instance in DRAM-mode");
+    }
+#endif
+
     DEBUG_LOG((is_new_pool ? "Creating" : "Opening") << " pool file " << pool_file);
 
     const int fd = ::open(pool_file.c_str(), O_RDWR);
@@ -484,8 +498,13 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
         throw std::runtime_error("Pool too small: " + std::to_string(pool_size));
     }
 
+#ifdef VIPER_DRAM
+    void* pmem_addr = mmap(nullptr, pool_size, PROT_READ | PROT_WRITE, DRAM_MMAP, -1, 0);
+#else
     void* pmem_addr = mmap(nullptr, pool_size, VIPER_MAP_PROT, VIPER_MAP_FLAGS, fd, 0);
-    if (pmem_addr == nullptr || pmem_addr == reinterpret_cast<void*>(0xffffffffffffffff)) {
+#endif
+
+    if (pmem_addr == nullptr || pmem_addr == MAP_FAILED) {
         throw std::runtime_error("Cannot mmap pool file: " + pool_file + " | " + std::strerror(errno));
     }
 
@@ -533,8 +552,14 @@ ViperFileMapping Viper<K, V>::allocate_v_page_blocks() {
     const size_t offset = v_base_.v_metadata->total_mapped_size;
     const int fd = v_base_.file_descriptor;
     const size_t alloc_size = v_base_.v_metadata->alloc_size;
+
+#ifdef VIPER_DRAM
+    void* pmem_addr = mmap(nullptr, alloc_size, PROT_READ | PROT_WRITE, DRAM_MMAP, -1, 0);
+#else
     void* pmem_addr = mmap(nullptr, alloc_size, VIPER_MAP_PROT, VIPER_MAP_FLAGS, fd, offset);
-    if (pmem_addr == nullptr) {
+#endif
+
+    if (pmem_addr == nullptr || pmem_addr == MAP_FAILED) {
         throw std::runtime_error(std::string("Cannot mmap extra memory: ") + std::strerror(errno));
     }
     const block_size_t num_blocks_to_map = alloc_size / sizeof(VPageBlock);
@@ -559,6 +584,7 @@ void Viper<K, V>::add_v_page_blocks(ViperFileMapping mapping) {
     for (block_size_t block_offset = 0; block_offset < num_blocks_to_map; ++block_offset) {
         v_blocks_.push_back(start_block + block_offset);
     }
+    num_v_blocks_.store(v_blocks_.size(), std::memory_order_release);
 }
 
 template <typename K, typename V>
@@ -734,6 +760,10 @@ KeyValueOffset Viper<K, V>::get_new_block() {
 
         const block_size_t new_block = client_block + 1;
         assert(new_block < v_blocks_.size());
+
+        while (client_block >= num_v_blocks_.load(std::memory_order_acquire)) {
+            asm("nop");
+        }
 
         // Choose random offset to evenly distribute load on all DIMMs
         page_size_t new_page = 0;
