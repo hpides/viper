@@ -168,7 +168,7 @@ inline uint64_t read_data(char* start_addr, const size_t thread_jump) {
 
     const auto end = std::chrono::high_resolution_clock::now();
     return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-}
+
 
 inline uint64_t rnd_read(char* start_addr, char* base_addr) {
     const auto start = std::chrono::high_resolution_clock::now();
