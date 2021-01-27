@@ -72,7 +72,7 @@ using ValueType200 = BMRecord<uint32_t, 50>;
 using ValueType900 = BMRecord<uint32_t, 225>;
 
 #if defined(NVRAM01)
-static constexpr char VIPER_POOL_FILE[] = "/dev/dax1.0";
+static constexpr char VIPER_POOL_FILE[] = "/dev/dax1.1";
 static constexpr char DB_NVM_DIR[] = "/mnt/nvrams2/viper";
 static constexpr char DB_FILE_DIR[] = "/scratch/viper";
 static constexpr char RESULT_FILE_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper1/results/";

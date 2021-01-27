@@ -132,11 +132,10 @@ uint64_t CcehFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t 
 
     uint64_t found_counter = 0;
     for (uint64_t i = 0; i < num_finds; ++i) {
-        cceh::CcehAccessor accessor{};
         const uint64_t key = distrib(rnd_engine);
-        const bool found = dram_map_->Get(key, accessor, key_check_fn);
-        if (found) {
-            block_size_t entry_ptr_pos = accessor->block_number;
+        const KeyValueOffset offset = dram_map_->Get(key, key_check_fn);
+        if (!offset.is_tombstone()) {
+            block_size_t entry_ptr_pos = offset.block_number;
             pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
             ValueT found_val = entry_ptr->second;
             found_counter += (found_val.data[0] == key);
@@ -163,12 +162,11 @@ uint64_t CcehFixture<std::string, std::string>::setup_and_find(uint64_t start_id
     uint64_t found_counter = 0;
     for (uint64_t i = 0; i < num_finds; ++i) {
         const uint64_t key = distrib(rnd_engine);
-        cceh::CcehAccessor accessor{};
         const std::string& db_key = keys[key];
         const std::string& value = values[key];
-        const bool found = dram_map_->Get(db_key, accessor, key_check_fn);
-        if (found) {
-            block_size_t entry_ptr_pos = accessor->block_number;
+        const KeyValueOffset offset = dram_map_->Get(db_key, key_check_fn);
+        if (!offset.is_tombstone()) {
+            block_size_t entry_ptr_pos = offset.block_number;
             pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
             found_counter += (entry_ptr->second == value);
         }
@@ -192,10 +190,9 @@ uint64_t CcehFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_
     for (uint64_t i = 0; i < num_updates; ++i) {
         const uint64_t key = distrib(rnd_engine);
         const KeyT db_key{key};
-        cceh::CcehAccessor accessor{};
-        const bool found = dram_map_->Get(db_key, accessor, key_check_fn);
-        if (found) {
-            block_size_t entry_ptr_pos = accessor->block_number;
+        const KeyValueOffset offset = dram_map_->Get(db_key, key_check_fn);
+        if (!offset.is_tombstone()) {
+            block_size_t entry_ptr_pos = offset.block_number;
             pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
             ValueT& value = entry_ptr->second;
             value.update_value();
@@ -223,18 +220,17 @@ uint64_t CcehFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_
 
     uint64_t delete_counter = 0;
     for (uint64_t i = 0; i < num_deletes; ++i) {
-        cceh::CcehAccessor accessor{};
         const uint64_t key = distrib(rnd_engine);
         const KeyT db_key{key};
-        const bool found = dram_map_->Get(db_key, accessor, key_check_fn);
-        if (found) {
-            block_size_t entry_ptr_pos = accessor->block_number;
+        const KeyValueOffset offset = dram_map_->Get(db_key, key_check_fn);
+        if (!offset.is_tombstone()) {
+            block_size_t entry_ptr_pos = offset.block_number;
             pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
             pmem::obj::transaction::run(pmem_pool_, [&] {
                 pmem::obj::delete_persistent<Entry>(entry_ptr);
             });
             (*ptrs_)[entry_ptr_pos] = pmem::obj::persistent_ptr<Entry>();
-            dram_map_->Remove(accessor.offset);
+            dram_map_->Insert(key, IndexV::NONE(), key_check_fn);
             delete_counter++;
         }
     }
@@ -266,25 +262,15 @@ uint64_t CcehFixture<KeyType8, ValueType200>::run_ycsb(uint64_t start_idx,
                 break;
             }
             case ycsb::Record::Op::GET: {
-                cceh::CcehAccessor accessor{};
-                const bool found = dram_map_->Get(record.key, accessor);
-                if (found) {
-                    block_size_t entry_ptr_pos = accessor->block_number;
+                const KeyValueOffset offset = dram_map_->Get(record.key);
+                if (!offset.is_tombstone()) {
+                    block_size_t entry_ptr_pos = offset.block_number;
                     pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
                     op_count += (entry_ptr->second == record.value);
                 }
                 break;
             }
             case ycsb::Record::Op::UPDATE: {
-//                cceh::CcehAccessor accessor{};
-//                const bool found = dram_map_->Get(record.key, accessor);
-//                if (found) {
-//                    block_size_t entry_ptr_pos = accessor->block_number;
-//                    pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
-//                    entry_ptr->second.update_value();
-//                    pmem_persist(&entry_ptr->second, sizeof(uint64_t));
-//                    op_count++;
-//                }
                 insert_internal(record.key, record.value);
                 op_count++;
                 break;

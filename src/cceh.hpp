@@ -21,6 +21,7 @@
 #include <cassert>
 #include <unordered_map>
 #include <atomic>
+#include <stdlib.h>
 
 #include "hash.hpp"
 
@@ -126,8 +127,7 @@ struct KeyValueOffset {
     union {
         offset_size_t offset;
         struct {
-            bool is_free : 1;
-            block_size_t block_number : 44;
+            block_size_t block_number : 45;
             page_size_t page_number : 3;
             data_offset_size_t data_offset : 16;
         };
@@ -140,7 +140,7 @@ struct KeyValueOffset {
     explicit KeyValueOffset(const offset_size_t offset) : offset(offset) {}
 
     KeyValueOffset(const block_size_t block_number, const page_size_t page_number, const data_offset_size_t slot)
-        : is_free{true}, block_number{block_number}, page_number{page_number}, data_offset{slot} {}
+        : block_number{block_number}, page_number{page_number}, data_offset{slot} {}
 
     static KeyValueOffset Tombstone() {
         return KeyValueOffset{};
@@ -189,50 +189,6 @@ struct Pair {
     }
 };
 
-struct CcehAccessor {
-  IndexV* offset;
-  bool has_lock;
-  bool found;
-
-  CcehAccessor() : offset{nullptr}, has_lock{false}, found{false} {}
-  ~CcehAccessor() { release(); }
-
-  inline void take(IndexV* value) {
-      offset = value;
-      found = offset != nullptr && !offset->is_tombstone();
-      if (found) acquire();
-  }
-
-  IndexV* operator->() { return offset; }
-  IndexV& operator*() { return *offset; }
-
-  inline void acquire() {
-      IndexV expected{offset->offset};
-      IndexV locked{expected.offset};
-      expected.is_free = true;
-      locked.is_free = false;
-
-      while (!CAS(&offset->offset, &expected.offset, locked.offset)) {
-          locked.offset = expected.offset;
-          expected.is_free = true;
-          locked.is_free = false;
-      }
-      // If the value was locked is a tombstone, the value was deleted.
-      found = !expected.is_tombstone();
-      offset->offset = locked.offset;
-      has_lock = true;
-  }
-
-  inline void release() {
-    if (has_lock) {
-        IndexV unlocked{offset->offset};
-        unlocked.is_free = true;
-        ATOMIC_STORE(&offset->offset, unlocked.offset);
-        has_lock = false;
-    }
-  }
-};
-
 inline void persist(void* data, size_t len) {
 #ifdef CCEH_PERSISTENT
   pmem_persist(data, len);
@@ -258,7 +214,7 @@ struct Segment {
         return pmemobj_direct(ret);
 #else
         void* ret;
-        posix_memalign(&ret, 64, size);
+        if (posix_memalign(&ret, 64, size) != 0) throw std::runtime_error("bad memalign");
         return ret;
 #endif
     }
@@ -331,7 +287,7 @@ struct Directory {
         return pmemobj_direct(ret);
 #else
         void* ret;
-        posix_memalign(&ret, 64, size);
+        if (posix_memalign(&ret, 64, size) != 0) throw std::runtime_error("bad memalign");
         return ret;
 #endif
     }
@@ -356,14 +312,14 @@ class CCEH {
     IndexV Insert(const KeyType&, IndexV, KeyCheckFn);
 
     template <typename KeyCheckFn>
-    bool Get(const KeyType&, CcehAccessor& accessor, KeyCheckFn);
+    IndexV Get(const KeyType&, KeyCheckFn);
 
     template <typename KeyCheckFn>
     bool Delete(const KeyType&, KeyCheckFn);
 
     IndexV Insert(const KeyType&, IndexV);
     bool Delete(const KeyType&);
-    bool Get(const KeyType&, CcehAccessor& accessor);
+    IndexV Get(const KeyType&);
     void Remove(IndexV* offset);
     size_t Capacity(void);
 
@@ -417,7 +373,13 @@ int Segment<KeyType>::Insert(const KeyType& key, IndexV value, size_t loc, size_
     if (CAS(&_[slot].key, &LOCK, SENTINEL)) {
         old_entry->offset = _[slot].value.offset;
         _[slot].value = value;
-        _[slot].key = key_checker;
+        if (value.is_tombstone()) {
+            // Inserted tombstone
+            _[slot].key = INVALID;
+        }
+        else {
+            _[slot].key = key_checker;
+        }
         persist(&_[slot], sizeof(Pair));
         ret = 0;
         break;
@@ -429,13 +391,13 @@ int Segment<KeyType>::Insert(const KeyType& key, IndexV value, size_t loc, size_
         }
 
         IndexV old_value = _[slot].value;
-        old_value.is_free = true;
-        while (!CAS(&_[slot].value.offset, &old_value.offset, value.offset)) {
-            // Cannot swap value if it is in use
-            old_value.is_free = true;
+        while (!CAS(&_[slot].value.offset, &old_value.offset, value.offset)) {}
+        if (value.is_tombstone()) {
+            IndexK expected = key_checker;
+            CAS(&_[slot].key, &expected, INVALID);
         }
         old_entry->offset = old_value.offset;
-        persist(&_[slot].value, sizeof(IndexV));
+        persist(&_[slot].key, sizeof(Pair));
         ret = 0;
         break;
     } else {
@@ -490,9 +452,6 @@ Segment<KeyType>** Segment<KeyType>::Split(void) {
         key_hash = h(&_[i].key, sizeof(IndexK));
     }
     if (key_hash & ((size_t) 1 << ((sizeof(IndexK)*8 - local_depth - 1)))) {
-      while (!IndexV{ATOMIC_LOAD(&_[i].value.offset)}.is_free) {
-          asm("nop");
-      }
       split[1]->Insert4split(_[i].key, _[i].value, (key_hash & kMask)*kNumPairPerCacheLine);
     }
   }
@@ -610,13 +569,13 @@ void CCEH<KeyType>::Remove(IndexV* offset) {
 }
 
 template <typename KeyType>
-bool CCEH<KeyType>::Get(const KeyType& key, CcehAccessor& accessor) {
-    return Get(key, accessor, dummy_key_check);
+IndexV CCEH<KeyType>::Get(const KeyType& key) {
+    return Get(key, dummy_key_check);
 }
 
 template <typename KeyType>
 template <typename KeyCheckFn>
-bool CCEH<KeyType>::Get(const KeyType& key, CcehAccessor& accessor, KeyCheckFn key_check_fn) {
+IndexV CCEH<KeyType>::Get(const KeyType& key, KeyCheckFn key_check_fn) {
     size_t key_hash;
     if constexpr (std::is_same_v<KeyType, std::string>) { key_hash = h(key.data(), key.length()); }
     else { key_hash = h(&key, sizeof(key)); }
@@ -652,14 +611,14 @@ bool CCEH<KeyType>::Get(const KeyType& key, CcehAccessor& accessor, KeyCheckFn k
               if (!keys_match) continue;
           }
 
-          accessor.take(&(segment->_[slot].value));
+          IndexV offset = segment->_[slot].value;
           segment->sema.fetch_sub(1);
-          return accessor.found;
+          return offset;
         }
     }
 
     segment->sema.fetch_sub(1);
-    return false;
+    return IndexV::NONE();
 }
 
 template <typename KeyType>

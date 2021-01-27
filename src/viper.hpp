@@ -25,7 +25,7 @@
 /**
  * Define this to use Viper in DRAM instead of PMem. This will allocate all VPages in DRAM.
  */
-#define VIPER_DRAM
+//#define VIPER_DRAM
 
 namespace viper {
 
@@ -36,10 +36,16 @@ static constexpr uint8_t NUM_DIMMS = 6;
 static constexpr size_t BLOCK_SIZE = NUM_DIMMS * PAGE_SIZE;
 static constexpr size_t ONE_GB = 1024l * 1024 * 1024;
 
-static constexpr version_lock_t LOCK_BIT =   1ul << 7;
-static constexpr version_lock_t CLIENT_BIT = 1ul << 6;
-static constexpr version_lock_t UNUSED_BIT = 1ul << 4;
-static constexpr version_lock_t FREE_BIT_MASK = 127;
+static_assert(sizeof(version_lock_t) == 1, "Lock must be 1 byte.");
+static constexpr version_lock_t CLIENT_BIT    = 0b10000000;
+static constexpr version_lock_t NO_CLIENT_BIT = 0b01111111;
+static constexpr version_lock_t UNUSED_BIT    = 0b01000000;
+static constexpr version_lock_t UNLOCKED_BIT  = 0b11111110;
+
+#define PASSIVE_UNLOCK(lock_val) (((lock_val) + 2) | (lock_val & CLIENT_BIT))
+#define ACTIVE_UNLOCK(lock_val)  (((lock_val) + 2) | CLIENT_BIT)
+#define IS_LOCKED(lock)          ((lock) & 1)
+#define REMOVE_CLIENT_BIT(lock)  (lock )
 
 static constexpr auto VIPER_MAP_PROT = PROT_WRITE | PROT_READ | PROT_EXEC;
 static constexpr auto VIPER_MAP_FLAGS = MAP_SHARED_VALIDATE | MAP_SYNC;
@@ -265,35 +271,14 @@ class Viper {
 
     void reclaim();
 
-    class Accessor {
-        friend class Viper<K, V>;
-        using MapAccessor = cceh::CcehAccessor;
-
-      public:
-        Accessor() = default;
-
-        const typename ValueAccessor<V>::ref_type operator*() const { return *operator->(); }
-        const typename ValueAccessor<V>::const_ptr_type operator->() const { return ValueAccessor<V>::to_ptr_type(value_); }
-
-        Accessor(const Accessor& other) = delete;
-        Accessor& operator=(const Accessor& other) = delete;
-        Accessor(Accessor&& other) noexcept = default;
-        Accessor& operator=(Accessor&& other) noexcept = default;
-        ~Accessor() = default;
-
-      protected:
-        MapAccessor map_accessor_;
-        typename ValueAccessor<V>::type value_{};
-    };
-
     class ReadOnlyClient {
         friend class Viper<K, V>;
       public:
-        bool get(const K& key, Accessor& accessor) const;
+        bool get(const K& key, V* value) const;
       protected:
         explicit ReadOnlyClient(ViperT& viper);
         inline const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>::checker_type> get_const_entry_from_offset(KVOffset offset) const;
-        inline const typename ValueAccessor<V>::const_type get_const_value_from_offset(KVOffset offset) const;
+        inline bool get_const_value_from_offset(KVOffset offset, V* value) const;
         ViperT& viper_;
     };
 
@@ -302,8 +287,8 @@ class Viper {
       public:
         bool put(const K& key, const V& value);
 
-        bool get(const K& key, Accessor& accessor);
-        inline bool get(const K& key, Accessor& accessor) const;
+        bool get(const K& key, V* value);
+        bool get(const K& key, V* value) const;
 
         template <typename UpdateFn>
         bool update(const K& key, UpdateFn update_fn);
@@ -318,9 +303,9 @@ class Viper {
         bool put(const K& key, const V& value, IndexV* previous_offset);
         inline void update_access_information();
         inline void update_var_size_page_information();
-        inline typename ValueAccessor<V>::type get_value_from_offset(KVOffset offset);
+        inline bool get_value_from_offset(KVOffset offset, V* value);
         inline void info_sync(bool force = false);
-        void free_occupied_slot(block_size_t block_number, page_size_t page_number, data_offset_size_t data_offset);
+        void free_occupied_slot(const KVOffset offset, const K& key, const bool delete_offset = false);
 
         enum PageStrategy : uint8_t { BlockBased, DimmBased };
 
@@ -656,7 +641,7 @@ void Viper<K, V>::get_new_access_information(Client* client) {
     // Get insert/delete count info
     client->info_sync(true);
 
-    const KVOffset block_page{current_block_page_.load()};
+    const KVOffset block_page{current_block_page_.load(std::memory_order_acquire)};
     if (block_page.block_number > resize_threshold_ * v_blocks_.size()) {
         trigger_resize();
     }
@@ -704,7 +689,7 @@ void Viper<K, V>::get_block_based_access(Client* client) {
     }
 
     if (client->v_block_ != nullptr) {
-        client->v_block_->v_pages[0].version_lock &= ~CLIENT_BIT;
+        client->v_block_->v_pages[0].version_lock &= NO_CLIENT_BIT;
     }
 
     client->v_block_ = v_blocks_[client_block];
@@ -869,10 +854,11 @@ template <typename K, typename V>
 bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_offset) {
     // Lock v_page. We expect the lock bit to be unset.
     std::atomic<version_lock_t>& v_lock = v_page_->version_lock;
-    version_lock_t lock_value = v_lock.load() & FREE_BIT_MASK;
+    version_lock_t lock_value = v_lock.load(std::memory_order_acquire);
     // Compare and swap until we are the thread to set the lock bit
-    while (!v_lock.compare_exchange_weak(lock_value, lock_value | LOCK_BIT)) {
-        lock_value &= FREE_BIT_MASK;
+    lock_value &= UNLOCKED_BIT;
+    while (!v_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
+        lock_value &= UNLOCKED_BIT;
     }
 
     // We now have the lock on this page
@@ -881,7 +867,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_off
 
     if (free_slot_idx >= free_slots->size()) {
         // Page is full. Free lock on page and restart.
-        v_lock.store(lock_value & FREE_BIT_MASK, std::memory_order_release);
+        v_lock.store(ACTIVE_UNLOCK(lock_value), std::memory_order_release);
         update_access_information();
         return put(key, value);
     }
@@ -908,12 +894,11 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_off
     bool is_new_item = old_offset.is_tombstone();
 
     // Unlock the v_page
-    v_lock.store(lock_value & FREE_BIT_MASK, std::memory_order_release);
+    v_lock.store(ACTIVE_UNLOCK(lock_value), std::memory_order_release);
 
     // Need to free slot at old location for this key
     if (!is_new_item && !old_offset.is_tombstone()) {
-        const auto [block_number, page_number, slot_number] = old_offset.get_offsets();
-        free_occupied_slot(block_number, page_number, slot_number);
+        free_occupied_slot(old_offset, key);
     }
 
     // We have added one value, so +1
@@ -927,10 +912,11 @@ template <>
 bool Viper<std::string, std::string>::Client::put(const std::string& key, const std::string& value, IndexV* previous_offset) {
     // Lock v_page. We expect the lock bit to be unset.
     std::atomic<version_lock_t>& v_lock = v_page_->version_lock;
-    version_lock_t lock_value = v_lock.load() & FREE_BIT_MASK;
+    version_lock_t lock_value = v_lock.load(std::memory_order_acquire);
     // Compare and swap until we are the thread to set the lock bit
-    while (!v_lock.compare_exchange_weak(lock_value, lock_value | LOCK_BIT)) {
-        lock_value &= FREE_BIT_MASK;
+    lock_value &= UNLOCKED_BIT;
+    while (!v_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
+        lock_value &= UNLOCKED_BIT;
     }
 
     internal::VarSizeEntry entry{key.size(), value.size()};
@@ -1018,17 +1004,15 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
         is_new_item = old_offset.is_tombstone();
         size_delta_++;
     } else {
-        assert(!previous_offset->is_free);
         ATOMIC_STORE(&previous_offset->offset, var_offset.offset);
     }
 
     // Unlock the v_page
-    v_lock.store(lock_value & FREE_BIT_MASK, std::memory_order_release);
+    v_lock.store(ACTIVE_UNLOCK(lock_value), std::memory_order_release);
 
     // Need to free slot at old location for this key
     if (!is_new_item) {
-        const auto [block_number, page_number, slot_number] = old_offset.get_offsets();
-        free_occupied_slot(block_number, page_number, slot_number);
+        free_occupied_slot(old_offset, key);
     }
 
     info_sync();
@@ -1042,54 +1026,44 @@ bool Viper<K, V>::Client::put(const K& key, const V& value) {
 }
 
 template <typename K, typename V>
-bool Viper<K, V>::Client::get(const K& key, Accessor& accessor) {
+bool Viper<K, V>::Client::get(const K& key, V* value) {
     auto key_check_fn = [&](auto key, auto offset) {
         if constexpr (using_fp) { return this->viper_.check_key_equality(key, offset); }
         else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
     };
 
-    auto& ccehAccessor = accessor.map_accessor_;
-    const bool found = this->viper_.map_.Get(key, ccehAccessor, key_check_fn);
-    if (!found) {
-        return false;
+    while (true) {
+        KVOffset kv_offset = this->viper_.map_.Get(key, key_check_fn);
+        if (kv_offset.is_tombstone()) {
+            return false;
+        }
+        if (get_value_from_offset(kv_offset, value)) {
+            return true;
+        }
     }
-    const KVOffset kv_offset = *ccehAccessor;
-    if (kv_offset.is_tombstone()) {
-        return false;
-    }
-
-    accessor.value_ = get_value_from_offset(kv_offset);
-    return true;
 }
 
 template <typename K, typename V>
-bool Viper<K, V>::ReadOnlyClient::get(const K& key, Viper::Accessor& accessor) const {
+bool Viper<K, V>::ReadOnlyClient::get(const K& key, V* value) const {
     auto key_check_fn = [&](auto key, auto offset) {
         if constexpr (using_fp) { return this->viper_.check_key_equality(key, offset); }
         else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
     };
 
-    auto& ccehAccessor = accessor.map_accessor_;
-    const bool found = this->viper_.map_.Get(key, ccehAccessor, key_check_fn);
-    if (!found) {
-        return false;
+    while (true) {
+        KVOffset kv_offset = this->viper_.map_.Get(key, key_check_fn);
+        if (kv_offset.is_tombstone()) {
+            return false;
+        }
+        if (get_const_value_from_offset(kv_offset, value)) {
+            return true;
+        }
     }
-    const KVOffset kv_offset = *ccehAccessor;
-    if (kv_offset.is_tombstone()) {
-        return false;
-    }
-
-    if constexpr (std::is_same_v<K, std::string>) {
-        accessor.value_ = get_const_value_from_offset(kv_offset);
-    } else {
-        accessor.value_ = const_cast<typename ValueAccessor<V>::type>(get_const_value_from_offset(kv_offset));
-    }
-    return true;
 }
 
 template <typename K, typename V>
-bool Viper<K, V>::Client::get(const K& key, Accessor& accessor) const {
-    return static_cast<const Viper<K, V>::ReadOnlyClient*>(this)->get(key, accessor);
+bool Viper<K, V>::Client::get(const K& key, V* value) const {
+    return static_cast<const Viper<K, V>::ReadOnlyClient*>(this)->get(key, value);
 }
 
 template <typename K, typename V>
@@ -1104,19 +1078,26 @@ bool Viper<K, V>::Client::update(const K& key, UpdateFn update_fn) {
         else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
     };
 
-    typename Accessor::MapAccessor ccehAccessor;
-    const bool found = this->viper_.map_.Get(key, ccehAccessor, key_check_fn);
-    if (!found) {
-        return false;
-    }
-    const KVOffset kv_offset = *ccehAccessor;
-    if (kv_offset.is_tombstone()) {
-        return false;
-    }
+    while (true) {
+        const KVOffset kv_offset = this->viper_.map_.Get(key, key_check_fn);
+        if (kv_offset.is_tombstone()) {
+            return false;
+        }
 
-    V* value = get_value_from_offset(kv_offset);
-    update_fn(value);
-    return true;
+        const auto [block, page, slot] = kv_offset.get_offsets();
+        VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
+        std::atomic<version_lock_t> &page_lock = v_page.version_lock;
+        version_lock_t lock_value = page_lock.load(std::memory_order_acquire);
+        lock_value &= UNLOCKED_BIT;
+        if (!page_lock.compare_exchange_strong(lock_value, lock_value + 1)) {
+            // Could not lock page, so the record could be modified and we need to try again
+            continue;
+        }
+
+        update_fn(&(v_page.data[slot].second));
+        page_lock.store(PASSIVE_UNLOCK(lock_value), std::memory_order_release);
+        return true;
+    }
 }
 
 template <typename K, typename V>
@@ -1126,35 +1107,28 @@ bool Viper<K, V>::Client::remove(const K& key) {
         else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
     };
 
-    typename Accessor::MapAccessor ccehAccessor;
-    const bool found = this->viper_.map_.Get(key, ccehAccessor, key_check_fn);
-    if (!found) {
-        return false;
-    }
-    const KVOffset offset = *ccehAccessor;
-    if (offset.is_tombstone()) {
+    const KVOffset kv_offset = this->viper_.map_.Get(key, key_check_fn);
+    if (kv_offset.is_tombstone()) {
         return false;
     }
 
-    const auto [block_number, page_number, slot_number] = offset.get_offsets();
-    free_occupied_slot(block_number, page_number, slot_number);
-    this->viper_.map_.Remove(ccehAccessor.offset);
+    free_occupied_slot(kv_offset, key, true);
     num_reclaimable_ops_++;
     return true;
 }
 
 template <typename K, typename V>
-void Viper<K, V>::Client::free_occupied_slot(const block_size_t block_number,
-                                                 const page_size_t page_number,
-                                                 const data_offset_size_t data_offset) {
+void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset, const K& key, const bool delete_offset) {
+    const auto [block_number, page_number, data_offset] = offset.get_offsets();
     while (this->viper_.is_v_blocks_resizing_.load(std::memory_order_acquire)) {
         // Wait for vector's memmove to complete. Otherwise we might encounter a segfault.
     }
     VPage& v_page = this->viper_.v_blocks_[block_number]->v_pages[page_number];
     std::atomic<version_lock_t>& v_lock = v_page.version_lock;
-    version_lock_t lock_value = v_lock.load(std::memory_order_acquire) & FREE_BIT_MASK;
-    while (!v_lock.compare_exchange_weak(lock_value, lock_value | LOCK_BIT)) {
-        lock_value &= FREE_BIT_MASK;
+    version_lock_t lock_value = v_lock.load(std::memory_order_acquire);
+    lock_value &= UNLOCKED_BIT;
+    while (!v_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
+        lock_value &= UNLOCKED_BIT;
     }
 
     // We have the lock now. Free slot or data.
@@ -1172,7 +1146,15 @@ void Viper<K, V>::Client::free_occupied_slot(const block_size_t block_number,
         pmem_persist(free_slots, sizeof(*free_slots));
     }
 
-    v_lock.store(lock_value & FREE_BIT_MASK, std::memory_order_release);
+    if (delete_offset) {
+        auto key_check_fn = [&](auto key, auto offset) {
+            if constexpr (using_fp) { return this->viper_.check_key_equality(key, offset); }
+            else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
+        };
+        this->viper_.map_.Insert(key, IndexV::NONE(), key_check_fn);
+    }
+
+    v_lock.store(PASSIVE_UNLOCK(lock_value), std::memory_order_release);
 
     --size_delta_;
 }
@@ -1248,12 +1230,13 @@ template <typename K, typename V>
 Viper<K, V>::Client::~Client() {
     this->viper_.remove_client(this);
     if (v_block_ != nullptr) {
-        v_block_->v_pages[0].version_lock &= ~CLIENT_BIT;
+        v_block_->v_pages[0].version_lock &= NO_CLIENT_BIT;
     }
 }
 
 template <typename K, typename V>
-const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>::checker_type> Viper<K, V>::ReadOnlyClient::get_const_entry_from_offset(Viper::KVOffset offset) const {
+inline const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>::checker_type>
+Viper<K, V>::ReadOnlyClient::get_const_entry_from_offset(Viper::KVOffset offset) const {
     if constexpr (std::is_same_v<K, std::string>) {
         const auto[block, page, data_offset] = offset.get_offsets();
         const VPageBlock* v_block = this->viper_.v_blocks_[block];
@@ -1274,29 +1257,57 @@ const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>
 }
 
 template <typename K, typename V>
-const typename ValueAccessor<V>::const_type Viper<K, V>::ReadOnlyClient::get_const_value_from_offset(Viper::KVOffset offset) const {
-    return this->get_const_entry_from_offset(offset).second;
+inline bool Viper<K, V>::ReadOnlyClient::get_const_value_from_offset(KVOffset offset, V* value) const {
+    const auto [block, page, slot] = offset.get_offsets();
+    const VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
+    const std::atomic<version_lock_t>& page_lock = v_page.version_lock;
+    version_lock_t lock_val = page_lock.load(std::memory_order_acquire);
+    if (IS_LOCKED(lock_val)) {
+        return false;
+    }
+    const auto entry = this->get_const_entry_from_offset(offset);
+    if constexpr (std::is_same_v<K, std::string>) {
+        const std::string_view& str_val = entry.second;
+        value->assign(str_val.data(), str_val.size());
+    } else {
+        *value = *(entry.second);
+    }
+    return lock_val == page_lock.load(std::memory_order_acquire);
 }
 
 template <typename K, typename V>
-typename ValueAccessor<V>::type Viper<K, V>::Client::get_value_from_offset(Viper::KVOffset offset) {
+inline bool Viper<K, V>::Client::get_value_from_offset(const KVOffset offset, V* value) {
     const auto [block, page, slot] = offset.get_offsets();
-    return &(this->viper_.v_blocks_[block]->v_pages[page].data[slot].second);
+    const VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
+    const std::atomic<version_lock_t>& page_lock = v_page.version_lock;
+    version_lock_t lock_val = page_lock.load(std::memory_order_acquire);
+    if (IS_LOCKED(lock_val)) {
+        return false;
+    }
+    *value = v_page.data[slot].second;
+    return lock_val == page_lock.load(std::memory_order_acquire);
 }
 
 template <>
-std::string_view Viper<std::string, std::string>::Client::get_value_from_offset(Viper::KVOffset offset) {
+inline bool Viper<std::string, std::string>::Client::get_value_from_offset(const KVOffset offset, std::string* value) {
     const auto [block, page, data_offset] = offset.get_offsets();
     const VPageBlock* v_block = this->viper_.v_blocks_[block];
     const VPage& v_page = v_block->v_pages[page];
-    const char* raw_data = &v_page.data[data_offset];
+    const std::atomic<version_lock_t>& page_lock = v_page.version_lock;
+    version_lock_t lock_val = page_lock.load(std::memory_order_acquire);
+    if (IS_LOCKED(lock_val)) {
+        return false;
+    }
+
+    const char *raw_data = &v_page.data[data_offset];
     internal::VarEntryAccessor var_entry{raw_data};
     if (var_entry.value_size == 0) {
         // Value is on next page
-        const char* raw_value_data = &v_block->v_pages[page + 1].data[0];
+        const char *raw_value_data = &v_block->v_pages[page + 1].data[0];
         var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
     }
-    return var_entry.value();
+    value->assign(var_entry.value_data, var_entry.value_size);
+    return lock_val == page_lock.load(std::memory_order_acquire);
 }
 
 template <typename K, typename V>
@@ -1357,13 +1368,11 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
         // Insert record into new block
         if (var_entry.is_set) {
             const std::string key{var_entry.key()};
-            cceh::CcehAccessor accessor{};
-            const bool found = map_.Get(key, accessor, key_check_fn);
-            if (found) {
-                client.put(key, std::string{var_entry.value()}, accessor.offset);
+            IndexV offset = map_.Get(key, key_check_fn);
+            if (!offset.is_tombstone()) {
+                client.put(key, std::string{var_entry.value()}, &offset);
                 var_entry.is_set = false;
                 pmem_persist(&var_entry.is_set, sizeof(var_entry.is_set));
-                accessor.has_lock = false;
             }
 
         }
@@ -1374,7 +1383,7 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
 template <typename K, typename V>
 void Viper<K, V>::reclaim() {
     const size_t num_slots_per_block = num_pages_per_block * VPage::num_slots_per_page;
-    const block_size_t max_block = KVOffset{current_block_page_.load()}.block_number;
+    const block_size_t max_block = KVOffset{current_block_page_.load(std::memory_order_acquire)}.block_number;
 
     // At least X percent of the block should be free before reclaiming it.
     const size_t free_threshold = v_config_.reclaim_free_percentage * num_slots_per_block;
@@ -1406,7 +1415,7 @@ void Viper<K, V>::reclaim() {
 
 template <>
 void Viper<std::string, std::string>::reclaim() {
-    const block_size_t max_block = KVOffset{current_block_page_.load()}.block_number;
+    const block_size_t max_block = KVOffset{current_block_page_.load(std::memory_order_acquire)}.block_number;
     const double modified_threshold = v_config_.reclaim_free_percentage;
     size_t total_freed_blocks = 0;
     Client client = get_client();

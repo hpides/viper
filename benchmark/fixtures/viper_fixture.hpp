@@ -120,10 +120,10 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t
     uint64_t found_counter = 0;
     for (uint64_t i = 0; i < num_finds; ++i) {
         const uint64_t key = distrib(rnd_engine);
-        typename ViperT::Accessor result;
         const KeyT db_key{key};
-        const bool found = v_client.get(db_key, result);
-        found_counter += found && (*result == ValueT{key});
+        ValueT value;
+        const bool found = v_client.get(db_key, &value);
+        found_counter += found && (value == ValueT{key});
     }
     return found_counter;
 }
@@ -141,11 +141,11 @@ uint64_t ViperFixture<std::string, std::string>::setup_and_find(uint64_t start_i
     uint64_t found_counter = 0;
     for (uint64_t i = 0; i < num_finds; ++i) {
         const uint64_t key = distrib(rnd_engine);
-        typename ViperT::Accessor result;
+        std::string result;
         const std::string& db_key = keys[key];
         const std::string& value = values[key];
-        const bool found = v_client.get(db_key, result);
-        found_counter += found && (*result == value);
+        const bool found = v_client.get(db_key, &result);
+        found_counter += found && (result == value);
     }
     return found_counter;
 }
@@ -223,11 +223,7 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_get_update(uint64_t start_idx, ui
         const uint64_t key = distrib(rnd_engine);
         const KeyT db_key{key};
         ValueT new_v{};
-        {
-            typename ViperT::ConstAccessor result;
-            v_client.get(db_key, result);
-            new_v = *result;
-        }
+        v_client.get(db_key, &new_v);
         new_v.update_value();
         update_counter += !v_client.put(db_key, new_v);
     }
@@ -263,9 +259,9 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
                 break;
             }
             case ycsb::Record::Op::GET: {
-                typename ViperT::Accessor result;
-                const bool found = v_client.get(record.key, result);
-                op_count += found && (*result != null_value);
+                ValueType200 value;
+                const bool found = v_client.get(record.key, &value);
+                op_count += found && (value != null_value);
                 break;
             }
             case ycsb::Record::Op::UPDATE: {
