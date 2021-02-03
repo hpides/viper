@@ -100,7 +100,7 @@ class BasePmemFixture : public BaseFixture {
         {
             std::scoped_lock lock(pool_mutex_);
             if (pool_file_.empty()) {
-                pool_file_ = random_file(DB_NVM_DIR);
+                pool_file_ = random_file(DB_PMEM_DIR);
                 // std::cout << "Working on NVM file " << pool_file_ << std::endl;
                 pmem_pool_ = pmem::obj::pool<RootType>::create(pool_file_, "", BM_POOL_SIZE, S_IRWXU);
             }

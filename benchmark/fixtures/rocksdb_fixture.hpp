@@ -197,7 +197,7 @@ std::string DiskRocksDbFixture<KeyT, ValueT>::get_base_dir() {
 
 template <typename KeyT, typename ValueT>
 std::string PmemRocksDbFixture<KeyT, ValueT>::get_base_dir() {
-    return DB_NVM_DIR + std::string("/rocks");
+    return DB_PMEM_DIR + std::string("/rocks");
 }
 
 }  // namespace kv_bm

@@ -45,11 +45,14 @@ static constexpr version_lock_t UNLOCKED_BIT  = 0b11111110;
 #define PASSIVE_UNLOCK(lock_val) (((lock_val) + 2) | (lock_val & CLIENT_BIT))
 #define ACTIVE_UNLOCK(lock_val)  (((lock_val) + 2) | CLIENT_BIT)
 #define IS_LOCKED(lock)          ((lock) & 1)
-#define REMOVE_CLIENT_BIT(lock)  (lock )
+
+#define IO_ERROR(msg) throw std::runtime_error(std::string(msg) + " | " + std::strerror(errno))
+#define MMAP_CHECK(addr) if ((addr) == nullptr || (addr) == MAP_FAILED) { IO_ERROR("Cannot mmap"); }
 
 static constexpr auto VIPER_MAP_PROT = PROT_WRITE | PROT_READ | PROT_EXEC;
 static constexpr auto VIPER_MAP_FLAGS = MAP_SHARED_VALIDATE | MAP_SYNC;
 static constexpr auto DRAM_MMAP = MAP_ANONYMOUS | MAP_PRIVATE;
+static constexpr auto VIPER_FILE_OPEN_FLAGS = O_CREAT | O_RDWR | O_DIRECT;
 
 struct ViperConfig {
     double resize_threshold = 0.85;
@@ -57,8 +60,7 @@ struct ViperConfig {
     size_t reclaim_threshold = 1'000'000;
     uint8_t num_recovery_threads = 64;
     size_t dax_alignment = ONE_GB;
-    bool force_dimm_based = false;
-    bool force_block_based = false;
+    size_t fs_alignment = ONE_GB;
     bool enable_reclamation = false;
 };
 
@@ -211,8 +213,15 @@ struct ViperFileMapping {
 struct ViperBase {
     const int file_descriptor;
     const bool is_new_db;
+    const bool is_file_based;
     ViperFileMetadata* const v_metadata;
     std::vector<ViperFileMapping> v_mappings;
+};
+
+struct ViperInitData {
+    int fd;
+    ViperFileMetadata* meta;
+    std::vector<ViperFileMapping> mappings;
 };
 
 template <typename KeyT>
@@ -265,8 +274,7 @@ class Viper {
     static std::unique_ptr<Viper<K, V>> create(const std::string& pool_file, uint64_t initial_pool_size,
                                                             ViperConfig v_config = ViperConfig{});
     static std::unique_ptr<Viper<K, V>> open(const std::string& pool_file, ViperConfig v_config = ViperConfig{});
-    static std::unique_ptr<Viper<K, V>> open(ViperBase v_base, ViperConfig v_config = ViperConfig{});
-    Viper(ViperBase v_base, bool owns_pool, ViperConfig v_config);
+    Viper(ViperBase v_base, std::filesystem::path pool_dir, bool owns_pool, ViperConfig v_config);
     ~Viper();
 
     void reclaim();
@@ -336,7 +344,6 @@ class Viper {
                                bool is_new_pool, ViperConfig v_config);
 
     void get_new_access_information(Client* client);
-    void get_dimm_based_access(Client* client);
     void get_block_based_access(Client* client);
     void get_new_var_size_access_information(Client* client);
     KVOffset get_new_block();
@@ -354,6 +361,7 @@ class Viper {
     ViperBase v_base_;
     const bool owns_pool_;
     ViperConfig v_config_;
+    std::filesystem::path pool_dir_;
 
     cceh::CCEH<K> map_;
     static constexpr bool using_fp = requires_fingerprint(K);
@@ -381,22 +389,19 @@ class Viper {
 template <typename K, typename V>
 std::unique_ptr<Viper<K, V>> Viper<K, V>::create(const std::string& pool_file, uint64_t initial_pool_size,
                                                          ViperConfig v_config) {
-    return std::make_unique<Viper<K, V>>(init_pool(pool_file, initial_pool_size, true, v_config), true, v_config);
+    return std::make_unique<Viper<K, V>>(
+            init_pool(pool_file, initial_pool_size, true, v_config), pool_file, true, v_config);
 }
 
 template <typename K, typename V>
 std::unique_ptr<Viper<K, V>> Viper<K, V>::open(const std::string& pool_file, ViperConfig v_config) {
-    return std::make_unique<Viper<K, V>>(init_pool(pool_file, 0, false, v_config), true, v_config);
+    return std::make_unique<Viper<K, V>>(
+            init_pool(pool_file, 0, false, v_config), pool_file, true, v_config);
 }
 
 template <typename K, typename V>
-std::unique_ptr<Viper<K, V>> Viper<K, V>::open(ViperBase v_base, ViperConfig v_config) {
-    return std::make_unique<Viper<K, V>>(v_base, false, v_config);
-}
-
-template <typename K, typename V>
-Viper<K, V>::Viper(ViperBase v_base, const bool owns_pool, const ViperConfig v_config) :
-    v_base_{v_base}, map_{131072}, owns_pool_{owns_pool}, v_config_{v_config},
+Viper<K, V>::Viper(ViperBase v_base, const std::filesystem::path pool_dir, const bool owns_pool, const ViperConfig v_config) :
+    v_base_{v_base}, map_{131072}, owns_pool_{owns_pool}, v_config_{v_config}, pool_dir_{pool_dir},
     resize_threshold_{v_config.resize_threshold}, reclaim_threshold_{v_config.reclaim_threshold},
     num_recovery_threads_{v_config.num_recovery_threads} {
     current_block_page_ = 0;
@@ -405,10 +410,6 @@ Viper<K, V>::Viper(ViperBase v_base, const bool owns_pool, const ViperConfig v_c
     is_resizing_ = false;
     is_reclaiming_ = false;
     num_active_clients_ = 0;
-
-    if (v_config_.force_block_based && v_config_.force_dimm_based) {
-        throw std::runtime_error("Cannot force both block- and dimm-based.");
-    }
 
     std::srand(std::time(nullptr));
 
@@ -433,35 +434,65 @@ Viper<K, V>::~Viper() {
     if (owns_pool_) {
         DEBUG_LOG("Closing pool file.");
         munmap(v_base_.v_metadata, v_base_.v_metadata->block_offset);
-        for (const ViperFileMapping mapping : v_base_.v_mappings) {
+        for (const ViperFileMapping& mapping : v_base_.v_mappings) {
             munmap(mapping.start_addr, mapping.mapped_size);
         }
         close(v_base_.file_descriptor);
     }
 }
 
-template <typename K, typename V>
-ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_size,
-                                     bool is_new_pool, ViperConfig v_config) {
-#ifdef VIPER_DRAM
+ViperInitData init_dram_pool(uint64_t pool_size, ViperConfig v_config, const size_t block_size) {
     std::cout << "Running Viper completely in DRAM." << std::endl;
-    if (!is_new_pool) {
-      throw std::runtime_error("Cannot use existing Viper instance in DRAM-mode");
+    const size_t alloc_size = v_config.fs_alignment;
+    const size_t num_alloc_chunks = pool_size / alloc_size;
+    if (num_alloc_chunks == 0) {
+        throw std::runtime_error("Pool too small: " + std::to_string(pool_size));
     }
-#endif
 
-    DEBUG_LOG((is_new_pool ? "Creating" : "Opening") << " pool file " << pool_file);
+    void* pmem_addr = mmap(nullptr, pool_size, PROT_READ | PROT_WRITE, DRAM_MMAP, -1, 0);
+    MMAP_CHECK(pmem_addr)
 
+    ViperFileMetadata* metadata = static_cast<ViperFileMetadata*>(pmem_addr);
+    char* map_start_addr = (char*) pmem_addr;
+
+    // Each alloc chunk gets its own mapping.
+    std::vector<ViperFileMapping> mappings;
+    mappings.reserve(num_alloc_chunks);
+
+    // First chunk is special because of the initial metadata chunk
+    ViperFileMapping initial_mapping{ .mapped_size = alloc_size - metadata->block_offset,
+                                      .start_addr = map_start_addr + metadata->block_offset };
+    mappings.push_back(initial_mapping);
+    block_size_t num_allocated_blocks = initial_mapping.mapped_size / block_size;
+
+    // Remaining chunks are all the same
+    for (size_t alloc_chunk = 1; alloc_chunk < num_alloc_chunks; ++alloc_chunk) {
+        char* alloc_chunk_start = map_start_addr + (alloc_chunk * alloc_size);
+        ViperFileMapping mapping{.mapped_size = alloc_size, .start_addr = alloc_chunk_start};
+        mappings.push_back(mapping);
+    }
+    num_allocated_blocks += (num_alloc_chunks - 1) * (alloc_size / block_size);
+
+    // Update num allocated blocks with correct counting of allocation chunks.
+    metadata->num_allocated_blocks = num_allocated_blocks;
+    pmem_persist(metadata, sizeof(ViperFileMetadata));
+    return ViperInitData{ .fd = -1, .meta = metadata, .mappings = std::move(mappings) };
+
+}
+
+ViperInitData init_devdax_pool(const std::string& pool_file, uint64_t pool_size,
+                               bool is_new_pool, ViperConfig v_config, const size_t block_size) {
     const int fd = ::open(pool_file.c_str(), O_RDWR);
     if (fd < 0) {
-        throw std::runtime_error("Cannot open dax device: " + pool_file + " | " + std::strerror(errno));
+        IO_ERROR("Cannot open dax device: " + pool_file);
     }
 
     size_t alloc_size = v_config.dax_alignment;
     if (!is_new_pool) {
-        void* metadata_addr = mmap(nullptr, alloc_size, PROT_READ, MAP_SHARED, fd, 0);
+        const size_t meta_map_size = alloc_size;
+        void* metadata_addr = mmap(nullptr, meta_map_size, PROT_READ, MAP_SHARED, fd, 0);
         if (metadata_addr == nullptr) {
-            throw std::runtime_error("Cannot mmap pool file: " + pool_file + " | " + std::strerror(errno));
+            IO_ERROR("Cannot mmap pool file: " + pool_file);
         }
         const ViperFileMetadata* metadata = static_cast<ViperFileMetadata*>(metadata_addr);
         if (metadata->num_allocated_blocks > 0 && metadata->block_size > 0) {
@@ -471,7 +502,7 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
             DEBUG_LOG("Opening empty database. Creating new one instead.");
             is_new_pool = true;
         }
-        munmap(metadata_addr, PAGE_SIZE);
+        munmap(metadata_addr, meta_map_size);
     }
 
     if (pool_size % alloc_size != 0) {
@@ -483,70 +514,171 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
         throw std::runtime_error("Pool too small: " + std::to_string(pool_size));
     }
 
-#ifdef VIPER_DRAM
-    void* pmem_addr = mmap(nullptr, pool_size, PROT_READ | PROT_WRITE, DRAM_MMAP, -1, 0);
-#else
     void* pmem_addr = mmap(nullptr, pool_size, VIPER_MAP_PROT, VIPER_MAP_FLAGS, fd, 0);
-#endif
-
-    if (pmem_addr == nullptr || pmem_addr == MAP_FAILED) {
-        throw std::runtime_error("Cannot mmap pool file: " + pool_file + " | " + std::strerror(errno));
-    }
+    MMAP_CHECK(pmem_addr)
 
     if (is_new_pool) {
-        ViperFileMetadata v_metadata{ .block_offset = PAGE_SIZE, .block_size = sizeof(VPageBlock),
+        ViperFileMetadata v_metadata{ .block_offset = PAGE_SIZE, .block_size = block_size,
                                       .alloc_size = alloc_size, .num_used_blocks = 0,
                                       .num_allocated_blocks = 0, .total_mapped_size = pool_size};
         pmem_memcpy_persist(pmem_addr, &v_metadata, sizeof(v_metadata));
     }
-
     ViperFileMetadata* metadata = static_cast<ViperFileMetadata*>(pmem_addr);
-    char* map_start_addr = static_cast<char*>(pmem_addr);
+    char* map_start_addr = (char*) pmem_addr;
 
     // Each alloc chunk gets its own mapping.
     std::vector<ViperFileMapping> mappings;
     mappings.reserve(num_alloc_chunks);
 
-    block_size_t num_allocated_blocks = 0;
-
     // First chunk is special because of the initial metadata chunk
     ViperFileMapping initial_mapping{ .mapped_size = alloc_size - metadata->block_offset,
                                       .start_addr = map_start_addr + metadata->block_offset };
     mappings.push_back(initial_mapping);
-    num_allocated_blocks += initial_mapping.mapped_size / sizeof(VPageBlock);
+    block_size_t num_allocated_blocks = initial_mapping.mapped_size / block_size;
 
     // Remaining chunks are all the same
     for (size_t alloc_chunk = 1; alloc_chunk < num_alloc_chunks; ++alloc_chunk) {
         char* alloc_chunk_start = map_start_addr + (alloc_chunk * alloc_size);
-        ViperFileMapping mapping{ .mapped_size = alloc_size, .start_addr = alloc_chunk_start};
+        ViperFileMapping mapping{.mapped_size = alloc_size, .start_addr = alloc_chunk_start};
         mappings.push_back(mapping);
-        num_allocated_blocks += alloc_size / sizeof(VPageBlock);
     }
+    num_allocated_blocks += (num_alloc_chunks - 1) * (alloc_size / block_size);
 
     // Update num allocated blocks with correct counting of allocation chunks.
     metadata->num_allocated_blocks = num_allocated_blocks;
-    DEBUG_LOG((is_new_pool ? "Allocated " : "Recovered ") << num_allocated_blocks << " blocks in "
-                << num_alloc_chunks << " GiB.");
+    pmem_persist(metadata, sizeof(ViperFileMetadata));
+    return ViperInitData{ .fd = fd, .meta = metadata, .mappings = std::move(mappings) };
+}
 
-    return ViperBase{ .file_descriptor = fd, .is_new_db = is_new_pool,
-                      .v_metadata = metadata, .v_mappings = std::move(mappings) };
+ViperInitData init_file_pool(const std::string& pool_dir, uint64_t pool_size,
+                             bool is_new_pool, ViperConfig v_config, const size_t block_size) {
+    std::filesystem::create_directory(pool_dir);
+    const std::filesystem::path meta_file = pool_dir + "/meta";
+    ViperFileMetadata* metadata;
+    const int meta_fd = ::open(meta_file.c_str(), VIPER_FILE_OPEN_FLAGS, 0644);
+    if (meta_fd < 0) {
+        IO_ERROR("Cannot open meta file: " + meta_file.string());
+    }
+
+    size_t alloc_size = v_config.fs_alignment;
+    if (is_new_pool) {
+        if (ftruncate(meta_fd, PAGE_SIZE) != 0) {
+            IO_ERROR("Could not truncate: " + meta_file.string());
+        }
+    } else {
+        const size_t meta_map_size = alloc_size;
+        void *metadata_addr = mmap(nullptr, PAGE_SIZE, PROT_READ, MAP_SHARED, meta_fd, 0);
+        MMAP_CHECK(metadata_addr)
+
+        metadata = static_cast<ViperFileMetadata *>(metadata_addr);
+        if (metadata->num_allocated_blocks > 0 && metadata->block_size > 0) {
+            pool_size = metadata->total_mapped_size;
+            alloc_size = metadata->alloc_size;
+        } else {
+            throw std::runtime_error("Bas existing database");
+        }
+    }
+
+    if (pool_size % alloc_size != 0) {
+        throw std::runtime_error("Pool needs to be allocated in 2 MB chunks.");
+    }
+
+    const size_t num_alloc_chunks = pool_size / alloc_size;
+    if (num_alloc_chunks == 0) {
+        throw std::runtime_error("Pool too small: " + std::to_string(pool_size));
+    }
+
+    // Each alloc chunk gets its own mapping.
+    std::vector<ViperFileMapping> mappings;
+    mappings.reserve(num_alloc_chunks);
+
+    for (size_t chunk_num; chunk_num < num_alloc_chunks; ++chunk_num) {
+        std::filesystem::path data_file = pool_dir + "/data" + std::to_string(chunk_num);
+        const int data_fd = ::open(data_file.c_str(), VIPER_FILE_OPEN_FLAGS, 0644);
+        if (data_fd < 0) {
+            IO_ERROR("Cannot open meta file: " + data_file.string());
+        }
+        if (is_new_pool) {
+            if (fallocate(data_fd, 0, 0, alloc_size) != 0) {
+                IO_ERROR("Could not allocate: " + data_file.string());
+            }
+        }
+
+        void* pmem_addr = mmap(nullptr, alloc_size, VIPER_MAP_PROT, VIPER_MAP_FLAGS, data_fd, 0);
+        MMAP_CHECK(pmem_addr)
+        ViperFileMapping mapping{.mapped_size = alloc_size, .start_addr = (char*) pmem_addr};
+        mappings.push_back(mapping);
+        ::close(data_fd);
+    }
+
+    const size_t num_allocated_blocks = num_alloc_chunks * (alloc_size / block_size);
+
+    if (is_new_pool) {
+        void* metadata_addr = mmap(nullptr, alloc_size, VIPER_MAP_PROT, VIPER_MAP_FLAGS, meta_fd, 0);
+        MMAP_CHECK(metadata_addr)
+        ViperFileMetadata v_metadata{ .block_offset = PAGE_SIZE, .block_size = block_size,
+                .alloc_size = alloc_size, .num_used_blocks = 0,
+                .num_allocated_blocks = num_allocated_blocks, .total_mapped_size = pool_size};
+        pmem_memcpy_persist(metadata_addr, &v_metadata, sizeof(v_metadata));
+        metadata = static_cast<ViperFileMetadata*>(metadata_addr);
+    }
+    ::close(meta_fd);
+    return ViperInitData{ .fd = -1, .meta = metadata, .mappings = std::move(mappings) };
+}
+
+template <typename K, typename V>
+ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_size,
+                                 bool is_new_pool, ViperConfig v_config) {
+    constexpr size_t block_size = sizeof(VPageBlock);
+    ViperInitData init_data;
+#ifdef VIPER_DRAM
+    const bool is_file_based = false;
+    init_data = init_dram_pool(pool_size, v_config, block_size);
+#else
+    DEBUG_LOG((is_new_pool ? "Creating" : "Opening") << " pool file " << pool_file);
+    const bool is_file_based = pool_file.find("/dev/dax") == std::string::npos;
+    if (is_file_based) {
+        init_data = init_file_pool(pool_file, pool_size, is_new_pool, v_config, block_size);
+    } else {
+        init_data = init_devdax_pool(pool_file, pool_size, is_new_pool, v_config, block_size);
+    }
+#endif
+
+    return ViperBase{ .file_descriptor = init_data.fd, .is_new_db = is_new_pool,
+                      .is_file_based = is_file_based, .v_metadata = init_data.meta,
+                      .v_mappings = std::move(init_data.mappings) };
 }
 
 template <typename K, typename V>
 ViperFileMapping Viper<K, V>::allocate_v_page_blocks() {
-    const size_t offset = v_base_.v_metadata->total_mapped_size;
-    const int fd = v_base_.file_descriptor;
     const size_t alloc_size = v_base_.v_metadata->alloc_size;
+//    const auto start = std::chrono::high_resolution_clock::now();
 
+    void* pmem_addr;
 #ifdef VIPER_DRAM
-    void* pmem_addr = mmap(nullptr, alloc_size, PROT_READ | PROT_WRITE, DRAM_MMAP, -1, 0);
+    pmem_addr = mmap(nullptr, alloc_size, PROT_READ | PROT_WRITE, DRAM_MMAP, -1, 0);
 #else
-    void* pmem_addr = mmap(nullptr, alloc_size, VIPER_MAP_PROT, VIPER_MAP_FLAGS, fd, offset);
+    if (v_base_.is_file_based) {
+        size_t next_file_id = v_base_.v_metadata->total_mapped_size / alloc_size;
+        std::filesystem::path data_file = pool_dir_ / ("data" + std::to_string(next_file_id));
+        std::cout << "Added file " << data_file << '\n';
+        const int data_fd = ::open(data_file.c_str(), VIPER_FILE_OPEN_FLAGS, 0644);
+        if (data_fd < 0) {
+            IO_ERROR("Cannot open meta file: " + data_file.string());
+        }
+        if (fallocate(data_fd, 0, 0, alloc_size) != 0) {
+            IO_ERROR("Could not allocate: " + data_file.string());
+        }
+        pmem_addr = mmap(nullptr, alloc_size, VIPER_MAP_PROT, VIPER_MAP_FLAGS, data_fd, 0);
+        ::close(data_fd);
+    } else {
+        const size_t offset = v_base_.v_metadata->total_mapped_size;
+        const int fd = v_base_.file_descriptor;
+        pmem_addr = mmap(nullptr, alloc_size, VIPER_MAP_PROT, VIPER_MAP_FLAGS, fd, offset);
+    }
 #endif
 
-    if (pmem_addr == nullptr || pmem_addr == MAP_FAILED) {
-        throw std::runtime_error(std::string("Cannot mmap extra memory: ") + std::strerror(errno));
-    }
+    MMAP_CHECK(pmem_addr)
     const block_size_t num_blocks_to_map = alloc_size / sizeof(VPageBlock);
     v_base_.v_metadata->num_allocated_blocks += num_blocks_to_map;
     v_base_.v_metadata->total_mapped_size += alloc_size;
@@ -555,6 +687,10 @@ ViperFileMapping Viper<K, V>::allocate_v_page_blocks() {
 
     ViperFileMapping mapping{alloc_size, pmem_addr};
     v_base_.v_mappings.push_back(mapping);
+
+//    const auto end = std::chrono::high_resolution_clock::now();
+//    std::cout << "Allocating took " << ((end - start).count() / 1e6) << " ms\n";
+
     return mapping;
 }
 
@@ -566,10 +702,13 @@ void Viper<K, V>::add_v_page_blocks(ViperFileMapping mapping) {
     is_v_blocks_resizing_.store(true, std::memory_order_release);
     v_blocks_.reserve(v_blocks_.size() + num_blocks_to_map);
     is_v_blocks_resizing_.store(false, std::memory_order_release);
+//    auto start = std::chrono::high_resolution_clock::now();
     for (block_size_t block_offset = 0; block_offset < num_blocks_to_map; ++block_offset) {
         v_blocks_.push_back(start_block + block_offset);
     }
     num_v_blocks_.store(v_blocks_.size(), std::memory_order_release);
+//    auto end = std::chrono::high_resolution_clock::now();
+//    std::cout << "Adding took " << ((end - start).count() / 1e6) << " ms\n";
 }
 
 template <typename K, typename V>
@@ -647,11 +786,6 @@ void Viper<K, V>::get_new_access_information(Client* client) {
     }
 
     get_block_based_access(client);
-//    if (v_config_.force_dimm_based) {
-//        get_dimm_based_access(client);
-//    } else {
-//        get_block_based_access(client);
-//    }
 }
 
 template <typename K, typename V>
@@ -701,40 +835,6 @@ void Viper<K, V>::get_block_based_access(Client* client) {
 }
 
 template <typename K, typename V>
-void Viper<K, V>::get_dimm_based_access(Client* client) {
-    const block_size_t block_stride = 6;
-
-    offset_size_t raw_block_page = current_block_page_.load(std::memory_order_acquire);
-    KVOffset new_offset{};
-    block_size_t client_block;
-    page_size_t client_page;
-    do {
-        const KVOffset v_block_page = KVOffset{raw_block_page};
-        client_block = v_block_page.block_number;
-        client_page = v_block_page.page_number;
-
-        block_size_t new_block = client_block;
-        page_size_t new_page = client_page + 1;
-        if (new_page == num_pages_per_block) {
-            new_block++;
-            new_page = 0;
-        }
-        new_offset = KVOffset{new_block, new_page, 0};
-    } while (!current_block_page_.compare_exchange_weak(raw_block_page, new_offset.offset));
-
-    client->strategy_ = Client::PageStrategy::DimmBased;
-    client->v_block_number_ = client_block;
-    client->end_v_block_number_ = client_block + block_stride - 1;
-    client->v_page_number_ = client_page;
-
-    while (is_v_blocks_resizing_.load(std::memory_order_acquire)) {
-        // Wait for vector's memmove to complete. Otherwise we might encounter a segfault.
-    }
-    client->v_block_ = v_blocks_[client_block];
-    client->v_page_ = &(client->v_block_->v_pages[client_page]);
-}
-
-template <typename K, typename V>
 KeyValueOffset Viper<K, V>::get_new_block() {
     offset_size_t raw_block_page = current_block_page_.load(std::memory_order_acquire);
     KVOffset new_offset{};
@@ -772,6 +872,7 @@ void Viper<K, V>::trigger_resize() {
     // Only one thread can ever get here because for all others the atomic exchange above fails.
     resize_thread_ = std::make_unique<std::thread>([this] {
         DEBUG_LOG("Start resizing.");
+        // Used for benchmarks. remove.
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
         CPU_SET(71, &cpuset);

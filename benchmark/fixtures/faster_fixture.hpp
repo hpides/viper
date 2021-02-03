@@ -854,12 +854,12 @@ std::string DiskHybridFasterFixture<KeyT, ValueT>::get_base_dir() {
 
 template <typename KeyT, typename ValueT>
 std::string PmemHybridFasterFixture<KeyT, ValueT>::get_base_dir() {
-    return DB_NVM_DIR + std::string{"/faster"};
+    return DB_PMEM_DIR + std::string{"/faster"};
 }
 
 template <typename KeyT, typename ValueT>
 std::string NvmFasterFixture<KeyT, ValueT>::get_base_dir() {
-    return DB_NVM_DIR + std::string{"/faster"};
+    return DB_PMEM_DIR + std::string{"/faster"};
 }
 
 template <typename KeyT, typename ValueT>

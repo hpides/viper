@@ -71,8 +71,9 @@ inline void bm_get_update(benchmark::State& state, ViperFixture<KT, VT>& fixture
     const uint64_t start_idx = 0;
     const uint64_t end_idx = num_total_prefill - state.threads;
 
+    size_t update_counter = 0;
     for (auto _ : state) {
-        fixture.setup_and_get_update(start_idx, end_idx, num_updates_per_thread);
+        update_counter = fixture.setup_and_get_update(start_idx, end_idx, num_updates_per_thread);
     }
 
     state.SetItemsProcessed(num_updates_per_thread);
@@ -80,13 +81,15 @@ inline void bm_get_update(benchmark::State& state, ViperFixture<KT, VT>& fixture
     if (is_init_thread(state)) {
         fixture.DeInitMap();
     }
+
+    BaseFixture::log_find_count(state, update_counter, num_updates_per_thread);
 }
 
 DEFINE_BM(ViperFixture);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
-    const std::string arg = get_output_file("update/update");
-    return bm_main({exec_name, arg});
-//    return bm_main({exec_name});
+//    const std::string arg = get_output_file("update/update");
+//    return bm_main({exec_name, arg});
+    return bm_main({exec_name});
 }

@@ -58,7 +58,7 @@ void DashFixture<KeyT, ValueT>::InitMap(const uint64_t num_prefill_inserts, cons
         return;
     }
 
-    pmem_pool_name_ = random_file(DB_NVM_DIR);
+    pmem_pool_name_ = random_file(DB_PMEM_DIR);
     int sds_write_value = 0;
     pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
     pmem_pool_ = pmem::obj::pool<DashPool>::create(pmem_pool_name_, "", 80ul * ONE_GB, S_IRWXU);
@@ -72,7 +72,7 @@ void DashFixture<KeyT, ValueT>::InitMap(const uint64_t num_prefill_inserts, cons
     });
 
     size_t segment_number = 64;
-    dash_pool_name_ = random_file(DB_NVM_DIR);
+    dash_pool_name_ = random_file(DB_PMEM_DIR);
     Allocator::Initialize(dash_pool_name_.c_str(), ONE_GB * 10);
     dram_map_ = reinterpret_cast<Hash<DashKeyT> *>(Allocator::GetRoot(sizeof(extendible::Finger_EH<DashKeyT>)));
     new (dram_map_) extendible::Finger_EH<DashKeyT>(segment_number, Allocator::Get()->pm_pool_);

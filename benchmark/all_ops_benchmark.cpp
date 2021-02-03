@@ -26,8 +26,8 @@ constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
-            ->ThreadRange(1, NUM_MAX_THREADS) \
-            ->Threads(24)
+            ->Threads(36)
+//            ->ThreadRange(1, NUM_MAX_THREADS) \
 
 #define DEFINE_BM(fixture, method) \
             BENCHMARK_TEMPLATE2_DEFINE_F(fixture, method, KeyType16, ValueType200)(benchmark::State& state) { \
@@ -41,10 +41,10 @@ constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
 #define BM_DELETE(fixture) DEFINE_BM(fixture, delete)->Args({ALL_OPS_NUM_PREFILLS, ALL_OPS_NUM_DELETES})
 
 #define ALL_BMS(fixture) \
+            BM_INSERT(fixture); \
             BM_FIND(fixture); \
-            BM_DELETE(fixture)
-//            BM_INSERT(fixture); \
 //            BM_UPDATE(fixture); \
+//            BM_DELETE(fixture)
 
 
 void bm_insert(benchmark::State& state, BaseFixture& fixture) {
@@ -159,9 +159,9 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
     BaseFixture::log_find_count(state, found_counter, found_counter);
 }
 
-ALL_BMS(DashFixture);
-ALL_BMS(CcehFixture);
-//ALL_BMS(ViperFixture);
+//ALL_BMS(DashFixture);
+ALL_BMS(ViperFixture);
+//ALL_BMS(CcehFixture);
 //ALL_BMS(PmemKVFixture);
 //ALL_BMS(NvmFasterFixture);
 //ALL_BMS(PmemHybridFasterFixture);
@@ -171,7 +171,7 @@ ALL_BMS(CcehFixture);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
-    const std::string arg = get_output_file("all_ops/all_ops");
-    return bm_main({exec_name, arg});
-//    return bm_main({exec_name});
+//    const std::string arg = get_output_file("all_ops/all_ops");
+//    return bm_main({exec_name, arg});
+    return bm_main({exec_name});
 }

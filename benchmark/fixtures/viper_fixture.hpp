@@ -60,12 +60,11 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
     pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
     set_cpu_affinity();
 
+    // TODO: change back
     pool_file_ = VIPER_POOL_FILE;
-    const size_t expected_size = MAX_DATA_SIZE * (sizeof(KeyT) + sizeof(ValueT));
-    const size_t size_to_zero = ONE_GB * (std::ceil(expected_size / ONE_GB) + 5);
-//    zero_block_device(pool_file_, size_to_zero);
+//    pool_file_ = random_file(DB_PMEM_DIR);
 
-    viper_ = ViperT::create(pool_file_, BM_POOL_SIZE, v_config);
+    viper_ = ViperT::create(pool_file_, 50 * BM_POOL_SIZE, v_config);
     this->prefill(num_prefill_inserts);
 
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
@@ -77,6 +76,9 @@ void ViperFixture<KeyT, ValueT>::DeInitMap() {
     BaseFixture::DeInitMap();
     viper_ = nullptr;
     viper_initialized_ = false;
+    if (pool_file_.find("/dev/dax") == std::string::npos) {
+        std::filesystem::remove_all(pool_file_);
+    }
 }
 
 template <typename KeyT, typename ValueT>

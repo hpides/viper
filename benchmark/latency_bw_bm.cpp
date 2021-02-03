@@ -282,7 +282,7 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
             break;
         }
         case FSDAX_BM: {
-            const auto pmem_file = random_file(DB_NVM_DIR + std::string("/latency"));
+            const auto pmem_file = random_file(DB_PMEM_DIR + std::string("/latency"));
             const int fd = ::open(pmem_file.c_str(), O_CREAT | O_RDWR | O_DIRECT, 0600);
             check_fd(fd, pmem_file);
             if (ftruncate(fd, data_len) != 0) throw std::runtime_error("Cannot truncate");

@@ -47,7 +47,7 @@ void PmemKVFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const bo
     int sds_write_value = 0;
     pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
 
-    pool_file_ = random_file(DB_NVM_DIR);
+    pool_file_ = random_file(DB_PMEM_DIR);
     pmem_db_ = std::make_unique<pmem::kv::db>();
 
     const size_t expected_pool_file_size = 90 * ONE_GB;
