@@ -62,7 +62,9 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
 
     pool_file_ = VIPER_POOL_FILE;
 //    pool_file_ = random_file(DB_PMEM_DIR);
+//    pool_file_ = DB_PMEM_DIR + std::string("/viper");
 
+//    viper_ = ViperT::open(pool_file_, v_config);
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE, v_config);
     this->prefill(num_prefill_inserts);
 

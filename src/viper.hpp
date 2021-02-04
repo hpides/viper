@@ -653,7 +653,7 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
 #endif
 
     const auto end = std::chrono::high_resolution_clock::now();
-    std::cout << (is_new_pool ? "Creating" : "Opening") << " took " << ((end - start).count() / 1e6) << " ms\n";
+    DEBUG_LOG((is_new_pool ? "Creating" : "Opening") << " took " << ((end - start).count() / 1e6) << " ms");
     return ViperBase{ .file_descriptor = init_data.fd, .is_new_db = is_new_pool,
                       .is_file_based = is_file_based, .v_metadata = init_data.meta,
                       .v_mappings = std::move(init_data.mappings) };
@@ -662,7 +662,6 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
 template <typename K, typename V>
 ViperFileMapping Viper<K, V>::allocate_v_page_blocks() {
     const size_t alloc_size = v_base_.v_metadata->alloc_size;
-//    const auto start = std::chrono::high_resolution_clock::now();
 
     void* pmem_addr;
 #ifdef VIPER_DRAM
@@ -697,10 +696,6 @@ ViperFileMapping Viper<K, V>::allocate_v_page_blocks() {
 
     ViperFileMapping mapping{alloc_size, pmem_addr};
     v_base_.v_mappings.push_back(mapping);
-
-//    const auto end = std::chrono::high_resolution_clock::now();
-//    std::cout << "Allocating took " << ((end - start).count() / 1e6) << " ms\n";
-
     return mapping;
 }
 
@@ -712,13 +707,10 @@ void Viper<K, V>::add_v_page_blocks(ViperFileMapping mapping) {
     is_v_blocks_resizing_.store(true, STORE_ORDER);
     v_blocks_.reserve(v_blocks_.size() + num_blocks_to_map);
     is_v_blocks_resizing_.store(false, STORE_ORDER);
-//    auto start = std::chrono::high_resolution_clock::now();
     for (block_size_t block_offset = 0; block_offset < num_blocks_to_map; ++block_offset) {
         v_blocks_.push_back(start_block + block_offset);
     }
     num_v_blocks_.store(v_blocks_.size(), STORE_ORDER);
-//    auto end = std::chrono::high_resolution_clock::now();
-//    std::cout << "Adding took " << ((end - start).count() / 1e6) << " ms\n";
 }
 
 template <typename K, typename V>
