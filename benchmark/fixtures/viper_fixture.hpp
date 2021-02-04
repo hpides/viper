@@ -60,11 +60,10 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
     pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
     set_cpu_affinity();
 
-    // TODO: change back
     pool_file_ = VIPER_POOL_FILE;
 //    pool_file_ = random_file(DB_PMEM_DIR);
 
-    viper_ = ViperT::create(pool_file_, 50 * BM_POOL_SIZE, v_config);
+    viper_ = ViperT::create(pool_file_, BM_POOL_SIZE, v_config);
     this->prefill(num_prefill_inserts);
 
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);

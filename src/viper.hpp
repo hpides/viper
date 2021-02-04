@@ -12,6 +12,7 @@
 #include <sys/mman.h>
 #include <atomic>
 #include <assert.h>
+#include <filesystem>
 
 #include "cceh.hpp"
 #include "concurrentqueue.h"
@@ -48,6 +49,9 @@ static constexpr version_lock_t UNLOCKED_BIT  = 0b11111110;
 
 #define IO_ERROR(msg) throw std::runtime_error(std::string(msg) + " | " + std::strerror(errno))
 #define MMAP_CHECK(addr) if ((addr) == nullptr || (addr) == MAP_FAILED) { IO_ERROR("Cannot mmap"); }
+
+#define LOAD_ORDER  std::memory_order_acquire
+#define STORE_ORDER std::memory_order_release
 
 static constexpr auto VIPER_MAP_PROT = PROT_WRITE | PROT_READ | PROT_EXEC;
 static constexpr auto VIPER_MAP_FLAGS = MAP_SHARED_VALIDATE | MAP_SYNC;
@@ -200,7 +204,7 @@ struct ViperFileMetadata {
     const size_t block_offset;
     const size_t block_size;
     const size_t alloc_size;
-    block_size_t num_used_blocks;
+    std::atomic<block_size_t> num_used_blocks;
     block_size_t num_allocated_blocks;
     size_t total_mapped_size;
 };
@@ -388,15 +392,14 @@ class Viper {
 
 template <typename K, typename V>
 std::unique_ptr<Viper<K, V>> Viper<K, V>::create(const std::string& pool_file, uint64_t initial_pool_size,
-                                                         ViperConfig v_config) {
+                                                 ViperConfig v_config) {
     return std::make_unique<Viper<K, V>>(
             init_pool(pool_file, initial_pool_size, true, v_config), pool_file, true, v_config);
 }
 
 template <typename K, typename V>
 std::unique_ptr<Viper<K, V>> Viper<K, V>::open(const std::string& pool_file, ViperConfig v_config) {
-    return std::make_unique<Viper<K, V>>(
-            init_pool(pool_file, 0, false, v_config), pool_file, true, v_config);
+    return std::make_unique<Viper<K, V>>(init_pool(pool_file, 0, false, v_config), pool_file, true, v_config);
 }
 
 template <typename K, typename V>
@@ -425,8 +428,7 @@ Viper<K, V>::Viper(ViperBase v_base, const std::filesystem::path pool_dir, const
         DEBUG_LOG("Recovering existing database.");
         recover_database();
     }
-
-    current_block_page_ = KVOffset{v_base.v_metadata->num_used_blocks, 0, 0}.offset;
+    current_block_page_ = KVOffset{v_base.v_metadata->num_used_blocks.load(LOAD_ORDER), 0, 0}.offset;
 }
 
 template <typename K, typename V>
@@ -552,6 +554,10 @@ ViperInitData init_devdax_pool(const std::string& pool_file, uint64_t pool_size,
 
 ViperInitData init_file_pool(const std::string& pool_dir, uint64_t pool_size,
                              bool is_new_pool, ViperConfig v_config, const size_t block_size) {
+    if (is_new_pool && std::filesystem::exists(pool_dir) && !std::filesystem::is_empty(pool_dir)) {
+        throw std::runtime_error("Cannot create new database in non-empty directory");
+    }
+
     std::filesystem::create_directory(pool_dir);
     const std::filesystem::path meta_file = pool_dir + "/meta";
     ViperFileMetadata* metadata;
@@ -559,7 +565,6 @@ ViperInitData init_file_pool(const std::string& pool_dir, uint64_t pool_size,
     if (meta_fd < 0) {
         IO_ERROR("Cannot open meta file: " + meta_file.string());
     }
-
     size_t alloc_size = v_config.fs_alignment;
     if (is_new_pool) {
         if (ftruncate(meta_fd, PAGE_SIZE) != 0) {
@@ -567,7 +572,7 @@ ViperInitData init_file_pool(const std::string& pool_dir, uint64_t pool_size,
         }
     } else {
         const size_t meta_map_size = alloc_size;
-        void *metadata_addr = mmap(nullptr, PAGE_SIZE, PROT_READ, MAP_SHARED, meta_fd, 0);
+        void *metadata_addr = mmap(nullptr, PAGE_SIZE, VIPER_MAP_PROT, VIPER_MAP_FLAGS, meta_fd, 0);
         MMAP_CHECK(metadata_addr)
 
         metadata = static_cast<ViperFileMetadata *>(metadata_addr);
@@ -592,7 +597,7 @@ ViperInitData init_file_pool(const std::string& pool_dir, uint64_t pool_size,
     std::vector<ViperFileMapping> mappings;
     mappings.reserve(num_alloc_chunks);
 
-    for (size_t chunk_num; chunk_num < num_alloc_chunks; ++chunk_num) {
+    for (size_t chunk_num = 0; chunk_num < num_alloc_chunks; ++chunk_num) {
         std::filesystem::path data_file = pool_dir + "/data" + std::to_string(chunk_num);
         const int data_fd = ::open(data_file.c_str(), VIPER_FILE_OPEN_FLAGS, 0644);
         if (data_fd < 0) {
@@ -631,6 +636,9 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
                                  bool is_new_pool, ViperConfig v_config) {
     constexpr size_t block_size = sizeof(VPageBlock);
     ViperInitData init_data;
+
+    const auto start = std::chrono::high_resolution_clock::now();
+
 #ifdef VIPER_DRAM
     const bool is_file_based = false;
     init_data = init_dram_pool(pool_size, v_config, block_size);
@@ -644,6 +652,8 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
     }
 #endif
 
+    const auto end = std::chrono::high_resolution_clock::now();
+    std::cout << (is_new_pool ? "Creating" : "Opening") << " took " << ((end - start).count() / 1e6) << " ms\n";
     return ViperBase{ .file_descriptor = init_data.fd, .is_new_db = is_new_pool,
                       .is_file_based = is_file_based, .v_metadata = init_data.meta,
                       .v_mappings = std::move(init_data.mappings) };
@@ -661,7 +671,7 @@ ViperFileMapping Viper<K, V>::allocate_v_page_blocks() {
     if (v_base_.is_file_based) {
         size_t next_file_id = v_base_.v_metadata->total_mapped_size / alloc_size;
         std::filesystem::path data_file = pool_dir_ / ("data" + std::to_string(next_file_id));
-        std::cout << "Added file " << data_file << '\n';
+        DEBUG_LOG("Added data file " << data_file);
         const int data_fd = ::open(data_file.c_str(), VIPER_FILE_OPEN_FLAGS, 0644);
         if (data_fd < 0) {
             IO_ERROR("Cannot open meta file: " + data_file.string());
@@ -699,14 +709,14 @@ void Viper<K, V>::add_v_page_blocks(ViperFileMapping mapping) {
     VPageBlock* start_block = reinterpret_cast<VPageBlock*>(mapping.start_addr);
     const block_size_t num_blocks_to_map = mapping.mapped_size / sizeof(VPageBlock);
 
-    is_v_blocks_resizing_.store(true, std::memory_order_release);
+    is_v_blocks_resizing_.store(true, STORE_ORDER);
     v_blocks_.reserve(v_blocks_.size() + num_blocks_to_map);
-    is_v_blocks_resizing_.store(false, std::memory_order_release);
+    is_v_blocks_resizing_.store(false, STORE_ORDER);
 //    auto start = std::chrono::high_resolution_clock::now();
     for (block_size_t block_offset = 0; block_offset < num_blocks_to_map; ++block_offset) {
         v_blocks_.push_back(start_block + block_offset);
     }
-    num_v_blocks_.store(v_blocks_.size(), std::memory_order_release);
+    num_v_blocks_.store(v_blocks_.size(), STORE_ORDER);
 //    auto end = std::chrono::high_resolution_clock::now();
 //    std::cout << "Adding took " << ((end - start).count() / 1e6) << " ms\n";
 }
@@ -715,7 +725,7 @@ template <typename K, typename V>
 void Viper<K, V>::recover_database() {
     auto start = std::chrono::high_resolution_clock::now();
 
-    const block_size_t num_used_blocks = v_base_.v_metadata->num_used_blocks;
+    const block_size_t num_used_blocks = v_base_.v_metadata->num_used_blocks.load(LOAD_ORDER);
     DEBUG_LOG("Re-inserting values from " << num_used_blocks << " blocks.");
 
     std::vector<std::thread> recovery_threads;
@@ -766,7 +776,7 @@ void Viper<K, V>::recover_database() {
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     DEBUG_LOG("RECOVERY DURATION: " << duration << " ms.");
-    DEBUG_LOG("Re-inserted " << current_size_ << " keys.");
+    DEBUG_LOG("Re-inserted " << current_size_.load(LOAD_ORDER) << " keys.");
 }
 
 template <>
@@ -780,7 +790,7 @@ void Viper<K, V>::get_new_access_information(Client* client) {
     // Get insert/delete count info
     client->info_sync(true);
 
-    const KVOffset block_page{current_block_page_.load(std::memory_order_acquire)};
+    const KVOffset block_page{current_block_page_.load(LOAD_ORDER)};
     if (block_page.block_number > resize_threshold_ * v_blocks_.size()) {
         trigger_resize();
     }
@@ -797,7 +807,8 @@ void Viper<K, V>::get_new_var_size_access_information(Client* client) {
     get_new_access_information(client);
     client->v_page_->next_insert_pos = client->v_page_->data.data();
 
-    v_base_.v_metadata->num_used_blocks++;
+    v_base_.v_metadata->num_used_blocks.fetch_add(1, std::memory_order_relaxed);
+    pmem_persist(v_base_.v_metadata, sizeof(ViperFileMetadata));
 }
 
 template <typename K, typename V>
@@ -831,12 +842,13 @@ void Viper<K, V>::get_block_based_access(Client* client) {
     client->v_page_->init();
     client->v_block_->v_pages[0].version_lock |= CLIENT_BIT;
 
-    v_base_.v_metadata->num_used_blocks++;
+    v_base_.v_metadata->num_used_blocks.fetch_add(1, std::memory_order_relaxed);
+    pmem_persist(v_base_.v_metadata, sizeof(ViperFileMetadata));
 }
 
 template <typename K, typename V>
 KeyValueOffset Viper<K, V>::get_new_block() {
-    offset_size_t raw_block_page = current_block_page_.load(std::memory_order_acquire);
+    offset_size_t raw_block_page = current_block_page_.load(LOAD_ORDER);
     KVOffset new_offset{};
     block_size_t client_block;
     do {
@@ -846,7 +858,7 @@ KeyValueOffset Viper<K, V>::get_new_block() {
         const block_size_t new_block = client_block + 1;
         assert(new_block < v_blocks_.size());
 
-        while (client_block >= num_v_blocks_.load(std::memory_order_acquire)) {
+        while (client_block >= num_v_blocks_.load(LOAD_ORDER)) {
             asm("nop");
         }
 
@@ -879,7 +891,7 @@ void Viper<K, V>::trigger_resize() {
         pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
         ViperFileMapping mapping = allocate_v_page_blocks();
         add_v_page_blocks(mapping);
-        is_resizing_.store(false, std::memory_order_release);
+        is_resizing_.store(false, STORE_ORDER);
         DEBUG_LOG("End resizing.");
     });
     resize_thread_->detach();
@@ -902,7 +914,7 @@ void Viper<K, V>::trigger_reclaim(size_t num_reclaim_ops) {
         CPU_SET(71, &cpuset);
         pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
         reclaim();
-        is_reclaiming_.store(false, std::memory_order_release);
+        is_reclaiming_.store(false, STORE_ORDER);
         DEBUG_LOG("END RECLAIMING");
     });
     reclaim_thread_->detach();
@@ -955,7 +967,7 @@ template <typename K, typename V>
 bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_offset) {
     // Lock v_page. We expect the lock bit to be unset.
     std::atomic<version_lock_t>& v_lock = v_page_->version_lock;
-    version_lock_t lock_value = v_lock.load(std::memory_order_acquire);
+    version_lock_t lock_value = v_lock.load(LOAD_ORDER);
     // Compare and swap until we are the thread to set the lock bit
     lock_value &= UNLOCKED_BIT;
     while (!v_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
@@ -968,7 +980,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_off
 
     if (free_slot_idx >= free_slots->size()) {
         // Page is full. Free lock on page and restart.
-        v_lock.store(ACTIVE_UNLOCK(lock_value), std::memory_order_release);
+        v_lock.store(ACTIVE_UNLOCK(lock_value), STORE_ORDER);
         update_access_information();
         return put(key, value);
     }
@@ -995,7 +1007,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_off
     bool is_new_item = old_offset.is_tombstone();
 
     // Unlock the v_page
-    v_lock.store(ACTIVE_UNLOCK(lock_value), std::memory_order_release);
+    v_lock.store(ACTIVE_UNLOCK(lock_value), STORE_ORDER);
 
     // Need to free slot at old location for this key
     if (!is_new_item && !old_offset.is_tombstone()) {
@@ -1013,7 +1025,7 @@ template <>
 bool Viper<std::string, std::string>::Client::put(const std::string& key, const std::string& value, IndexV* previous_offset) {
     // Lock v_page. We expect the lock bit to be unset.
     std::atomic<version_lock_t>& v_lock = v_page_->version_lock;
-    version_lock_t lock_value = v_lock.load(std::memory_order_acquire);
+    version_lock_t lock_value = v_lock.load(LOAD_ORDER);
     // Compare and swap until we are the thread to set the lock bit
     lock_value &= UNLOCKED_BIT;
     while (!v_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
@@ -1109,7 +1121,7 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
     }
 
     // Unlock the v_page
-    v_lock.store(ACTIVE_UNLOCK(lock_value), std::memory_order_release);
+    v_lock.store(ACTIVE_UNLOCK(lock_value), STORE_ORDER);
 
     // Need to free slot at old location for this key
     if (!is_new_item) {
@@ -1188,7 +1200,7 @@ bool Viper<K, V>::Client::update(const K& key, UpdateFn update_fn) {
         const auto [block, page, slot] = kv_offset.get_offsets();
         VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
         std::atomic<version_lock_t> &page_lock = v_page.version_lock;
-        version_lock_t lock_value = page_lock.load(std::memory_order_acquire);
+        version_lock_t lock_value = page_lock.load(LOAD_ORDER);
         lock_value &= UNLOCKED_BIT;
         if (!page_lock.compare_exchange_strong(lock_value, lock_value + 1)) {
             // Could not lock page, so the record could be modified and we need to try again
@@ -1196,7 +1208,7 @@ bool Viper<K, V>::Client::update(const K& key, UpdateFn update_fn) {
         }
 
         update_fn(&(v_page.data[slot].second));
-        page_lock.store(PASSIVE_UNLOCK(lock_value), std::memory_order_release);
+        page_lock.store(PASSIVE_UNLOCK(lock_value), STORE_ORDER);
         return true;
     }
 }
@@ -1221,12 +1233,12 @@ bool Viper<K, V>::Client::remove(const K& key) {
 template <typename K, typename V>
 void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset, const K& key, const bool delete_offset) {
     const auto [block_number, page_number, data_offset] = offset.get_offsets();
-    while (this->viper_.is_v_blocks_resizing_.load(std::memory_order_acquire)) {
+    while (this->viper_.is_v_blocks_resizing_.load(LOAD_ORDER)) {
         // Wait for vector's memmove to complete. Otherwise we might encounter a segfault.
     }
     VPage& v_page = this->viper_.v_blocks_[block_number]->v_pages[page_number];
     std::atomic<version_lock_t>& v_lock = v_page.version_lock;
-    version_lock_t lock_value = v_lock.load(std::memory_order_acquire);
+    version_lock_t lock_value = v_lock.load(LOAD_ORDER);
     lock_value &= UNLOCKED_BIT;
     while (!v_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
         lock_value &= UNLOCKED_BIT;
@@ -1255,7 +1267,7 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset, const K& key
         this->viper_.map_.Insert(key, IndexV::NONE(), key_check_fn);
     }
 
-    v_lock.store(PASSIVE_UNLOCK(lock_value), std::memory_order_release);
+    v_lock.store(PASSIVE_UNLOCK(lock_value), STORE_ORDER);
 
     --size_delta_;
 }
@@ -1362,7 +1374,7 @@ inline bool Viper<K, V>::ReadOnlyClient::get_const_value_from_offset(KVOffset of
     const auto [block, page, slot] = offset.get_offsets();
     const VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
     const std::atomic<version_lock_t>& page_lock = v_page.version_lock;
-    version_lock_t lock_val = page_lock.load(std::memory_order_acquire);
+    version_lock_t lock_val = page_lock.load(LOAD_ORDER);
     if (IS_LOCKED(lock_val)) {
         return false;
     }
@@ -1373,7 +1385,7 @@ inline bool Viper<K, V>::ReadOnlyClient::get_const_value_from_offset(KVOffset of
     } else {
         *value = *(entry.second);
     }
-    return lock_val == page_lock.load(std::memory_order_acquire);
+    return lock_val == page_lock.load(LOAD_ORDER);
 }
 
 template <typename K, typename V>
@@ -1381,12 +1393,12 @@ inline bool Viper<K, V>::Client::get_value_from_offset(const KVOffset offset, V*
     const auto [block, page, slot] = offset.get_offsets();
     const VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
     const std::atomic<version_lock_t>& page_lock = v_page.version_lock;
-    version_lock_t lock_val = page_lock.load(std::memory_order_acquire);
+    version_lock_t lock_val = page_lock.load(LOAD_ORDER);
     if (IS_LOCKED(lock_val)) {
         return false;
     }
     *value = v_page.data[slot].second;
-    return lock_val == page_lock.load(std::memory_order_acquire);
+    return lock_val == page_lock.load(LOAD_ORDER);
 }
 
 template <>
@@ -1395,7 +1407,7 @@ inline bool Viper<std::string, std::string>::Client::get_value_from_offset(const
     const VPageBlock* v_block = this->viper_.v_blocks_[block];
     const VPage& v_page = v_block->v_pages[page];
     const std::atomic<version_lock_t>& page_lock = v_page.version_lock;
-    version_lock_t lock_val = page_lock.load(std::memory_order_acquire);
+    version_lock_t lock_val = page_lock.load(LOAD_ORDER);
     if (IS_LOCKED(lock_val)) {
         return false;
     }
@@ -1408,7 +1420,7 @@ inline bool Viper<std::string, std::string>::Client::get_value_from_offset(const
         var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
     }
     value->assign(var_entry.value_data, var_entry.value_size);
-    return lock_val == page_lock.load(std::memory_order_acquire);
+    return lock_val == page_lock.load(LOAD_ORDER);
 }
 
 template <typename K, typename V>
@@ -1484,7 +1496,7 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
 template <typename K, typename V>
 void Viper<K, V>::reclaim() {
     const size_t num_slots_per_block = num_pages_per_block * VPage::num_slots_per_page;
-    const block_size_t max_block = KVOffset{current_block_page_.load(std::memory_order_acquire)}.block_number;
+    const block_size_t max_block = KVOffset{current_block_page_.load(LOAD_ORDER)}.block_number;
 
     // At least X percent of the block should be free before reclaiming it.
     const size_t free_threshold = v_config_.reclaim_free_percentage * num_slots_per_block;
@@ -1516,7 +1528,7 @@ void Viper<K, V>::reclaim() {
 
 template <>
 void Viper<std::string, std::string>::reclaim() {
-    const block_size_t max_block = KVOffset{current_block_page_.load(std::memory_order_acquire)}.block_number;
+    const block_size_t max_block = KVOffset{current_block_page_.load(LOAD_ORDER)}.block_number;
     const double modified_threshold = v_config_.reclaim_free_percentage;
     size_t total_freed_blocks = 0;
     Client client = get_client();
