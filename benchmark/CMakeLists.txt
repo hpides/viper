@@ -19,6 +19,8 @@ SET(
         fixtures/pmem_kv_fixture.hpp
         fixtures/cceh_fixture.hpp
         fixtures/dash_fixture.hpp
+        fixtures/utree.hpp
+        fixtures/utree_fixture.hpp
 )
 
 cmake_host_system_information(RESULT host_name QUERY HOSTNAME)

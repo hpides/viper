@@ -30,6 +30,10 @@ struct BMRecord {
 
     BMRecord() {}
 
+    static BMRecord max_value() {
+        return BMRecord(std::numeric_limits<uint64_t>::max());
+    }
+
     BMRecord(uint64_t x) { data.fill(static_cast<T>(x)); }
     BMRecord(uint32_t x) { data.fill(static_cast<T>(x)); }
 
@@ -39,6 +43,22 @@ struct BMRecord {
 
     inline bool operator!=(const BMRecord& other) const {
         return data != other.data;
+    }
+
+    bool operator<(const BMRecord &rhs) const {
+        return get_key() < rhs.get_key();
+    }
+
+    bool operator>(const BMRecord &rhs) const {
+        return rhs < *this;
+    }
+
+    bool operator<=(const BMRecord &rhs) const {
+        return !(rhs < *this);
+    }
+
+    bool operator>=(const BMRecord &rhs) const {
+        return !(*this < rhs);
     }
 
     BMRecord<T, N>& from_str(const std::string& bytes) {

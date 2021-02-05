@@ -76,7 +76,7 @@ void CcehFixture<KeyT, ValueT>::DeInitMap() {
 }
 
 template <typename KeyT, typename ValueT>
-bool CcehFixture<KeyT, ValueT>::insert_internal(const KeyT& key, const ValueT& value) {
+inline bool CcehFixture<KeyT, ValueT>::insert_internal(const KeyT& key, const ValueT& value) {
     block_size_t ptrs_pos;
     pmem::obj::persistent_ptr<Entry> offset_ptr;
     pmem::obj::transaction::run(pmem_pool_, [&] {
