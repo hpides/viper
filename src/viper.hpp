@@ -13,6 +13,7 @@
 #include <atomic>
 #include <assert.h>
 #include <filesystem>
+#include <immintrin.h>
 
 #include "cceh.hpp"
 #include "concurrentqueue.h"
@@ -43,19 +44,18 @@ static constexpr version_lock_t NO_CLIENT_BIT = 0b01111111;
 static constexpr version_lock_t UNUSED_BIT    = 0b01000000;
 static constexpr version_lock_t UNLOCKED_BIT  = 0b11111110;
 
-#define PASSIVE_UNLOCK(lock_val) (((lock_val) + 2) | (lock_val & CLIENT_BIT))
-#define ACTIVE_UNLOCK(lock_val)  (((lock_val) + 2) | CLIENT_BIT)
-#define IS_LOCKED(lock)          ((lock) & 1)
+#define PAGE_UNLOCK(lock_val) (((lock_val) + 2) | ((lock_val) & CLIENT_BIT))
+#define IS_LOCKED(lock)       ((lock) & 1)
 
-#define IO_ERROR(msg) throw std::runtime_error(std::string(msg) + " | " + std::strerror(errno))
+#define IO_ERROR(msg) throw std::runtime_error(std::string(msg) + " | " + std::strerror(errno) + " (LINE: " + std::to_string(__LINE__) + ')')
 #define MMAP_CHECK(addr) if ((addr) == nullptr || (addr) == MAP_FAILED) { IO_ERROR("Cannot mmap"); }
 
 #define LOAD_ORDER  std::memory_order_acquire
 #define STORE_ORDER std::memory_order_release
 
-static constexpr auto VIPER_MAP_PROT = PROT_WRITE | PROT_READ | PROT_EXEC;
+static constexpr auto VIPER_MAP_PROT = PROT_WRITE | PROT_READ;
 static constexpr auto VIPER_MAP_FLAGS = MAP_SHARED_VALIDATE | MAP_SYNC;
-static constexpr auto DRAM_MMAP = MAP_ANONYMOUS | MAP_PRIVATE;
+static constexpr auto VIPER_DRAM_MAP_FLAGS = MAP_ANONYMOUS | MAP_PRIVATE;
 static constexpr auto VIPER_FILE_OPEN_FLAGS = O_CREAT | O_RDWR | O_DIRECT;
 
 struct ViperConfig {
@@ -196,6 +196,14 @@ struct alignas(PAGE_SIZE) ViperPageBlock {
      * making all pointers invalid.
      */
     std::array<VPage, num_pages> v_pages;
+
+    inline bool is_owned() const {
+        return IS_BIT_SET(v_pages[0].version_lock, CLIENT_BIT);
+    }
+
+    inline bool is_unused() const {
+        return IS_BIT_SET(v_pages[0].version_lock, UNUSED_BIT);
+    }
 };
 
 } // namespace internal
@@ -312,12 +320,13 @@ class Viper {
       protected:
         Client(ViperT& viper);
 
-        bool put(const K& key, const V& value, IndexV* previous_offset);
+        bool put(const K& key, const V& value, bool delete_old);
         inline void update_access_information();
         inline void update_var_size_page_information();
         inline bool get_value_from_offset(KVOffset offset, V* value);
         inline void info_sync(bool force = false);
-        void free_occupied_slot(const KVOffset offset, const K& key, const bool delete_offset = false);
+        void free_occupied_slot(const KVOffset offset_to_delete, const K& key, const bool delete_offset = false);
+        void invalidate_record(VPage* v_page, const data_offset_size_t data_offset);
 
         enum PageStrategy : uint8_t { BlockBased, DimmBased };
 
@@ -386,6 +395,9 @@ class Viper {
     std::atomic<bool> is_reclaiming_;
     std::unique_ptr<std::thread> reclaim_thread_;
 
+    std::atomic<bool> deadlock_offset_lock_;
+    std::vector<KVOffset> deadlock_offsets_;
+
     std::atomic<uint8_t> num_active_clients_;
     const uint8_t num_recovery_threads_;
 };
@@ -451,12 +463,17 @@ ViperInitData init_dram_pool(uint64_t pool_size, ViperConfig v_config, const siz
         throw std::runtime_error("Pool too small: " + std::to_string(pool_size));
     }
 
-    void* pmem_addr = mmap(nullptr, pool_size, PROT_READ | PROT_WRITE, DRAM_MMAP, -1, 0);
+    void* pmem_addr = mmap(nullptr, pool_size, VIPER_MAP_PROT, VIPER_DRAM_MAP_FLAGS, -1, 0);
     MMAP_CHECK(pmem_addr)
 
-    ViperFileMetadata* metadata = static_cast<ViperFileMetadata*>(pmem_addr);
-    char* map_start_addr = (char*) pmem_addr;
+    ViperFileMetadata v_metadata{ .block_offset = PAGE_SIZE, .block_size = block_size,
+                                  .alloc_size = alloc_size, .num_used_blocks = 0,
+                                  .num_allocated_blocks = 0, .total_mapped_size = pool_size };
 
+    ViperFileMetadata* metadata = static_cast<ViperFileMetadata*>(pmem_addr);
+    memcpy(metadata, &v_metadata, sizeof(v_metadata));
+
+    char* map_start_addr = (char*) pmem_addr;
     // Each alloc chunk gets its own mapping.
     std::vector<ViperFileMapping> mappings;
     mappings.reserve(num_alloc_chunks);
@@ -665,7 +682,7 @@ ViperFileMapping Viper<K, V>::allocate_v_page_blocks() {
 
     void* pmem_addr;
 #ifdef VIPER_DRAM
-    pmem_addr = mmap(nullptr, alloc_size, PROT_READ | PROT_WRITE, DRAM_MMAP, -1, 0);
+    pmem_addr = mmap(nullptr, alloc_size, VIPER_MAP_PROT, VIPER_DRAM_MAP_FLAGS, -1, 0);
 #else
     if (v_base_.is_file_based) {
         size_t next_file_id = v_base_.v_metadata->total_mapped_size / alloc_size;
@@ -956,7 +973,7 @@ inline bool Viper<K, V>::check_key_equality(const K& key, const KVOffset offset_
 }
 
 template <typename K, typename V>
-bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_offset) {
+bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_old) {
     // Lock v_page. We expect the lock bit to be unset.
     std::atomic<version_lock_t>& v_lock = v_page_->version_lock;
     version_lock_t lock_value = v_lock.load(LOAD_ORDER);
@@ -972,9 +989,9 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_off
 
     if (free_slot_idx >= free_slots->size()) {
         // Page is full. Free lock on page and restart.
-        v_lock.store(ACTIVE_UNLOCK(lock_value), STORE_ORDER);
+        v_lock.store(PAGE_UNLOCK(lock_value), STORE_ORDER);
         update_access_information();
-        return put(key, value);
+        return put(key, value, delete_old);
     }
 
     // We have found a free slot on this page. Persist data.
@@ -996,15 +1013,14 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_off
         old_offset = this->viper_.map_.Insert(key, kv_offset);
     }
 
-    bool is_new_item = old_offset.is_tombstone();
-
-    // Unlock the v_page
-    v_lock.store(ACTIVE_UNLOCK(lock_value), STORE_ORDER);
-
-    // Need to free slot at old location for this key
-    if (!is_new_item && !old_offset.is_tombstone()) {
+    const bool is_new_item = old_offset.is_tombstone();
+    if (!is_new_item && delete_old) {
+        // Need to free slot at old location for this key
         free_occupied_slot(old_offset, key);
     }
+
+    // Unlock the v_page
+    v_lock.store(PAGE_UNLOCK(lock_value), STORE_ORDER);
 
     // We have added one value, so +1
     size_delta_++;
@@ -1014,7 +1030,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, IndexV* previous_off
 }
 
 template <>
-bool Viper<std::string, std::string>::Client::put(const std::string& key, const std::string& value, IndexV* previous_offset) {
+bool Viper<std::string, std::string>::Client::put(const std::string& key, const std::string& value, const bool delete_old) {
     // Lock v_page. We expect the lock bit to be unset.
     std::atomic<version_lock_t>& v_lock = v_page_->version_lock;
     version_lock_t lock_value = v_lock.load(LOAD_ORDER);
@@ -1102,21 +1118,16 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
     KVOffset old_offset = KVOffset::Tombstone();
 
     // Store data in DRAM map.
-    if (previous_offset->is_tombstone()) {
-        // Regular insert
-        auto key_check_fn = [&](auto key, auto offset) { return this->viper_.check_key_equality(key, offset); };
-        old_offset = this->viper_.map_.Insert(key, var_offset, key_check_fn);
-        is_new_item = old_offset.is_tombstone();
-        size_delta_++;
-    } else {
-        ATOMIC_STORE(&previous_offset->offset, var_offset.offset);
-    }
+    auto key_check_fn = [&](auto key, auto offset) { return this->viper_.check_key_equality(key, offset); };
+    old_offset = this->viper_.map_.Insert(key, var_offset, key_check_fn);
+    is_new_item = old_offset.is_tombstone();
+    size_delta_++;
 
     // Unlock the v_page
-    v_lock.store(ACTIVE_UNLOCK(lock_value), STORE_ORDER);
+    v_lock.store(PAGE_UNLOCK(lock_value), STORE_ORDER);
 
     // Need to free slot at old location for this key
-    if (!is_new_item) {
+    if (!is_new_item && delete_old) {
         free_occupied_slot(old_offset, key);
     }
 
@@ -1200,7 +1211,7 @@ bool Viper<K, V>::Client::update(const K& key, UpdateFn update_fn) {
         }
 
         update_fn(&(v_page.data[slot].second));
-        page_lock.store(PASSIVE_UNLOCK(lock_value), STORE_ORDER);
+        page_lock.store(PAGE_UNLOCK(lock_value), STORE_ORDER);
         return true;
     }
 }
@@ -1223,45 +1234,128 @@ bool Viper<K, V>::Client::remove(const K& key) {
 }
 
 template <typename K, typename V>
-void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset, const K& key, const bool delete_offset) {
-    const auto [block_number, page_number, data_offset] = offset.get_offsets();
+void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, const K& key, const bool delete_offset) {
+    const auto [block_number, page_number, data_offset] = offset_to_delete.get_offsets();
     while (this->viper_.is_v_blocks_resizing_.load(LOAD_ORDER)) {
         // Wait for vector's memmove to complete. Otherwise we might encounter a segfault.
     }
+
+    auto key_check_fn = [&](auto key, auto offset) {
+        if constexpr (using_fp) { return this->viper_.check_key_equality(key, offset); }
+        else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
+    };
+
+    if (v_block_number_ == block_number && v_page_number_ == page_number) {
+        // Old record to delete is on the same page. We already hold the lock here.
+        invalidate_record(v_page_, data_offset);
+        if (delete_offset) {
+            this->viper_.map_.Insert(key, IndexV::NONE(), key_check_fn);
+        }
+        --size_delta_;
+        return;
+    }
+
     VPage& v_page = this->viper_.v_blocks_[block_number]->v_pages[page_number];
     std::atomic<version_lock_t>& v_lock = v_page.version_lock;
     version_lock_t lock_value = v_lock.load(LOAD_ORDER);
     lock_value &= UNLOCKED_BIT;
-    while (!v_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
-        lock_value &= UNLOCKED_BIT;
+
+    const size_t num_deadlock_retries = 8;
+    std::vector<KVOffset>& deadlock_offsets = this->viper_.deadlock_offsets_;
+    bool deadlock_offset_inserted = false;
+    bool has_lock;
+    // Acquire lock or clear deadlock loop
+    while (true) {
+        size_t retries = 0;
+        has_lock = true;
+        while (!v_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
+            // Client may be in a deadlock situation
+            lock_value &= UNLOCKED_BIT;
+            if (++retries == num_deadlock_retries) {
+                std::cout << "Failed\n";
+                has_lock = false;
+                break;
+            }
+            _mm_pause();
+        }
+
+        if (has_lock) {
+            // Acquired lock, delete normally
+            invalidate_record(&v_page, data_offset);
+            break;
+        }
+
+        // Check possible deadlock
+        bool expected_offset_lock = false;
+        while (!this->viper_.deadlock_offset_lock_.compare_exchange_weak(expected_offset_lock, true)) {
+            expected_offset_lock = false;
+            _mm_pause();
+        }
+
+        if (!deadlock_offset_inserted) {
+            deadlock_offsets.push_back(offset_to_delete);
+            deadlock_offset_inserted = true;
+        }
+
+        std::vector<KVOffset> new_offsets;
+        new_offsets.reserve(deadlock_offsets.size());
+        bool encountered_own_offset = false;
+        for (KVOffset offset : deadlock_offsets) {
+            encountered_own_offset |= offset_to_delete == offset;
+            if (offset.block_number != v_block_number_ || offset.page_number != v_page_number_) {
+                new_offsets.push_back(offset);
+            } else {
+                invalidate_record(v_page_, offset.data_offset);
+            }
+        }
+        deadlock_offsets = std::move(new_offsets);
+        this->viper_.deadlock_offset_lock_.store(false, STORE_ORDER);
+
+        if (!encountered_own_offset) {
+            // The old offset that this client need to delete was deleted by another client, we can return.
+            break;
+        }
     }
 
-    // We have the lock now. Free slot or data.
+    if (delete_offset) {
+        this->viper_.map_.Insert(key, IndexV::NONE(), key_check_fn);
+    }
+
+    if (has_lock) {
+        if (deadlock_offset_inserted) {
+            // We inserted into the queue but manually deleted.
+            bool expected_offset_lock = false;
+            while (!this->viper_.deadlock_offset_lock_.compare_exchange_weak(expected_offset_lock, true)) {
+                expected_offset_lock = false;
+                _mm_pause();
+            }
+
+            auto own_item_pos = std::find(deadlock_offsets.begin(), deadlock_offsets.end(), offset_to_delete);
+            assert(own_item_pos != deadlock_offsets.end());
+            deadlock_offsets.erase(own_item_pos);
+            this->viper_.deadlock_offset_lock_.store(false, STORE_ORDER);
+        }
+        v_lock.store(PAGE_UNLOCK(lock_value), STORE_ORDER);
+    }
+
+    --size_delta_;
+}
+
+template <typename K, typename V>
+inline void Viper<K, V>::Client::invalidate_record(VPage* v_page, const data_offset_size_t data_offset) {
     if constexpr (std::is_same_v<K, std::string>) {
-        char* raw_data = &v_page.data[data_offset];
+        char* raw_data = &v_page->data[data_offset];
         internal::VarSizeEntry* var_entry = reinterpret_cast<internal::VarSizeEntry*>(raw_data);
         var_entry->is_set = false;
         const size_t meta_size = sizeof(var_entry->size_info);
         pmem_persist(&var_entry->size_info, meta_size);
         const size_t entry_size = var_entry->key_size + var_entry->value_size + meta_size;
-        v_page.modified_percentage += (entry_size * 100) / VPage::DATA_SIZE;
+        v_page->modified_percentage += (entry_size * 100) / VPage::DATA_SIZE;
     } else {
-        std::bitset<VPage::num_slots_per_page>* free_slots = &v_page.free_slots;
+        auto* free_slots = &v_page->free_slots;
         free_slots->set(data_offset);
         pmem_persist(free_slots, sizeof(*free_slots));
     }
-
-    if (delete_offset) {
-        auto key_check_fn = [&](auto key, auto offset) {
-            if constexpr (using_fp) { return this->viper_.check_key_equality(key, offset); }
-            else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
-        };
-        this->viper_.map_.Insert(key, IndexV::NONE(), key_check_fn);
-    }
-
-    v_lock.store(PASSIVE_UNLOCK(lock_value), STORE_ORDER);
-
-    --size_delta_;
 }
 
 template <typename K, typename V>
@@ -1416,7 +1510,9 @@ inline bool Viper<std::string, std::string>::Client::get_value_from_offset(const
 }
 
 template <typename K, typename V>
-void Viper<K, V>::compact(Client& client, VPageBlock* v_block) {}
+void Viper<K, V>::compact(Client& client, VPageBlock* v_block) {
+    // TODO: implement this
+}
 
 template <>
 void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_block) {
@@ -1438,13 +1534,13 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
 
         if (is_last_page && raw_data == next_insert_pos) {
             // Previous client has not written further than this, so we can stop here.
-            break;
+            return;
         }
 
         // No more entries in this page
         if (end_of_page || (var_entry.key_size == 0 && var_entry.value_size == 0)) {
             if (++current_page == num_pages_per_block) {
-                break;
+                return;
             }
 
             v_page = &v_block->v_pages[current_page];
@@ -1458,7 +1554,7 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
         if (var_entry.value_size == 0) {
             // Value is on next page
             if (++current_page == num_pages_per_block) {
-                break;
+                return;
             }
 
             v_page = &v_block->v_pages[current_page];
@@ -1475,7 +1571,7 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
             const std::string key{var_entry.key()};
             IndexV offset = map_.Get(key, key_check_fn);
             if (!offset.is_tombstone()) {
-                client.put(key, std::string{var_entry.value()}, &offset);
+                client.put(key, std::string{var_entry.value()});
                 var_entry.is_set = false;
                 pmem_persist(&var_entry.is_set, sizeof(var_entry.is_set));
             }
@@ -1493,13 +1589,12 @@ void Viper<K, V>::reclaim() {
     // At least X percent of the block should be free before reclaiming it.
     const size_t free_threshold = v_config_.reclaim_free_percentage * num_slots_per_block;
     size_t total_freed_blocks = 0;
+    Client client = get_client();
 
     for (block_size_t block_num = 0; block_num < max_block; ++block_num) {
         VPageBlock* v_block = v_blocks_[block_num];
         size_t block_free_slots = 0;
-        VPage& head_page = v_block->v_pages[0];
-        if (IS_BIT_SET(head_page.version_lock, CLIENT_BIT)
-            || IS_BIT_SET(head_page.version_lock, UNUSED_BIT)) {
+        if (v_block->is_owned() || v_block->is_unused()) {
             // Block in use by client or already marked as free.
             continue;
         }
@@ -1509,6 +1604,8 @@ void Viper<K, V>::reclaim() {
         }
 
         if (block_free_slots > free_threshold) {
+            compact(client, v_block);
+            VPage& head_page = v_block->v_pages[0];
             head_page.version_lock = UNUSED_BIT;
             free_blocks_.enqueue(block_num);
             total_freed_blocks++;
@@ -1527,19 +1624,17 @@ void Viper<std::string, std::string>::reclaim() {
 
     for (block_size_t block_num = 0; block_num < max_block; ++block_num) {
         VPageBlock* v_block = v_blocks_[block_num];
-        VPage& head_page = v_block->v_pages[0];
-        double modified_percentage = 0;
-
-        if (IS_BIT_SET(head_page.version_lock, CLIENT_BIT)
-            || IS_BIT_SET(head_page.version_lock, UNUSED_BIT)) {
+        if (v_block->is_owned() || v_block->is_unused()) {
             // Block in use by client or already marked as free.
             continue;
         }
 
+        double modified_percentage = 0;
         for (const VPage& v_page : v_block->v_pages) {
             modified_percentage += ((double)v_page.modified_percentage / num_pages_per_block) / 100;
             if (modified_percentage > modified_threshold) {
                 compact(client, v_block);
+                VPage& head_page = v_block->v_pages[0];
                 head_page.version_lock = UNUSED_BIT;
                 free_blocks_.enqueue(block_num);
                 total_freed_blocks++;

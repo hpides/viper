@@ -153,6 +153,9 @@ struct KeyValueOffset {
     inline bool is_tombstone() const {
         return offset == INVALID;
     }
+
+    inline bool operator==(const KeyValueOffset& rhs) const { return offset == rhs.offset; }
+    inline bool operator!=(const KeyValueOffset& rhs) const { return offset != rhs.offset; }
 };
 
 using IndexK = size_t;
