@@ -159,7 +159,7 @@ inline uint64_t read_data(char* start_addr, const size_t thread_jump) {
     const auto start = std::chrono::high_resolution_clock::now();
 
     char buffer[JUMP_4K];
-    char* cur_addr = start_addr;
+    char *cur_addr = start_addr;
     for (size_t num_op = 0; num_op < NUM_OPS_PER_THREAD; ++num_op) {
         // Read 4096 Byte per iteration
         READ_4K(cur_addr);
@@ -168,7 +168,7 @@ inline uint64_t read_data(char* start_addr, const size_t thread_jump) {
 
     const auto end = std::chrono::high_resolution_clock::now();
     return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-
+}
 
 inline uint64_t rnd_read(char* start_addr, char* base_addr) {
     const auto start = std::chrono::high_resolution_clock::now();
@@ -274,7 +274,7 @@ void init_bm_data(benchmark::State& state, const size_t storage_type, const size
     auto start_mmap = std::chrono::high_resolution_clock::now();
     switch (storage_type) {
         case DRAM_BM: {
-            const auto map_flags = viper::DRAM_MMAP;
+            const auto map_flags = viper::VIPER_DRAM_MAP_FLAGS;
             void* data = mmap(nullptr, data_len, PROT_READ | PROT_WRITE, map_flags, -1, 0);
             check_mmap(data);
             bm_data.dram_data = (char*) data;
@@ -457,20 +457,20 @@ void latency_bw_bm(benchmark::State& state) {
     ->Args({storage_type, SEQ_WRITE_GROUPED, 32, DO_PREFAULT})\
     ->Args({storage_type, SEQ_WRITE_GROUPED, 32, NO_PREFAULT})
 
-//#define ADD_STORAGE_TYPE(storage_type)\
-//      Args({storage_type, SEQ_READ})\
-//    ->Args({storage_type, SEQ_WRITE, DO_PREFAULT})\
-//    ->Args({storage_type, SEQ_WRITE, NO_PREFAULT})\
-//    ->Args({storage_type, RND_READ})\
-//    ->Args({storage_type, RND_WRITE, DO_PREFAULT})\
-//    ->Args({storage_type, RND_WRITE, NO_PREFAULT})\
-//    ->ADD_GROUPED_STORAGE_TYPE(storage_type)
-
 #define ADD_STORAGE_TYPE(storage_type)\
-      Args({storage_type, SEQ_WRITE_OFFSET,    0, DO_PREFAULT})\
-    ->Args({storage_type, SEQ_WRITE_OFFSET, 1024, DO_PREFAULT})\
-    ->Args({storage_type, SEQ_WRITE_OFFSET, 2048, DO_PREFAULT})\
-    ->Args({storage_type, SEQ_WRITE_OFFSET, 3072, DO_PREFAULT})
+      Args({storage_type, SEQ_READ})\
+    ->Args({storage_type, SEQ_WRITE, DO_PREFAULT})\
+    ->Args({storage_type, SEQ_WRITE, NO_PREFAULT})\
+    ->Args({storage_type, RND_READ})\
+    ->Args({storage_type, RND_WRITE, DO_PREFAULT})\
+    ->Args({storage_type, RND_WRITE, NO_PREFAULT})\
+    ->ADD_GROUPED_STORAGE_TYPE(storage_type)
+
+//#define ADD_STORAGE_TYPE(storage_type)\
+//      Args({storage_type, SEQ_WRITE_OFFSET,    0, DO_PREFAULT})\
+//    ->Args({storage_type, SEQ_WRITE_OFFSET, 1024, DO_PREFAULT})\
+//    ->Args({storage_type, SEQ_WRITE_OFFSET, 2048, DO_PREFAULT})\
+//    ->Args({storage_type, SEQ_WRITE_OFFSET, 3072, DO_PREFAULT})
 
 BENCHMARK(latency_bw_bm)->BM_ARGS
     ->Threads(1) // Warm up run
@@ -480,8 +480,8 @@ BENCHMARK(latency_bw_bm)->BM_ARGS
     ->Threads(16)
     ->Threads(32)
     ->ADD_STORAGE_TYPE(DRAM_BM)
-    ->ADD_STORAGE_TYPE(DEVDAX_BM)
-    ->ADD_STORAGE_TYPE(FSDAX_BM);
+    ->ADD_STORAGE_TYPE(DEVDAX_BM);
+//    ->ADD_STORAGE_TYPE(FSDAX_BM);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];

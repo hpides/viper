@@ -8,17 +8,18 @@
 #include "fixtures/viper_fixture.hpp"
 #include "fixtures/utree_fixture.hpp"
 //#include "fixtures/pmem_kv_fixture.hpp"
-#include "fixtures/rocksdb_fixture.hpp"
-//#include "fixtures/faster_fixture.hpp"
+//#include "fixtures/rocksdb_fixture.hpp"
+#include "fixtures/faster_fixture.hpp"
 #include "fixtures/cceh_fixture.hpp"
-#include "fixtures/dash_fixture.hpp"
+//#include "fixtures/dash_fixture.hpp"
+#include "fixtures/tbb_fixture.hpp"
 
 using namespace viper::kv_bm;
 
 constexpr size_t ALL_OPS_NUM_REPETITIONS = 1;
-constexpr size_t ALL_OPS_NUM_PREFILLS = 100'000'000;
-constexpr size_t ALL_OPS_NUM_INSERTS = 50'000'000;
-constexpr size_t ALL_OPS_NUM_FINDS = 50'000'000;
+constexpr size_t ALL_OPS_NUM_PREFILLS = 100'000'00;
+constexpr size_t ALL_OPS_NUM_INSERTS = 50'000'00;
+constexpr size_t ALL_OPS_NUM_FINDS = 50'000'00;
 constexpr size_t ALL_OPS_NUM_UPDATES = 50'000'000;
 constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
 
@@ -27,11 +28,14 @@ constexpr size_t ALL_OPS_NUM_DELETES = 50'000'000;
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
-            ->Threads(36)
+            ->Threads(24)
 //            ->ThreadRange(1, NUM_MAX_THREADS) \
+//            ->Threads(1)\
+//            ->Threads(24)\
+//            ->Threads(36)
 
 #define DEFINE_BM(fixture, method) \
-            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, method, KeyType16, ValueType200)(benchmark::State& state) { \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, method, KeyType8, ValueType8)(benchmark::State& state) { \
                 bm_##method(state, *this); \
             } \
             BENCHMARK_REGISTER_F(fixture, method) GENERAL_ARGS
@@ -162,12 +166,11 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
 
 //ALL_BMS(DashFixture);
 ALL_BMS(ViperFixture);
-ALL_BMS(UTreeFixture);
+//ALL_BMS(UTreeFixture);
+ALL_BMS(TbbFixture);
 //ALL_BMS(CcehFixture);
+ALL_BMS(PmemHybridFasterFixture);
 //ALL_BMS(PmemKVFixture);
-//ALL_BMS(NvmFasterFixture);
-//ALL_BMS(PmemHybridFasterFixture);
-//ALL_BMS(DiskHybridFasterFixture);
 //ALL_BMS(PmemRocksDbFixture);
 
 

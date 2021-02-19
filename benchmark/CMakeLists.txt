@@ -21,6 +21,7 @@ SET(
         fixtures/dash_fixture.hpp
         fixtures/utree.hpp
         fixtures/utree_fixture.hpp
+        fixtures/tbb_fixture.hpp
 )
 
 cmake_host_system_information(RESULT host_name QUERY HOSTNAME)
@@ -138,6 +139,7 @@ include_directories(${dash_SOURCE_DIR}/src)
 execute_process(COMMAND sed -i -e "s/, (void\\*)pool_addr//g" ${dash_SOURCE_DIR}/src/allocator.h)
 execute_process(COMMAND sed -i -e "s/pmemobj_create_addr/pmemobj_create/g" ${dash_SOURCE_DIR}/src/allocator.h)
 execute_process(COMMAND sed -i -e "s/pmemobj_open_addr/pmemobj_open/g" ${dash_SOURCE_DIR}/src/allocator.h)
+execute_process(COMMAND sed -i -e "s#std::cout << \"Directory_Doubling#//#g" ${dash_SOURCE_DIR}/src/ex_finger.h)
 
 # TBB
 set(TBB_TEST OFF CACHE INTERNAL "")
@@ -151,16 +153,6 @@ FetchContent_MakeAvailable(oneTBB)
 include_directories(${oneTBB_SOURCE_DIR}/include)
 
 # FASTER
-#set(FASTER_VERSION 1.8.0)
-#set(FASTER_DOWNLOAD_PATH https://github.com/microsoft/FASTER/archive/v${FASTER_VERSION}.tar.gz)
-#set(FASTER_DOWNLOAD_DIR ${CMAKE_CURRENT_BINARY_DIR}/faster.tar.gz)
-#file(DOWNLOAD ${FASTER_DOWNLOAD_PATH} ${FASTER_DOWNLOAD_DIR})
-#execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf "${FASTER_DOWNLOAD_DIR}" WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-#set(FASTER_DIR ${CMAKE_CURRENT_BINARY_DIR}/FASTER-${FASTER_VERSION}/cc)
-#set(FASTER_INCLUDE_PATH ${FASTER_DIR}/src)
-#include_directories(${FASTER_INCLUDE_PATH})
-#add_subdirectory(${FASTER_DIR} ${CMAKE_CURRENT_BINARY_DIR}/faster)
-
 FetchContent_Declare(
         faster
         GIT_REPOSITORY https://github.com/lawben/faster.git
@@ -181,9 +173,11 @@ FetchContent_MakeAvailable(hdr_histogram)
 
 add_executable(all_ops_bm all_ops_benchmark.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(all_ops_bm ${LINK_LIBS})
-target_link_libraries(all_ops_bm benchmark rocksdb snappy faster tbb uuid aio hdr_histogram_static)
+target_link_libraries(all_ops_bm benchmark snappy faster tbb uuid aio hdr_histogram_static)
+# TODO: add rocksdb when needed
+#add_dependencies(all_ops_bm pmem_rocksdb)
+#target_link_libraries(all_ops_bm rocksdb)
 set_target_properties(all_ops_bm PROPERTIES LINKER_LANGUAGE CXX)
-add_dependencies(all_ops_bm pmem_rocksdb)
 
 add_executable(access_pattern_bm access_pattern_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(access_pattern_bm ${LINK_LIBS})

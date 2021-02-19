@@ -3,8 +3,13 @@
 #include "common_fixture.hpp"
 #include "../benchmark.hpp"
 
-#define UTREE_KEY_T   viper::kv_bm::KeyType16
+#ifndef UTREE_KEY_T
+#define UTREE_KEY_T viper::kv_bm::KeyType16
+#endif
+
+#ifndef UTREE_VALUE_T
 #define UTREE_VALUE_T viper::kv_bm::ValueType200
+#endif
 
 #include "utree.hpp"
 #include "cceh.hpp"
@@ -13,12 +18,6 @@ namespace viper::kv_bm {
 
 template <typename KeyT = KeyType16, typename ValueT = ValueType200>
 class UTreeFixture : public BaseFixture {
-//    static_assert(std::is_same_v<KeyT, UTREE_KEY_T>, "Need to define key type as macro");
-//    static_assert(std::is_same_v<ValueT, UTREE_VALUE_T>, "Need to define value type as macro");
-
-//    static_assert(std::is_same_v<KeyType16, KeyT>, "bad key");
-
-
   public:
     void InitMap(const uint64_t num_prefill_inserts, const bool re_init) final;
     void DeInitMap() final;
