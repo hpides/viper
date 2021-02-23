@@ -36,7 +36,8 @@ void CrlFixture<KeyT, ValueT>::InitMap(const uint64_t num_prefill_inserts, const
 
     log_pool_name_ = random_file(DB_PMEM_DIR);
     backend_pool_name_ = random_file(DB_PMEM_DIR);
-    crl_store_ = std::make_unique<CrlStore<KeyT, ValueT>>(log_pool_name_, backend_pool_name_);
+    const size_t backend_file_size = 0.5 * ONE_GB;
+    crl_store_ = std::make_unique<CrlStore<KeyT, ValueT>>(log_pool_name_, backend_pool_name_, backend_file_size);
     prefill(num_prefill_inserts);
     map_initialized_ = true;
 }

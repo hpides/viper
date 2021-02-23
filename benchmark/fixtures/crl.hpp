@@ -8,7 +8,9 @@
 
 #include "common_fixture.hpp"
 #include "tbb/concurrent_hash_map.h"
-#include <libpmem.h>
+#include "libpmem.h"
+#include "libpmemobj++/container/concurrent_hash_map.hpp"
+
 
 namespace viper::kv_bm {
 
@@ -16,13 +18,20 @@ static constexpr size_t NUM_GLEANERS = 1;
 static constexpr size_t NUM_LOGS = 4;
 
 template <typename KeyT>
-struct CrlFixedKeyCompare {
+struct CrlFrontendHash {
     // Use same impl as tbb_hasher
     static const size_t hash_multiplier = tbb::detail::select_size_t_constant<2654435769U, 11400714819323198485ULL>::value;
-    static size_t hash(const KeyT& a) {
+    inline static size_t hash(const KeyT& a) {
         return static_cast<size_t>(a.data[0]) * hash_multiplier;
     }
-    static bool equal(const KeyT& a, const KeyT& b) { return a == b; }
+    inline static bool equal(const KeyT& a, const KeyT& b) { return a == b; }
+};
+
+template <typename KeyT>
+struct CrlBackendHash {
+    inline size_t operator()(const KeyT& a) {
+        return CrlFrontendHash<KeyT>::hash(a);
+    }
 };
 
 enum OpCode : uint8_t {
@@ -76,15 +85,14 @@ class CrlStore {
     using LogRecordT = CrlRecord<KeyT, ValueT>;
     using CrossReferencingLogT = CrossReferencingLog<KeyT, ValueT>;
     using FrontendValueT = FrontendValue<KeyT, ValueT>;
-    using FrontendT = tbb::concurrent_hash_map<KeyT, FrontendValueT, CrlFixedKeyCompare<KeyT>>;
-    using BackendT = tbb::concurrent_hash_map<KeyT, ValueT, CrlFixedKeyCompare<KeyT>>;;
+    using FrontendT = tbb::concurrent_hash_map<KeyT, FrontendValueT, CrlFrontendHash<KeyT>>;
+    using BackendT = pmem::obj::concurrent_hash_map<KeyT, ValueT, CrlBackendHash<KeyT>>;
 
     static constexpr size_t LOG_FILE_SIZE = NUM_LOGS * sizeof(CrossReferencingLogT);
 
 public:
-    CrlStore(const std::string& pool_file, const std::string& backend_file);
+    CrlStore(const std::string& pool_file, const std::string& backend_file, size_t backend_file_size);
     ~CrlStore();
-
 
     class Client {
         friend class CrlStore<KeyT, ValueT>;
@@ -103,9 +111,12 @@ public:
 private:
     void glean(bool is_epoch_manager, std::atomic<bool>& killed);
 
+    struct BackendRootT {
+        pmem::obj::persistent_ptr<BackendT> pmem_map;
+    };
 
-    FrontendT frontend_;
-    BackendT backend_;
+    std::unique_ptr<FrontendT> frontend_;
+    pmem::obj::persistent_ptr<BackendT> backend_;
     std::atomic<size_t> num_clients_;
     std::array<CrossReferencingLogT, NUM_LOGS>* logs_;
     std::vector<std::thread> gleaners_;
@@ -113,10 +124,12 @@ private:
 
     const std::string& log_file_;
     const std::string& backend_file_;
+    pmem::obj::pool<BackendRootT> backend_pool_;
 };
 
 template<typename KeyT, typename ValueT>
-CrlStore<KeyT, ValueT>::CrlStore(const std::string& log_file, const std::string& backend_file)
+CrlStore<KeyT, ValueT>::CrlStore(const std::string& log_file, const std::string& backend_file,
+                                 const size_t backend_file_size)
     : log_file_{log_file}, backend_file_{backend_file} {
     int is_pmem;
     size_t mapped_length;
@@ -128,6 +141,16 @@ CrlStore<KeyT, ValueT>::CrlStore(const std::string& log_file, const std::string&
     for (CrossReferencingLogT& log : *logs_) {
         log.init();
     }
+
+    frontend_ = std::make_unique<FrontendT>();
+
+    int sds_write_value = 0;
+    pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
+    backend_pool_ = pmem::obj::pool<BackendRootT>::create(backend_file, "", backend_file_size, S_IRWXU);
+    pmem::obj::transaction::run(backend_pool_, [&] {
+        backend_pool_.root()->pmem_map = pmem::obj::make_persistent<BackendT>();
+    });
+    backend_ = backend_pool_.root()->pmem_map;
 
     gleaners_.reserve(NUM_GLEANERS);
     for (size_t i = 0; i < NUM_GLEANERS; ++i) {
@@ -141,16 +164,13 @@ CrlStore<KeyT, ValueT>::CrlStore(const std::string& log_file, const std::string&
 
 template<typename KeyT, typename ValueT>
 CrlStore<KeyT, ValueT>::~CrlStore() {
-    for (std::atomic<bool>& lock : gleaner_locks_) {
-        lock.store(true);
-    }
+    for (std::atomic<bool>& lock : gleaner_locks_) { lock.store(true); }
+    for (std::thread& t : gleaners_) { t.join(); }
 
-    for (std::thread& t : gleaners_) {
-        t.join();
-    }
-
+    frontend_ = nullptr;
+    backend_ = nullptr;
     munmap(logs_, LOG_FILE_SIZE);
-    // TODO: unmap backend
+    backend_pool_.close();
     pmempool_rm(log_file_.c_str(), 0);
     pmempool_rm(backend_file_.c_str(), 0);
 }
@@ -163,9 +183,10 @@ typename CrlStore<KeyT, ValueT>::Client CrlStore<KeyT, ValueT>::get_client() {
 template<typename KeyT, typename ValueT>
 void CrlStore<KeyT, ValueT>::glean(const bool is_epoch_manager, std::atomic<bool>& killed) {
     const size_t num_entries = CrossReferencingLogT::NUM_ENTRIES;
-    while (!killed.load()) {
+    while (!killed.load(std::memory_order_acquire)) {
         bool nop_round = true;
         for (CrossReferencingLogT& log : *logs_) {
+            // if (killed.load(std::memory_order_acquire)) { return; }
             const size_t head = log.head.load();
             const size_t tail = log.tail.load();
             const size_t start_entry = head;
@@ -187,7 +208,7 @@ void CrlStore<KeyT, ValueT>::glean(const bool is_epoch_manager, std::atomic<bool
                 // Get from frontend store
                 LogRecordT& record = log.log[entry_num % num_entries];
                 const KeyT& key = record.key;
-                frontend_.insert(frontend_entry, key);
+                frontend_->insert(frontend_entry, key);
                 FrontendValueT& frontend_value = frontend_entry->second;
 
                 // No need to insert if already inserted into backend
@@ -198,10 +219,10 @@ void CrlStore<KeyT, ValueT>::glean(const bool is_epoch_manager, std::atomic<bool
                 nop_round = false;
                 if (lentry->opcode == INSERT) {
                     typename BackendT::accessor backend_entry;
-                    backend_.insert(backend_entry, key);
+                    backend_->insert(backend_entry, key);
                     backend_entry->second = frontend_value.value;
                 } else if (lentry->opcode == DELETE) {
-                    backend_.erase(key);
+                    backend_->erase(key);
                 } else {
                     throw std::runtime_error("Unknown opcode: " + std::to_string(lentry->opcode));
                 }
@@ -244,7 +265,7 @@ bool CrlStore<KeyT, ValueT>::Client::put(const KeyT& key, const ValueT& value) {
     }
 
     typename FrontendT::accessor result;
-    const bool is_new = crl_store_.frontend_.insert(result, key);
+    const bool is_new = crl_store_.frontend_->insert(result, key);
 
     LogRecordT* lentry = is_new ? nullptr : result->second.lentry;
     LogRecordT log_entry{.len = LogRecordT::SIZE, .klen = sizeof(KeyT), .opcode = INSERT,
@@ -269,19 +290,19 @@ bool CrlStore<KeyT, ValueT>::Client::put(const KeyT& key, const ValueT& value) {
 template<typename KeyT, typename ValueT>
 bool CrlStore<KeyT, ValueT>::Client::get(const KeyT& key, ValueT* value) {
     typename FrontendT::const_accessor frontend_result;
-    const bool fe_found = crl_store_.frontend_.find(frontend_result, key);
+    const bool fe_found = crl_store_.frontend_->find(frontend_result, key);
     if (fe_found) {
         *value = frontend_result->second.value;
         return true;
     }
 
     typename BackendT::const_accessor backend_result;
-    const bool be_found = crl_store_.backend_.find(backend_result, key);
+    const bool be_found = crl_store_.backend_->find(backend_result, key);
     if (be_found) {
         *value = backend_result->second;
 
         typename FrontendT::accessor frontend_put;
-        crl_store_.frontend_.insert(frontend_put, key);
+        crl_store_.frontend_->insert(frontend_put, key);
         frontend_put->second = FrontendValueT{ .value = *value, .lentry = nullptr, .tombstone = false };
         return true;
     }
@@ -292,7 +313,7 @@ bool CrlStore<KeyT, ValueT>::Client::get(const KeyT& key, ValueT* value) {
 template<typename KeyT, typename ValueT>
 bool CrlStore<KeyT, ValueT>::Client::remove(const KeyT &key) {
     typename FrontendT::accessor frontend_remove;
-    const bool found = crl_store_.frontend_.find(frontend_remove, key);
+    const bool found = crl_store_.frontend_->find(frontend_remove, key);
 
     // Wait if log is full
     size_t current_pos = log_.tail.load();
