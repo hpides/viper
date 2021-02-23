@@ -14,13 +14,15 @@ SET(
         ALL_SYSTEMS_BENCHMARK_FILES
 
         ${BASE_BENCHMARK_FILES}
-        fixtures/rocksdb_fixture.hpp
+#        fixtures/rocksdb_fixture.hpp
         fixtures/faster_fixture.hpp
         fixtures/pmem_kv_fixture.hpp
         fixtures/cceh_fixture.hpp
         fixtures/dash_fixture.hpp
         fixtures/utree.hpp
         fixtures/utree_fixture.hpp
+        fixtures/crl.hpp
+        fixtures/crl_fixture.hpp
         fixtures/tbb_fixture.hpp
 )
 
@@ -90,30 +92,30 @@ set(CMAKE_INSTALL_PREFIX ${OLD_CMAKE_INSTALL_PREFIX})
 
 
 # PMEM-ROCKSDB
-set(PMEM_ROCKSDB_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/pmem-rocksdb")
-ExternalProject_Add(
-        pmem_rocksdb
-        GIT_REPOSITORY https://github.com/lawben/pmem-rocksdb.git
-        GIT_TAG 8352e95
-        PREFIX ${PMEM_ROCKSDB_PREFIX}
-        CONFIGURE_COMMAND ""
-        UPDATE_COMMAND ""
-        INSTALL_COMMAND ""
-        UPDATE_DISCONNECTED 1
-        LOG_BUILD ON
-        BUILD_IN_SOURCE 1
-
-        # Use DRAM cache for now
-        # BUILD_COMMAND $(MAKE) shared_lib -j ROCKSDB_BC_ON_DCPMM=1 ROCKSDB_KVS_ON_DCPMM=1 ROCKSDB_WAL_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=1
-        BUILD_COMMAND $(MAKE) shared_lib -j ROCKSDB_KVS_ON_DCPMM=1 ROCKSDB_WAL_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=1
-)
-# Use DRAM cache for now
-#add_definitions(-DBC_ON_DCPMM=1 -DKVS_ON_DCPMM=1 -DWAL_ON_DCPMM=1)
-add_definitions(-DKVS_ON_DCPMM=1 -DWAL_ON_DCPMM=1)
-
-link_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb)
-include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/include)
-include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/dcpmm)
+#set(PMEM_ROCKSDB_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/pmem-rocksdb")
+#ExternalProject_Add(
+#        pmem_rocksdb
+#        GIT_REPOSITORY https://github.com/lawben/pmem-rocksdb.git
+#        GIT_TAG 8352e95
+#        PREFIX ${PMEM_ROCKSDB_PREFIX}
+#        CONFIGURE_COMMAND ""
+#        UPDATE_COMMAND ""
+#        INSTALL_COMMAND ""
+#        UPDATE_DISCONNECTED 1
+#        LOG_BUILD ON
+#        BUILD_IN_SOURCE 1
+#
+#        # Use DRAM cache for now
+#        # BUILD_COMMAND $(MAKE) shared_lib -j ROCKSDB_BC_ON_DCPMM=1 ROCKSDB_KVS_ON_DCPMM=1 ROCKSDB_WAL_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=1
+#        BUILD_COMMAND $(MAKE) shared_lib -j ROCKSDB_KVS_ON_DCPMM=1 ROCKSDB_WAL_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=1
+#)
+## Use DRAM cache for now
+##add_definitions(-DBC_ON_DCPMM=1 -DKVS_ON_DCPMM=1 -DWAL_ON_DCPMM=1)
+#add_definitions(-DKVS_ON_DCPMM=1 -DWAL_ON_DCPMM=1)
+#
+#link_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb)
+#include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/include)
+#include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/dcpmm)
 
 
 # Dash
@@ -173,7 +175,8 @@ FetchContent_MakeAvailable(hdr_histogram)
 
 add_executable(all_ops_bm all_ops_benchmark.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(all_ops_bm ${LINK_LIBS})
-target_link_libraries(all_ops_bm benchmark snappy faster tbb uuid aio hdr_histogram_static)
+#target_link_libraries(all_ops_bm benchmark snappy faster tbb uuid aio hdr_histogram_static)
+target_link_libraries(all_ops_bm benchmark tbb hdr_histogram_static)
 # TODO: add rocksdb when needed
 #add_dependencies(all_ops_bm pmem_rocksdb)
 #target_link_libraries(all_ops_bm rocksdb)
