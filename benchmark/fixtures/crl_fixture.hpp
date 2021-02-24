@@ -36,7 +36,7 @@ void CrlFixture<KeyT, ValueT>::InitMap(const uint64_t num_prefill_inserts, const
 
     log_pool_name_ = random_file(DB_PMEM_DIR);
     backend_pool_name_ = random_file(DB_PMEM_DIR);
-    const size_t backend_file_size = 0.5 * ONE_GB;
+    const size_t backend_file_size = 0.4 * ONE_GB;
     crl_store_ = std::make_unique<CrlStore<KeyT, ValueT>>(log_pool_name_, backend_pool_name_, backend_file_size);
     prefill(num_prefill_inserts);
     map_initialized_ = true;
@@ -62,7 +62,16 @@ uint64_t CrlFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_idx) 
 
 template <>
 uint64_t CrlFixture<std::string, std::string>::insert(uint64_t start_idx, uint64_t end_idx) {
-    throw std::runtime_error("not supported");
+    uint64_t insert_counter = 0;
+    auto client = crl_store_->get_client();
+    const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
+    const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
+    for (uint64_t key = start_idx; key < end_idx; ++key) {
+        const std::string& db_key = keys[key];
+        const std::string& value = values[key];
+        insert_counter += client.put(db_key, value);
+    }
+    return insert_counter;
 }
 
 template <typename KeyT, typename ValueT>
@@ -90,7 +99,24 @@ uint64_t CrlFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t e
 
 template <>
 uint64_t CrlFixture<std::string, std::string>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
-    throw std::runtime_error("not supported");
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
+    const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
+    const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
+
+    auto client = crl_store_->get_client();
+    uint64_t found_counter = 0;
+    std::string result;
+    for (uint64_t i = 0; i < num_finds; ++i) {
+        const uint64_t key = distrib(rnd_engine);
+        const std::string& db_key = keys[key];
+        const std::string& value = values[key];
+        const bool found = client.get(db_key, &result);
+        found_counter += found && (result == value);
+    }
+    return found_counter;
 }
 
 template <typename KeyT, typename ValueT>

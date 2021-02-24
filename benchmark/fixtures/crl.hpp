@@ -10,6 +10,8 @@
 #include "tbb/concurrent_hash_map.h"
 #include "libpmem.h"
 #include "libpmemobj++/container/concurrent_hash_map.hpp"
+#include "libpmemobj++/container/string.hpp"
+#include "libpmemobj++/container/vector.hpp"
 
 
 namespace viper::kv_bm {
@@ -22,7 +24,11 @@ struct CrlFrontendHash {
     // Use same impl as tbb_hasher
     static const size_t hash_multiplier = tbb::detail::select_size_t_constant<2654435769U, 11400714819323198485ULL>::value;
     inline static size_t hash(const KeyT& a) {
-        return static_cast<size_t>(a.data[0]) * hash_multiplier;
+        if constexpr (std::is_same_v<KeyT, std::string> || std::is_same_v<KeyT, pmem::obj::string>) {
+            return std::_Hash_impl::hash(a.data(), a.length());
+        } else {
+            return static_cast<size_t>(a.data[0]) * hash_multiplier;
+        }
     }
     inline static bool equal(const KeyT& a, const KeyT& b) { return a == b; }
 };
@@ -47,23 +53,22 @@ struct CrlRecord {
     size_t klen;
     OpCode opcode;
     bool applied;
-    CrlRecord* prev;
+    CrlRecord<KeyT, ValueT>* prev;
     size_t epoch;
     KeyT key;
     ValueT value;
 };
 
-template <typename KeyT, typename ValueT>
+template <typename EntryT>
 struct CrossReferencingLog {
-    using Entry = CrlRecord<KeyT, ValueT>;
     static constexpr size_t _LOG_FILE_SIZE = 60 * (1024ul * 1024);
-    static constexpr size_t NUM_ENTRIES = _LOG_FILE_SIZE / sizeof(Entry);
+    static constexpr size_t NUM_ENTRIES = _LOG_FILE_SIZE / sizeof(EntryT);
     static constexpr size_t LOG_FULL = NUM_ENTRIES + 1;
 
     std::atomic<size_t> head;
     std::atomic<size_t> tail;
     std::atomic<bool> locked;
-    std::array<Entry, NUM_ENTRIES> log;
+    std::array<EntryT, NUM_ENTRIES> log;
 
     void init() {
         locked = false;
@@ -72,21 +77,26 @@ struct CrossReferencingLog {
     }
 };
 
-template <typename KeyT, typename ValueT>
+template <typename ValueT, typename EntryT>
 struct FrontendValue {
     ValueT value;
-    CrlRecord<KeyT, ValueT>* lentry;
+    EntryT* lentry;
     bool tombstone;
 };
 
 template <typename KeyT, typename ValueT>
 class CrlStore {
+    using FrontendKeyT = KeyT;
+    using FrontendValueT = ValueT;
+    using BackendKeyT = typename std::conditional<std::is_same_v<KeyT, std::string>, pmem::obj::string, KeyT>::type;
+    using BackendValueT = typename std::conditional<std::is_same_v<ValueT, std::string>, pmem::obj::string, ValueT>::type;
+
     using CrlStoreT = CrlStore<KeyT, ValueT>;
-    using LogRecordT = CrlRecord<KeyT, ValueT>;
-    using CrossReferencingLogT = CrossReferencingLog<KeyT, ValueT>;
-    using FrontendValueT = FrontendValue<KeyT, ValueT>;
-    using FrontendT = tbb::concurrent_hash_map<KeyT, FrontendValueT, CrlFrontendHash<KeyT>>;
-    using BackendT = pmem::obj::concurrent_hash_map<KeyT, ValueT, CrlBackendHash<KeyT>>;
+    using LogRecordT = CrlRecord<BackendKeyT, BackendValueT>;
+    using CrossReferencingLogT = CrossReferencingLog<LogRecordT>;
+    using WrappedFrontendValueT = FrontendValue<FrontendValueT, LogRecordT>;
+    using FrontendT = tbb::concurrent_hash_map<FrontendKeyT, WrappedFrontendValueT, CrlFrontendHash<FrontendKeyT>>;
+    using BackendT = pmem::obj::concurrent_hash_map<BackendKeyT, BackendValueT, CrlBackendHash<BackendKeyT>>;
 
     static constexpr size_t LOG_FILE_SIZE = NUM_LOGS * sizeof(CrossReferencingLogT);
 
@@ -109,21 +119,22 @@ public:
     Client get_client();
 
 private:
-    void glean(bool is_epoch_manager, std::atomic<bool>& killed);
+    void glean(std::atomic<bool>& killed);
 
-    struct BackendRootT {
-        pmem::obj::persistent_ptr<BackendT> pmem_map;
-    };
+    using LogsT = std::array<CrossReferencingLogT, NUM_LOGS>;
+    struct BackendRootT { pmem::obj::persistent_ptr<BackendT> pmem_map; };
+    struct LogRootT { pmem::obj::persistent_ptr<LogsT> logs; };
 
     std::unique_ptr<FrontendT> frontend_;
     pmem::obj::persistent_ptr<BackendT> backend_;
+    pmem::obj::persistent_ptr<LogsT> logs_;
     std::atomic<size_t> num_clients_;
-    std::array<CrossReferencingLogT, NUM_LOGS>* logs_;
     std::vector<std::thread> gleaners_;
     std::array<std::atomic<bool>, NUM_GLEANERS> gleaner_locks_;
 
     const std::string& log_file_;
     const std::string& backend_file_;
+    pmem::obj::pool<LogRootT> log_pool_;
     pmem::obj::pool<BackendRootT> backend_pool_;
 };
 
@@ -131,21 +142,20 @@ template<typename KeyT, typename ValueT>
 CrlStore<KeyT, ValueT>::CrlStore(const std::string& log_file, const std::string& backend_file,
                                  const size_t backend_file_size)
     : log_file_{log_file}, backend_file_{backend_file} {
-    int is_pmem;
-    size_t mapped_length;
-    void* log_addr = pmem_map_file(log_file.c_str(), LOG_FILE_SIZE, PMEM_FILE_CREATE, 0644, &mapped_length, &is_pmem);
-    if (log_addr == nullptr || log_addr == MAP_FAILED) {
-        throw std::runtime_error(std::string("bad mmap log file! ") + std::strerror(errno));
-    }
-    logs_ = static_cast<std::array<CrossReferencingLogT, NUM_LOGS>*>(log_addr);
-    for (CrossReferencingLogT& log : *logs_) {
-        log.init();
-    }
-
     frontend_ = std::make_unique<FrontendT>();
 
     int sds_write_value = 0;
     pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
+
+    log_pool_ = pmem::obj::pool<LogRootT>::create(log_file, "", LOG_FILE_SIZE * 3, S_IRWXU);
+    pmem::obj::transaction::run(log_pool_, [&] {
+        log_pool_.root()->logs = pmem::obj::make_persistent<LogsT>();
+    });
+    logs_ = log_pool_.root()->logs;
+    for (CrossReferencingLogT& log : *logs_) {
+        log.init();
+    }
+
     backend_pool_ = pmem::obj::pool<BackendRootT>::create(backend_file, "", backend_file_size, S_IRWXU);
     pmem::obj::transaction::run(backend_pool_, [&] {
         backend_pool_.root()->pmem_map = pmem::obj::make_persistent<BackendT>();
@@ -155,8 +165,7 @@ CrlStore<KeyT, ValueT>::CrlStore(const std::string& log_file, const std::string&
     gleaners_.reserve(NUM_GLEANERS);
     for (size_t i = 0; i < NUM_GLEANERS; ++i) {
         gleaner_locks_[i] = false;
-        const bool is_epoch_manager = (i == 0);
-        gleaners_.emplace_back(&CrlStoreT::glean, this, is_epoch_manager, std::ref(gleaner_locks_[i]));
+        gleaners_.emplace_back(&CrlStoreT::glean, this, std::ref(gleaner_locks_[i]));
     }
 
     num_clients_ = 0;
@@ -169,7 +178,8 @@ CrlStore<KeyT, ValueT>::~CrlStore() {
 
     frontend_ = nullptr;
     backend_ = nullptr;
-    munmap(logs_, LOG_FILE_SIZE);
+    logs_ = nullptr;
+    log_pool_.close();
     backend_pool_.close();
     pmempool_rm(log_file_.c_str(), 0);
     pmempool_rm(backend_file_.c_str(), 0);
@@ -181,7 +191,7 @@ typename CrlStore<KeyT, ValueT>::Client CrlStore<KeyT, ValueT>::get_client() {
 }
 
 template<typename KeyT, typename ValueT>
-void CrlStore<KeyT, ValueT>::glean(const bool is_epoch_manager, std::atomic<bool>& killed) {
+void CrlStore<KeyT, ValueT>::glean(std::atomic<bool>& killed) {
     const size_t num_entries = CrossReferencingLogT::NUM_ENTRIES;
     while (!killed.load(std::memory_order_acquire)) {
         bool nop_round = true;
@@ -203,13 +213,13 @@ void CrlStore<KeyT, ValueT>::glean(const bool is_epoch_manager, std::atomic<bool
             if (head > tail) { end_entry = num_entries + tail; }
 
             for (size_t entry_num = start_entry; entry_num < end_entry; ++entry_num) {
-                typename FrontendT::accessor frontend_entry;
-
                 // Get from frontend store
+                typename FrontendT::accessor frontend_entry;
                 LogRecordT& record = log.log[entry_num % num_entries];
-                const KeyT& key = record.key;
-                frontend_->insert(frontend_entry, key);
-                FrontendValueT& frontend_value = frontend_entry->second;
+                const BackendKeyT& be_key = record.key;
+                const FrontendKeyT fe_key{be_key};
+                frontend_->insert(frontend_entry, fe_key);
+                WrappedFrontendValueT& frontend_value = frontend_entry->second;
 
                 // No need to insert if already inserted into backend
                 LogRecordT* lentry = frontend_value.lentry;
@@ -218,11 +228,13 @@ void CrlStore<KeyT, ValueT>::glean(const bool is_epoch_manager, std::atomic<bool
                 // Add to backend store
                 nop_round = false;
                 if (lentry->opcode == INSERT) {
-                    typename BackendT::accessor backend_entry;
-                    backend_->insert(backend_entry, key);
-                    backend_entry->second = frontend_value.value;
+                    backend_->insert_or_assign(be_key, frontend_value.value);
+//                    backend_->insert(backend_entry, be_key);
+//                    pmem::obj::transaction::run(backend_pool_, [&] {
+//                        backend_entry->second = frontend_value.value;
+//                    });
                 } else if (lentry->opcode == DELETE) {
-                    backend_->erase(key);
+                    backend_->erase(be_key);
                 } else {
                     throw std::runtime_error("Unknown opcode: " + std::to_string(lentry->opcode));
                 }
@@ -268,11 +280,14 @@ bool CrlStore<KeyT, ValueT>::Client::put(const KeyT& key, const ValueT& value) {
     const bool is_new = crl_store_.frontend_->insert(result, key);
 
     LogRecordT* lentry = is_new ? nullptr : result->second.lentry;
-    LogRecordT log_entry{.len = LogRecordT::SIZE, .klen = sizeof(KeyT), .opcode = INSERT,
-                         .applied = false, .prev = lentry, .epoch = 0, .key = key, .value = value};
-    log_.log[current_pos] = log_entry;
-    LogRecordT* newest_entry = &log_.log[current_pos];
-    pmem_persist(newest_entry, newest_entry->len);
+    LogRecordT& newest_entry = log_.log[current_pos];
+    newest_entry.len = LogRecordT::SIZE;
+    newest_entry.opcode = INSERT;
+    newest_entry.applied = false;
+    newest_entry.prev = lentry;
+    newest_entry.key = key;
+    newest_entry.value = value;
+    pmem_persist(&newest_entry, newest_entry.len);
 
     // Check if this record made log full
     size_t new_tail = (current_pos + 1) % log_.NUM_ENTRIES;
@@ -281,7 +296,7 @@ bool CrlStore<KeyT, ValueT>::Client::put(const KeyT& key, const ValueT& value) {
     log_.tail.store(new_tail);
     pmem_persist(&log_.tail, sizeof(log_.tail));
 
-    FrontendValueT val_entry{.value = value, .lentry = newest_entry, .tombstone = false};
+    WrappedFrontendValueT val_entry{.value = value, .lentry = &newest_entry, .tombstone = false};
     result->second = val_entry;
 
     return is_new;
@@ -303,7 +318,7 @@ bool CrlStore<KeyT, ValueT>::Client::get(const KeyT& key, ValueT* value) {
 
         typename FrontendT::accessor frontend_put;
         crl_store_.frontend_->insert(frontend_put, key);
-        frontend_put->second = FrontendValueT{ .value = *value, .lentry = nullptr, .tombstone = false };
+        frontend_put->second = WrappedFrontendValueT{ .value = *value, .lentry = nullptr, .tombstone = false };
         return true;
     }
 
