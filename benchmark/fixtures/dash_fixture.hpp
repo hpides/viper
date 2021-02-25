@@ -6,27 +6,40 @@
 #include <libpmemobj++/allocator.hpp>
 #include <libpmemobj++/transaction.hpp>
 #include <libpmemobj++/make_persistent.hpp>
-#include <libpmemobj++/container/vector.hpp>
 
 namespace viper::kv_bm {
+
+struct DashVarKeyData {
+    std::array<char, 32> data;
+};
 
 template <typename KeyT>
 struct DashVarKey {
     string_key str_k;
     KeyT key;
+
+    inline static DashVarKey<KeyT> from_string(const std::string& key) {
+        if constexpr (std::is_same_v<KeyT, DashVarKeyData>) {
+            DashVarKey<KeyT> var_key;
+            var_key.str_k.length = key.length();
+            memcpy(&var_key.key.data, key.data(), key.length());
+            return var_key;
+        } else {
+            throw std::runtime_error("not supported");
+        }
+    }
 };
 
 template <typename KeyT = KeyType8, typename ValueT = ValueType8>
 class DashFixture : public BaseFixture {
     static constexpr size_t KeyTSize = sizeof(KeyT);
-    using EntryKeyT = typename std::conditional<KeyTSize == 8, KeyT, DashVarKey<KeyT>>::type;
+    using DashVarKeyT = typename std::conditional<std::is_same_v<KeyT, std::string>,
+                                                    DashVarKey<DashVarKeyData>, DashVarKey<KeyT>>::type;
+    using EntryKeyT = typename std::conditional<KeyTSize == 8, KeyT, DashVarKeyT>::type;
     using DashKeyT = typename std::conditional<KeyTSize == 8, KeyT, string_key*>::type;
     using Entry = std::pair<EntryKeyT, ValueT>;
-    using EntryVector = pmem::obj::vector<pmem::obj::persistent_ptr<Entry>>;
 
-    struct DashPool {
-        pmem::obj::persistent_ptr<EntryVector> ptrs;
-    };
+    struct DashPool {};
 
   public:
     void InitMap(const uint64_t num_prefill_inserts, const bool re_init) final;
@@ -41,11 +54,9 @@ class DashFixture : public BaseFixture {
     void prefill_ycsb(const std::vector<ycsb::Record>& data) override;
 
   protected:
-    Hash<DashKeyT>* dram_map_;
+    Hash<DashKeyT>* dash_;
     pmem::obj::pool<DashPool> pmem_pool_;
     std::string dash_pool_name_;
-    EntryVector* ptrs_;
-    std::atomic<size_t> pool_vector_pos_;
     std::string pmem_pool_name_;
     bool map_initialized_ = false;
 
@@ -65,19 +76,13 @@ void DashFixture<KeyT, ValueT>::InitMap(const uint64_t num_prefill_inserts, cons
     if (pmem_pool_.handle() == nullptr) {
         throw std::runtime_error("Could not create pool");
     }
-    pmem::obj::transaction::run(pmem_pool_, [&] {
-        pmem_pool_.root()->ptrs = pmem::obj::make_persistent<EntryVector>();
-        ptrs_ = pmem_pool_.root()->ptrs.get();
-        ptrs_->resize(num_prefill_inserts * 2);
-    });
 
     size_t segment_number = 64;
     dash_pool_name_ = random_file(DB_PMEM_DIR);
     Allocator::Initialize(dash_pool_name_.c_str(), ONE_GB * 10);
-    dram_map_ = reinterpret_cast<Hash<DashKeyT> *>(Allocator::GetRoot(sizeof(extendible::Finger_EH<DashKeyT>)));
-    new (dram_map_) extendible::Finger_EH<DashKeyT>(segment_number, Allocator::Get()->pm_pool_);
+    dash_ = reinterpret_cast<Hash<DashKeyT> *>(Allocator::GetRoot(sizeof(extendible::Finger_EH<DashKeyT>)));
+    new (dash_) extendible::Finger_EH<DashKeyT>(segment_number, Allocator::Get()->pm_pool_);
 
-    pool_vector_pos_ = 0;
     prefill(num_prefill_inserts);
     map_initialized_ = true;
 }
@@ -88,13 +93,12 @@ void DashFixture<KeyT, ValueT>::DeInitMap() {
     pmempool_rm(pmem_pool_name_.c_str(), 0);
     pmemobj_close(Allocator::Get()->pm_pool_);
     std::filesystem::remove(dash_pool_name_);
-    dram_map_ = nullptr;
+    dash_ = nullptr;
     map_initialized_ = false;
 }
 
 template <typename KeyT, typename ValueT>
-bool DashFixture<KeyT, ValueT>::insert_internal(const KeyT& key, const ValueT& value) {
-    block_size_t ptrs_pos;
+inline bool DashFixture<KeyT, ValueT>::insert_internal(const KeyT& key, const ValueT& value) {
     pmem::obj::persistent_ptr<Entry> offset_ptr;
     pmem::obj::transaction::run(pmem_pool_, [&] {
         if constexpr (sizeof(KeyT) == 8) {
@@ -102,17 +106,25 @@ bool DashFixture<KeyT, ValueT>::insert_internal(const KeyT& key, const ValueT& v
         } else {
             string_key str_k{};
             str_k.length = sizeof(KeyT);
-            DashVarKey<KeyT> var_key{ .str_k = str_k, .key = key };
+            DashVarKeyT var_key{ .str_k = str_k, .key = key };
             offset_ptr = pmem::obj::make_persistent<Entry>(var_key, value);
         }
-        ptrs_pos = pool_vector_pos_.fetch_add(1);
-        (*ptrs_)[ptrs_pos] = offset_ptr;
     });
     if constexpr (sizeof(KeyT) == 8) {
-        return dram_map_->Insert(key, (char *)ptrs_pos) == 0;
+        return dash_->Insert(key, (char *)offset_ptr.get()) == 0;
     } else {
-        return dram_map_->Insert(&(offset_ptr->first.str_k), (char *)ptrs_pos) == 0;
+        return dash_->Insert(&(offset_ptr->first.str_k), (char *)offset_ptr.get()) == 0;
     }
+}
+
+template <>
+inline bool DashFixture<std::string, std::string>::insert_internal(const std::string& key, const std::string& value) {
+    pmem::obj::persistent_ptr<Entry> offset_ptr;
+    pmem::obj::transaction::run(pmem_pool_, [&] {
+        offset_ptr = pmem::obj::make_persistent<Entry>(DashVarKeyT::from_string(key), value);
+    });
+
+    return dash_->Insert(&(offset_ptr->first.str_k), (char *)offset_ptr.get()) == 0;
 }
 
 template <typename KeyT, typename ValueT>
@@ -126,22 +138,18 @@ uint64_t DashFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_idx)
     return insert_counter;
 }
 
-//template <>
-//uint64_t DashFixture<std::string, std::string>::insert(uint64_t start_idx, uint64_t end_idx) {
-//    constexpr size_t num_per_epoch = 1000;
-//    uint64_t insert_counter = 0;
-//    const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
-//    const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
-//    for (uint64_t pos = start_idx; pos < end_idx; pos += num_per_epoch) {
-//        auto epoch_guard = Allocator::AquireEpochGuard();
-//        for (uint64_t ep_count = 0; ep_count < num_per_epoch; ++ep_count) {
-//            const std::string& db_key = keys[pos + ep_count];
-//            const std::string& value = values[pos + ep_count];
-//            insert_counter += insert_internal(db_key, value);
-//        }
-//    }
-//    return insert_counter;
-//}
+template <>
+uint64_t DashFixture<std::string, std::string>::insert(uint64_t start_idx, uint64_t end_idx) {
+    uint64_t insert_counter = 0;
+    const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
+    const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
+    for (uint64_t pos = start_idx; pos < end_idx; ++pos) {
+        const std::string& db_key = keys[pos];
+        const std::string& value = values[pos];
+        insert_counter += insert_internal(db_key, value);
+    }
+    return insert_counter;
+}
 
 template <typename KeyT, typename ValueT>
 uint64_t DashFixture<KeyT, ValueT>::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
@@ -157,20 +165,17 @@ uint64_t DashFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t 
     uint64_t found_counter = 0;
     for (uint64_t i = 0; i < num_finds; ++i) {
         const uint64_t key = distrib(rnd_engine);
-        bool found;
-        block_size_t entry_ptr_pos;
+        const char* val;
         if constexpr (sizeof(KeyT) == 8) {
-            const char* val = dram_map_->Get(key);
-            found = val != NONE;
-            entry_ptr_pos = (block_size_t) val;
+            val = dash_->Get(key);
         } else {
-            DashVarKey<KeyT> var_key{ .str_k = string_key{ .length = sizeof(KeyT) }, .key = key };
-            const char* val = dram_map_->Get(&var_key.str_k);
-            found = val != NONE;
-            entry_ptr_pos = (block_size_t) val;
+            DashVarKeyT var_key{.str_k = string_key{.length = sizeof(KeyT)}, .key = key};
+            val = dash_->Get(&var_key.str_k);
         }
+
+        const bool found = val != NONE;
         if (found) {
-            pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
+            const Entry* entry_ptr = (Entry*) val;
             ValueT found_val = entry_ptr->second;
             found_counter += (found_val.data[0] == key);
         }
@@ -178,36 +183,32 @@ uint64_t DashFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t 
     return found_counter;
 }
 
-//template <>
-//uint64_t DashFixture<std::string, std::string>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
-//    std::random_device rnd{};
-//    auto rnd_engine = std::default_random_engine(rnd());
-//    std::uniform_int_distribution<> distrib(start_idx, end_idx);
-//
-//    auto key_check_fn = [this](const std::string& key, IndexV offset) {
-//        block_size_t entry_ptr_pos = offset.block_number;
-//        pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
-//        return key == entry_ptr->first;
-//    };
-//
-//    const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
-//    const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
-//
-//    uint64_t found_counter = 0;
-//    for (uint64_t i = 0; i < num_finds; ++i) {
-//        const uint64_t key = distrib(rnd_engine);
-//        Dash::DashAccessor accessor{};
-//        const std::string& db_key = keys[key];
-//        const std::string& value = values[key];
-//        const bool found = dram_map_->Get(db_key, accessor, key_check_fn);
-//        if (found) {
-//            block_size_t entry_ptr_pos = accessor->block_number;
-//            pmem::obj::persistent_ptr<Entry> entry_ptr = (*ptrs_)[entry_ptr_pos];
-//            found_counter += (entry_ptr->second == value);
-//        }
-//    }
-//    return found_counter;
-//}
+template <>
+uint64_t DashFixture<std::string, std::string>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
+    std::random_device rnd{};
+    auto rnd_engine = std::default_random_engine(rnd());
+    std::uniform_int_distribution<> distrib(start_idx, end_idx);
+
+    const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
+    const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
+
+    uint64_t found_counter = 0;
+    for (uint64_t i = 0; i < num_finds; ++i) {
+        const uint64_t key = distrib(rnd_engine);
+        const std::string& db_key = keys[key];
+        DashVarKeyT var_key = DashVarKeyT::from_string(db_key);
+        const char* val = dash_->Get(&var_key.str_k);
+
+        const bool found = val != NONE;
+        if (found) {
+            const std::string& value = values[key];
+            const Entry* entry_ptr = (Entry*) val;
+            const std::string found_value = entry_ptr->second;
+            found_counter += (found_value == value);
+        }
+    }
+    return found_counter;
+}
 
 template <typename KeyT, typename ValueT>
 uint64_t DashFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {
@@ -343,7 +344,6 @@ uint64_t DashFixture<KeyType8, ValueType200>::run_ycsb(uint64_t start_idx,
 
 template <typename KeyT, typename ValueT>
 void DashFixture<KeyT, ValueT>::prefill_ycsb(const std::vector<ycsb::Record>& data) {
-    ptrs_->resize(data.size() * 2);
     BaseFixture::prefill_ycsb(data);
 }
 
