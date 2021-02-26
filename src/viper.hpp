@@ -44,7 +44,6 @@ static constexpr version_lock_t NO_CLIENT_BIT = 0b01111111;
 static constexpr version_lock_t UNUSED_BIT    = 0b01000000;
 static constexpr version_lock_t UNLOCKED_BIT  = 0b11111110;
 
-#define PAGE_UNLOCK(lock_val) (((lock_val) + 2) | ((lock_val) & CLIENT_BIT))
 #define IS_LOCKED(lock)       ((lock) & 1)
 
 #define IO_ERROR(msg) throw std::runtime_error(std::string(msg) + " | " + std::strerror(errno) + " (LINE: " + std::to_string(__LINE__) + ')')
@@ -165,6 +164,23 @@ struct alignas(PAGE_SIZE) ViperPage {
         version_lock = 0;
         free_slots.set();
     }
+
+    inline bool lock(const bool blocking = true) {
+        version_lock_t lock_value = version_lock.load(LOAD_ORDER);
+        // Compare and swap until we are the thread to set the lock bit
+        lock_value &= UNLOCKED_BIT;
+        while (!version_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
+            lock_value &= UNLOCKED_BIT;
+            if (!blocking) { return false; }
+        }
+        return true;
+    }
+
+    inline void unlock() {
+        const version_lock_t current_version = version_lock.load(LOAD_ORDER);
+        const version_lock_t new_version = (current_version + 1) | (current_version & CLIENT_BIT);
+        version_lock.store(new_version, STORE_ORDER);
+    }
 };
 
 template <>
@@ -185,6 +201,23 @@ struct alignas(PAGE_SIZE) ViperPage<std::string, std::string> {
         version_lock = 0;
         next_insert_pos = nullptr;
         modified_percentage = 0;
+    }
+
+    inline bool lock(const bool blocking = true) {
+        version_lock_t lock_value = version_lock.load(LOAD_ORDER);
+        // Compare and swap until we are the thread to set the lock bit
+        lock_value &= UNLOCKED_BIT;
+        while (!version_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
+            lock_value &= UNLOCKED_BIT;
+            if (!blocking) { return false; }
+        }
+        return true;
+    }
+
+    inline void unlock() {
+        const version_lock_t current_version = version_lock.load(LOAD_ORDER);
+        const version_lock_t new_version = (current_version + 1) | (current_version & CLIENT_BIT);
+        version_lock.store(new_version, STORE_ORDER);
     }
 };
 
@@ -974,14 +1007,7 @@ inline bool Viper<K, V>::check_key_equality(const K& key, const KVOffset offset_
 
 template <typename K, typename V>
 bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_old) {
-    // Lock v_page. We expect the lock bit to be unset.
-    std::atomic<version_lock_t>& v_lock = v_page_->version_lock;
-    version_lock_t lock_value = v_lock.load(LOAD_ORDER);
-    // Compare and swap until we are the thread to set the lock bit
-    lock_value &= UNLOCKED_BIT;
-    while (!v_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
-        lock_value &= UNLOCKED_BIT;
-    }
+    v_page_->lock();
 
     // We now have the lock on this page
     std::bitset<VPage::num_slots_per_page>* free_slots = &v_page_->free_slots;
@@ -989,7 +1015,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
 
     if (free_slot_idx >= free_slots->size()) {
         // Page is full. Free lock on page and restart.
-        v_lock.store(PAGE_UNLOCK(lock_value), STORE_ORDER);
+        v_page_->unlock();
         update_access_information();
         return put(key, value, delete_old);
     }
@@ -1019,8 +1045,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
         free_occupied_slot(old_offset, key);
     }
 
-    // Unlock the v_page
-    v_lock.store(PAGE_UNLOCK(lock_value), STORE_ORDER);
+    v_page_->unlock();
 
     // We have added one value, so +1
     size_delta_++;
@@ -1031,14 +1056,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
 
 template <>
 bool Viper<std::string, std::string>::Client::put(const std::string& key, const std::string& value, const bool delete_old) {
-    // Lock v_page. We expect the lock bit to be unset.
-    std::atomic<version_lock_t>& v_lock = v_page_->version_lock;
-    version_lock_t lock_value = v_lock.load(LOAD_ORDER);
-    // Compare and swap until we are the thread to set the lock bit
-    lock_value &= UNLOCKED_BIT;
-    while (!v_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
-        lock_value &= UNLOCKED_BIT;
-    }
+    v_page_->lock();
 
     internal::VarSizeEntry entry{key.size(), value.size()};
     bool is_inserted = false;
@@ -1123,8 +1141,7 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
     is_new_item = old_offset.is_tombstone();
     size_delta_++;
 
-    // Unlock the v_page
-    v_lock.store(PAGE_UNLOCK(lock_value), STORE_ORDER);
+    v_page_->unlock();
 
     // Need to free slot at old location for this key
     if (!is_new_item && delete_old) {
@@ -1137,8 +1154,7 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
 
 template <typename K, typename V>
 bool Viper<K, V>::Client::put(const K& key, const V& value) {
-    IndexV previous_offset = IndexV::Tombstone();
-    return put(key, value, &previous_offset);
+    return put(key, value, true);
 }
 
 template <typename K, typename V>
@@ -1202,16 +1218,13 @@ bool Viper<K, V>::Client::update(const K& key, UpdateFn update_fn) {
 
         const auto [block, page, slot] = kv_offset.get_offsets();
         VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
-        std::atomic<version_lock_t> &page_lock = v_page.version_lock;
-        version_lock_t lock_value = page_lock.load(LOAD_ORDER);
-        lock_value &= UNLOCKED_BIT;
-        if (!page_lock.compare_exchange_strong(lock_value, lock_value + 1)) {
+        if (!v_page.lock(false)) {
             // Could not lock page, so the record could be modified and we need to try again
             continue;
         }
 
         update_fn(&(v_page.data[slot].second));
-        page_lock.store(PAGE_UNLOCK(lock_value), STORE_ORDER);
+        v_page.unlock();
         return true;
     }
 }
@@ -1335,7 +1348,7 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
             deadlock_offsets.erase(own_item_pos);
             this->viper_.deadlock_offset_lock_.store(false, STORE_ORDER);
         }
-        v_lock.store(PAGE_UNLOCK(lock_value), STORE_ORDER);
+        v_page.unlock();
     }
 
     --size_delta_;
@@ -1511,7 +1524,23 @@ inline bool Viper<std::string, std::string>::Client::get_value_from_offset(const
 
 template <typename K, typename V>
 void Viper<K, V>::compact(Client& client, VPageBlock* v_block) {
-    // TODO: implement this
+    for (VPage& v_page : v_block->v_pages) {
+        v_page.lock();
+        auto& free_slots = v_page.free_slots;
+        for (size_t slot = 0; slot < v_page.num_slots_per_page; ++slot) {
+            if (free_slots[slot]) {
+                // Slot is free
+                continue;
+            }
+
+            const auto& record = v_page.data[slot];
+            client.put(record.first, record.second, false);
+            free_slots[slot] = 1;
+            pmem_persist(&v_page.free_slots, sizeof(v_page.free_slots));
+        }
+        v_page.unlock();
+    }
+
 }
 
 template <>
@@ -1520,6 +1549,7 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
 
     page_size_t current_page = 0;
     VPage* v_page = &v_block->v_pages[current_page];
+    v_page->lock();
     const char* raw_data = v_page->data.data();
     const char* next_insert_pos = v_page->next_insert_pos;
     bool is_last_page = reinterpret_cast<const void*>(next_insert_pos) != reinterpret_cast<const void*>(v_page);
@@ -1543,7 +1573,9 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
                 return;
             }
 
+            v_page->unlock();
             v_page = &v_block->v_pages[current_page];
+            v_page->lock();
             next_insert_pos = v_page->next_insert_pos;
             raw_data = v_page->data.data();
             is_last_page = reinterpret_cast<const void*>(next_insert_pos) != reinterpret_cast<const void*>(v_page);
@@ -1557,7 +1589,9 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
                 return;
             }
 
+            v_page->unlock();
             v_page = &v_block->v_pages[current_page];
+            v_page->lock();
             next_insert_pos = v_page->next_insert_pos;
             is_last_page = reinterpret_cast<const void*>(next_insert_pos) != reinterpret_cast<const void*>(v_page);
             const char* raw_value_data = v_page->data.data();
@@ -1571,7 +1605,7 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
             const std::string key{var_entry.key()};
             IndexV offset = map_.Get(key, key_check_fn);
             if (!offset.is_tombstone()) {
-                client.put(key, std::string{var_entry.value()});
+                client.put(key, std::string{var_entry.value()}, false);
                 var_entry.is_set = false;
                 pmem_persist(&var_entry.is_set, sizeof(var_entry.is_set));
             }
@@ -1579,6 +1613,8 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
         }
         raw_data += data_skip;
     }
+
+    v_page->unlock();
 }
 
 template <typename K, typename V>
