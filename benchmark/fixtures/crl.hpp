@@ -229,10 +229,6 @@ void CrlStore<KeyT, ValueT>::glean(std::atomic<bool>& killed) {
                 nop_round = false;
                 if (lentry->opcode == INSERT) {
                     backend_->insert_or_assign(be_key, frontend_value.value);
-//                    backend_->insert(backend_entry, be_key);
-//                    pmem::obj::transaction::run(backend_pool_, [&] {
-//                        backend_entry->second = frontend_value.value;
-//                    });
                 } else if (lentry->opcode == DELETE) {
                     backend_->erase(be_key);
                 } else {

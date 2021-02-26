@@ -153,24 +153,36 @@ uint64_t UTreeFixture<KeyType8, ValueType200>::run_ycsb(uint64_t start_idx,
     uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
     throw std::runtime_error("Change UTREE_KEY_T and uncomment block");
 
+//    ValueType200 value;
+//    const ValueType200 null_value{0ul};
+//    std::chrono::high_resolution_clock::time_point start;
+//
 //    uint64_t op_count = 0;
 //    for (int op_num = start_idx; op_num < end_idx; ++op_num) {
 //        const ycsb::Record& record = data[op_num];
 //
-//        const auto start = std::chrono::high_resolution_clock::now();
+//        if (hdr != nullptr) {
+//            start = std::chrono::high_resolution_clock::now();
+//        }
 //
 //        switch (record.op) {
-//            case ycsb::Record::Op::INSERT:
-//            case ycsb::Record::Op::UPDATE: {
+//            case ycsb::Record::Op::INSERT: {
 //                utree_->insert(record.key, record.value);
 //                op_count++;
 //                break;
 //            }
 //            case ycsb::Record::Op::GET: {
-//                ValueType200 value;
 //                const bool found = utree_->search(record.key, &value);
-//                op_count += found && (value == record.value);
+//                op_count += found && (value != null_value);
 //                break;
+//            }
+//            case ycsb::Record::Op::UPDATE: {
+//                const bool found = utree_->search(record.key, &value);
+//                if (found) {
+//                    value.update_value();
+//                    utree_->insert(record.key, value);
+//                    op_count++;
+//                }
 //            }
 //            default: {
 //                throw std::runtime_error("Unknown operation: " + std::to_string(record.op));

@@ -175,41 +175,53 @@ uint64_t CrlFixture<KeyT, ValueT>::run_ycsb(uint64_t, uint64_t, const std::vecto
 
 template <>
 uint64_t CrlFixture<KeyType8, ValueType200>::run_ycsb(uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
-    throw std::runtime_error{"YCSB not implemented yet."};
-//    uint64_t op_count = 0;
-//    for (int op_num = start_idx; op_num < end_idx; ++op_num) {
-//        const ycsb::Record& record = data[op_num];
-//
-//        const auto start = std::chrono::high_resolution_clock::now();
-//
-//        switch (record.op) {
-//            case ycsb::Record::Op::INSERT:
-//            case ycsb::Record::Op::UPDATE: {
-//                crl_store_->insert(record.key, record.value);
-//                op_count++;
-//                break;
-//            }
-//            case ycsb::Record::Op::GET: {
-//                ValueType200 value;
-//                const bool found = crl_store_->search(record.key, &value);
-//                op_count += found && (value == record.value);
-//                break;
-//            }
-//            default: {
-//                throw std::runtime_error("Unknown operation: " + std::to_string(record.op));
-//            }
-//        }
-//
-//        if (hdr == nullptr) {
-//            continue;
-//        }
-//
-//        const auto end = std::chrono::high_resolution_clock::now();
-//        const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-//        hdr_record_value(hdr, duration.count());
-//    }
-//
-//    return op_count;
+    ValueType200 value;
+    const ValueType200 null_value{0ul};
+    std::chrono::high_resolution_clock::time_point start;
+
+    auto client = crl_store_->get_client();
+    uint64_t op_count = 0;
+    for (int op_num = start_idx; op_num < end_idx; ++op_num) {
+        const ycsb::Record& record = data[op_num];
+
+        if (hdr != nullptr) {
+            start = std::chrono::high_resolution_clock::now();
+        }
+
+        switch (record.op) {
+            case ycsb::Record::Op::INSERT: {
+                client.put(record.key, record.value);
+                op_count++;
+                break;
+            }
+            case ycsb::Record::Op::GET: {
+                const bool found = client.get(record.key, &value);
+                op_count += found && (value == record.value);
+                break;
+            }
+            case ycsb::Record::Op::UPDATE: {
+                const bool found = client.get(record.key, &value);
+                if (found) {
+                    value.update_value();
+                    client.put(record.key, value);
+                    op_count++;
+                }
+            }
+            default: {
+                throw std::runtime_error("Unknown operation: " + std::to_string(record.op));
+            }
+        }
+
+        if (hdr == nullptr) {
+            continue;
+        }
+
+        const auto end = std::chrono::high_resolution_clock::now();
+        const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+        hdr_record_value(hdr, duration.count());
+    }
+
+    return op_count;
 }
 
 template <typename KeyT, typename ValueT>
