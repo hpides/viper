@@ -66,7 +66,10 @@ void bm_insert(benchmark::State& state, BaseFixture& fixture) {
 
     uint64_t insert_counter = 0;
     for (auto _ : state) {
+        auto start_op = std::chrono::high_resolution_clock::now();
         insert_counter = fixture.setup_and_insert(start_idx, end_idx);
+        auto end_op = std::chrono::high_resolution_clock::now();
+        state.counters["insert-ns"] = (end_op - start_op).count();
     }
 
     state.SetItemsProcessed(num_inserts_per_thread);
@@ -94,7 +97,10 @@ void bm_update(benchmark::State& state, BaseFixture& fixture) {
 
     uint64_t update_counter = 0;
     for (auto _ : state) {
+        auto start_op = std::chrono::high_resolution_clock::now();
         update_counter = fixture.setup_and_update(start_idx, end_idx, num_updates_per_thread);
+        auto end_op = std::chrono::high_resolution_clock::now();
+        state.counters["update-ns"] = (end_op - start_op).count();
     }
 
     state.SetItemsProcessed(num_updates_per_thread);
@@ -122,7 +128,10 @@ void bm_get(benchmark::State& state, BaseFixture& fixture) {
 
     uint64_t found_counter = 0;
     for (auto _ : state) {
+        auto start_op = std::chrono::high_resolution_clock::now();
         found_counter = fixture.setup_and_find(start_idx, end_idx, num_finds_per_thread);
+        auto end_op = std::chrono::high_resolution_clock::now();
+        state.counters["get-ns"] = (end_op - start_op).count();
     }
 
     state.SetItemsProcessed(num_finds_per_thread);
@@ -150,7 +159,10 @@ void bm_delete(benchmark::State& state, BaseFixture& fixture) {
 
     uint64_t found_counter = 0;
     for (auto _ : state) {
+        auto start_op = std::chrono::high_resolution_clock::now();
         found_counter = fixture.setup_and_delete(start_idx, end_idx, num_deletes_per_thread);
+        auto end_op = std::chrono::high_resolution_clock::now();
+        state.counters["delete-ns"] = (end_op - start_op).count();
     }
 
     state.SetItemsProcessed(found_counter);
