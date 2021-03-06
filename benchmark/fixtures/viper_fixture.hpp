@@ -56,10 +56,6 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
     PMemAllocator::get().initialize();
 #endif
 
-    cpu_set_t cpuset_before;
-    pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
-    set_cpu_affinity();
-
     pool_file_ = VIPER_POOL_FILE;
 //    pool_file_ = random_file(DB_PMEM_DIR);
 //    pool_file_ = DB_PMEM_DIR + std::string("/viper");
@@ -67,8 +63,6 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
 //    viper_ = ViperT::open(pool_file_, v_config);
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE, v_config);
     this->prefill(num_prefill_inserts);
-
-    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
     viper_initialized_ = true;
 }
 
@@ -121,10 +115,10 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t
 
     const auto v_client = viper_->get_read_only_client();
     uint64_t found_counter = 0;
+    ValueT value;
     for (uint64_t i = 0; i < num_finds; ++i) {
         const uint64_t key = distrib(rnd_engine);
         const KeyT db_key{key};
-        ValueT value;
         const bool found = v_client.get(db_key, &value);
         found_counter += found && (value == ValueT{key});
     }
@@ -142,9 +136,9 @@ uint64_t ViperFixture<std::string, std::string>::setup_and_find(uint64_t start_i
 
     auto v_client = viper_->get_read_only_client();
     uint64_t found_counter = 0;
+    std::string result;
     for (uint64_t i = 0; i < num_finds; ++i) {
         const uint64_t key = distrib(rnd_engine);
-        std::string result;
         const std::string& db_key = keys[key];
         const std::string& value = values[key];
         const bool found = v_client.get(db_key, &result);
@@ -220,17 +214,17 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_get_update(uint64_t start_idx, ui
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
 
     auto v_client = viper_->get_client();
-    uint64_t update_counter = 0;
 
+    ValueT new_v{};
     for (uint64_t i = 0; i < num_updates; ++i) {
         const uint64_t key = distrib(rnd_engine);
         const KeyT db_key{key};
-        ValueT new_v{};
         v_client.get(db_key, &new_v);
         new_v.update_value();
-        update_counter += !v_client.put(db_key, new_v);
+        v_client.put(db_key, new_v);
     }
-    return update_counter;
+
+    return num_updates;
 }
 
 template <>
@@ -248,12 +242,16 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
     uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
     uint64_t op_count = 0;
     auto v_client = viper_->get_client();
+    ValueType200 value;
     const ValueType200 null_value{0ul};
 
+    std::chrono::high_resolution_clock::time_point start;
     for (int op_num = start_idx; op_num < end_idx; ++op_num) {
         const ycsb::Record& record = data[op_num];
 
-        const auto start = std::chrono::high_resolution_clock::now();
+        if (hdr != nullptr) {
+            start = std::chrono::high_resolution_clock::now();
+        }
 
         switch (record.op) {
             case ycsb::Record::Op::INSERT: {
@@ -262,7 +260,6 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
                 break;
             }
             case ycsb::Record::Op::GET: {
-                ValueType200 value;
                 const bool found = v_client.get(record.key, &value);
                 op_count += found && (value != null_value);
                 break;

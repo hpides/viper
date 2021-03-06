@@ -458,6 +458,7 @@ Viper<K, V>::Viper(ViperBase v_base, const std::filesystem::path pool_dir, const
     is_resizing_ = false;
     is_reclaiming_ = false;
     num_active_clients_ = 0;
+    deadlock_offset_lock_ = false;
 
     std::srand(std::time(nullptr));
 
@@ -898,11 +899,10 @@ KeyValueOffset Viper<K, V>::get_new_block() {
         client_block = v_block_page.block_number;
 
         const block_size_t new_block = client_block + 1;
-        assert(new_block < v_blocks_.size());
-
         while (client_block >= num_v_blocks_.load(LOAD_ORDER)) {
             asm("nop");
         }
+        assert(new_block < v_blocks_.size());
 
         // Choose random offset to evenly distribute load on all DIMMs
         page_size_t new_page = 0;
@@ -929,7 +929,7 @@ void Viper<K, V>::trigger_resize() {
         // Used for benchmarks. remove.
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
-        CPU_SET(71, &cpuset);
+        CPU_SET(0, &cpuset);
         pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
         ViperFileMapping mapping = allocate_v_page_blocks();
         add_v_page_blocks(mapping);
@@ -1057,6 +1057,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
 template <>
 bool Viper<std::string, std::string>::Client::put(const std::string& key, const std::string& value, const bool delete_old) {
     v_page_->lock();
+    VPage* start_v_page = v_page_;
 
     internal::VarSizeEntry entry{key.size(), value.size()};
     bool is_inserted = false;
@@ -1141,7 +1142,7 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
     is_new_item = old_offset.is_tombstone();
     size_delta_++;
 
-    v_page_->unlock();
+    start_v_page->unlock();
 
     // Need to free slot at old location for this key
     if (!is_new_item && delete_old) {
@@ -1285,7 +1286,7 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
             // Client may be in a deadlock situation
             lock_value &= UNLOCKED_BIT;
             if (++retries == num_deadlock_retries) {
-                std::cout << "Failed\n";
+                // std::cout << "Failed" << std::endl;
                 has_lock = false;
                 break;
             }
@@ -1322,7 +1323,7 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
             }
         }
         deadlock_offsets = std::move(new_offsets);
-        this->viper_.deadlock_offset_lock_.store(false, STORE_ORDER);
+        this->viper_.deadlock_offset_lock_.store(false);
 
         if (!encountered_own_offset) {
             // The old offset that this client need to delete was deleted by another client, we can return.
@@ -1346,7 +1347,7 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
             auto own_item_pos = std::find(deadlock_offsets.begin(), deadlock_offsets.end(), offset_to_delete);
             assert(own_item_pos != deadlock_offsets.end());
             deadlock_offsets.erase(own_item_pos);
-            this->viper_.deadlock_offset_lock_.store(false, STORE_ORDER);
+            this->viper_.deadlock_offset_lock_.store(false);
         }
         v_page.unlock();
     }

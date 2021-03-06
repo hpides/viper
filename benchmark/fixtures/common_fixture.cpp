@@ -43,8 +43,8 @@ void BaseFixture::prefill_internal(const size_t num_prefills, PrefillFn prefill_
     set_cpu_affinity();
 
     std::vector<std::thread> prefill_threads{};
-    const size_t num_prefills_per_thread = (num_prefills / NUM_UTIL_THREADS) + 1;
-    for (size_t thread_num = 0; thread_num < NUM_UTIL_THREADS; ++thread_num) {
+    const size_t num_prefills_per_thread = (num_prefills / num_util_threads_) + 1;
+    for (size_t thread_num = 0; thread_num < num_util_threads_; ++thread_num) {
         const size_t start_key = thread_num * num_prefills_per_thread;
         const size_t end_key = std::min(start_key + num_prefills_per_thread, num_prefills);
         prefill_threads.emplace_back([=]() {

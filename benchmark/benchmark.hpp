@@ -85,21 +85,28 @@ using Offset = uint64_t;
 
 using KeyType8 = BMRecord<uint32_t, 2>;
 using KeyType16 = BMRecord<uint32_t, 4>;
+using KeyType32 = BMRecord<uint32_t, 8>;
 using KeyType100 = BMRecord<uint32_t, 25>;
 using ValueType8 = KeyType8;
 using ValueType100 = KeyType100;
 using ValueType200 = BMRecord<uint32_t, 50>;
+using ValueType500 = BMRecord<uint32_t, 125>;
 using ValueType900 = BMRecord<uint32_t, 225>;
 
 #if defined(NVRAM01)
-static constexpr char VIPER_POOL_FILE[] = "/dev/dax1.1";
-static constexpr char DB_PMEM_DIR[] = "/mnt/nvrams2/viper";
-static constexpr char DB_FILE_DIR[] = "/scratch/viper";
-static constexpr char RESULT_FILE_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper1/results/";
-static constexpr char CONFIG_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper1/benchmark/config/";
 static constexpr size_t CPU_AFFINITY_OFFSET = 36;
+static constexpr char VIPER_POOL_FILE[] = "/dev/dax1.1";
+static constexpr char DB_PMEM_DIR[] = "/mnt/pmem2/viper";
+static constexpr char DB_FILE_DIR[] = "/scratch/lawrence.benson/viper";
+
+// TODO: change back to home dir
+//static constexpr char RESULT_FILE_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper1/results/";
+//static constexpr char CONFIG_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper1/benchmark/config/";
+static constexpr char RESULT_FILE_DIR[] = "/scratch/lawrence.benson/code/results/";
+static constexpr char CONFIG_DIR[] = "/scratch/lawrence.benson/code/benchmark/config/";
+
 //static constexpr size_t CPU_AFFINITY_OFFSET = 0;
-//static constexpr char DB_PMEM_DIR[] = "/mnt/nvrams1/viper";
+//static constexpr char DB_PMEM_DIR[] = "/mnt/pmem1/viper";
 #elif defined(NVRAM02)
 static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.0";
 static constexpr char DB_PMEM_DIR[] = "/mnt/nvram-viper";
@@ -108,13 +115,13 @@ static constexpr char RESULT_FILE_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/
 static constexpr char CONFIG_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper/benchmark/config/";
 static constexpr size_t CPU_AFFINITY_OFFSET = 0;
 #else
-static constexpr char VIPER_POOL_FILE[] = "/path/to/devdax";
-static constexpr char DB_PMEM_DIR[] = "/path/to/pmem/fs";
-static constexpr char DB_FILE_DIR[] = "/path/to/disk/fs";
-static constexpr char RESULT_FILE_DIR[] = "/path/to/results/";
-static constexpr char CONFIG_DIR[] = "/path/to/benchmark/config/";
-static constexpr size_t CPU_AFFINITY_OFFSET = -1;  // 0 or #logical-cpu-per-socket
-static_assert(false, "Need to set these variables for unknown host.");
+static constexpr char VIPER_POOL_FILE[] = "/mnt/pmem/viper/";
+static constexpr char DB_PMEM_DIR[] = "/mnt/pmem/";
+static constexpr char DB_FILE_DIR[] = "/home/user/data/";
+static constexpr char RESULT_FILE_DIR[] = "/home/user/viper/results/";
+static constexpr char CONFIG_DIR[] = "/home/user/viper/benchmark/config/";
+static constexpr size_t CPU_AFFINITY_OFFSET = 0;  // 0 or #logical-cpu-per-socket
+//static_assert(false, "Need to set these variables for unknown host.");
 #endif
 
 static constexpr uint64_t ONE_GB = (1024ul*1024*1024) * 1;  // 1GB

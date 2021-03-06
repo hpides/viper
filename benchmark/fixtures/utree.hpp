@@ -1104,8 +1104,7 @@ bool btree::remove(entry_key_t key) {
         prev = list_head;
     }
     if (prev->next != cur) {
-        exit(1);
-        goto retry;
+       return false;
     } else {
         // Delete it.
         if (!__sync_bool_compare_and_swap(&(prev->next), cur, cur->next))

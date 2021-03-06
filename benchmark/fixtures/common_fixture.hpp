@@ -44,10 +44,8 @@ void zero_block_device(const std::string& block_dev, size_t length);
 
 class BaseFixture : public benchmark::Fixture {
   public:
-    void SetUp(benchmark::State& state) override {
-        hdr_init(1, 1000000000, 4, &hdr_);
-    }
-    void TearDown(benchmark::State& state) override {};
+    void SetUp(benchmark::State& state) override {}
+    void TearDown(benchmark::State& state) override {}
 
     virtual void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) {};
     virtual void DeInitMap() {};
@@ -77,14 +75,15 @@ class BaseFixture : public benchmark::Fixture {
     }
 
     hdr_histogram* get_hdr() { return hdr_; }
+    hdr_histogram* hdr_ = nullptr;
 
     static void log_find_count(benchmark::State& state, const uint64_t num_found, const uint64_t num_expected);
 
   protected:
     virtual uint64_t insert(uint64_t start_idx, uint64_t end_idx) = 0;
 
-    hdr_histogram* hdr_;
     std::mutex hdr_lock_;
+    size_t num_util_threads_ = NUM_UTIL_THREADS;
 
     static VarSizeKVs var_size_kvs_;
 };

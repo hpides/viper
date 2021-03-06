@@ -16,8 +16,8 @@
 
 namespace viper::kv_bm {
 
-static constexpr size_t NUM_GLEANERS = 1;
-static constexpr size_t NUM_LOGS = 4;
+static constexpr size_t MAX_NUM_GLEANERS = 18;
+static constexpr size_t NUM_LOGS = 18;
 
 template <typename KeyT>
 struct CrlFrontendHash {
@@ -110,16 +110,21 @@ public:
         bool put(const KeyT& key, const ValueT& value);
         bool get(const KeyT& key, ValueT* value);
         bool remove(const KeyT& key);
+        ~Client();
     protected:
-        Client(CrlStoreT& crl_store, size_t client_id);
+        Client(CrlStoreT& crl_store, size_t client_id, bool add_gleaner);
         CrlStoreT& crl_store_;
         CrossReferencingLogT& log_;
+        const bool has_gleaner_;
     };
 
     Client get_client();
+    Client get_read_only_client();
+
+    void collect_gleaners();
 
 private:
-    void glean(std::atomic<bool>& killed);
+    void glean(const size_t id, std::atomic<bool>& killed);
 
     using LogsT = std::array<CrossReferencingLogT, NUM_LOGS>;
     struct BackendRootT { pmem::obj::persistent_ptr<BackendT> pmem_map; };
@@ -130,7 +135,9 @@ private:
     pmem::obj::persistent_ptr<LogsT> logs_;
     std::atomic<size_t> num_clients_;
     std::vector<std::thread> gleaners_;
-    std::array<std::atomic<bool>, NUM_GLEANERS> gleaner_locks_;
+    std::atomic<size_t> num_gleaners_;
+    std::atomic<bool> adding_gleaner_;
+    std::array<std::atomic<bool>, MAX_NUM_GLEANERS> gleaner_locks_;
 
     const std::string& log_file_;
     const std::string& backend_file_;
@@ -162,19 +169,15 @@ CrlStore<KeyT, ValueT>::CrlStore(const std::string& log_file, const std::string&
     });
     backend_ = backend_pool_.root()->pmem_map;
 
-    gleaners_.reserve(NUM_GLEANERS);
-    for (size_t i = 0; i < NUM_GLEANERS; ++i) {
-        gleaner_locks_[i] = false;
-        gleaners_.emplace_back(&CrlStoreT::glean, this, std::ref(gleaner_locks_[i]));
-    }
-
+    num_gleaners_.store(0);
+    adding_gleaner_.store(false);
+    gleaners_.resize(MAX_NUM_GLEANERS);
     num_clients_ = 0;
 }
 
 template<typename KeyT, typename ValueT>
 CrlStore<KeyT, ValueT>::~CrlStore() {
-    for (std::atomic<bool>& lock : gleaner_locks_) { lock.store(true); }
-    for (std::thread& t : gleaners_) { t.join(); }
+    collect_gleaners();
 
     frontend_ = nullptr;
     backend_ = nullptr;
@@ -187,81 +190,104 @@ CrlStore<KeyT, ValueT>::~CrlStore() {
 
 template<typename KeyT, typename ValueT>
 typename CrlStore<KeyT, ValueT>::Client CrlStore<KeyT, ValueT>::get_client() {
-    return CrlStore::Client(*this, num_clients_.fetch_add(1));
+    return CrlStore::Client(*this, num_clients_.fetch_add(1), true);
 }
 
 template<typename KeyT, typename ValueT>
-void CrlStore<KeyT, ValueT>::glean(std::atomic<bool>& killed) {
+typename CrlStore<KeyT, ValueT>::Client CrlStore<KeyT, ValueT>::get_read_only_client() {
+    return CrlStore::Client(*this, 0, false);
+}
+
+template<typename KeyT, typename ValueT>
+void CrlStore<KeyT, ValueT>::collect_gleaners() {
+    for (std::atomic<bool>& lock : gleaner_locks_) { lock.store(true); }
+    for (std::thread& t : gleaners_) {
+        if (t.joinable()) { t.join(); }
+    }
+    num_gleaners_.store(0);
+    gleaners_.clear();
+    gleaners_.resize(MAX_NUM_GLEANERS);
+}
+
+template<typename KeyT, typename ValueT>
+void CrlStore<KeyT, ValueT>::glean(const size_t id, std::atomic<bool>& killed) {
+    set_cpu_affinity(id + (NUM_MAX_THREADS / 2));
     const size_t num_entries = CrossReferencingLogT::NUM_ENTRIES;
-    while (!killed.load(std::memory_order_acquire)) {
+    CrossReferencingLogT &log = logs_->at(id);
+    while (!killed.load()) {
+        const size_t head = log.head.load();
+        const size_t tail = log.tail.load();
+        const size_t start_entry = head;
+        size_t end_entry = tail;
+
+        // Nothing to do for this log
+        if (head == tail) { continue; }
+
+        // Might have circled in log
+        if (head > tail) { end_entry = num_entries + tail; }
+
         bool nop_round = true;
-        for (CrossReferencingLogT& log : *logs_) {
-            // if (killed.load(std::memory_order_acquire)) { return; }
-            const size_t head = log.head.load();
-            const size_t tail = log.tail.load();
-            const size_t start_entry = head;
-            size_t end_entry = tail;
+        for (size_t entry_num = start_entry; entry_num < end_entry; ++entry_num) {
+            // Get from frontend store
+            typename FrontendT::accessor frontend_entry;
+            LogRecordT &record = log.log[entry_num % num_entries];
+            const BackendKeyT &be_key = record.key;
+            const FrontendKeyT fe_key{be_key};
+            frontend_->insert(frontend_entry, fe_key);
+            WrappedFrontendValueT &frontend_value = frontend_entry->second;
 
-            // Nothing to do for this log
-            if (head == tail) { continue; }
+            // No need to insert if already inserted into backend
+            LogRecordT *lentry = frontend_value.lentry;
+            if (lentry == nullptr || lentry->applied) { continue; }
 
-            // Log is locked, continue
-            bool expected = false;
-            if (!log.locked.compare_exchange_strong(expected, true)) { continue; }
-
-            // Might have circled in log
-            if (head > tail) { end_entry = num_entries + tail; }
-
-            for (size_t entry_num = start_entry; entry_num < end_entry; ++entry_num) {
-                // Get from frontend store
-                typename FrontendT::accessor frontend_entry;
-                LogRecordT& record = log.log[entry_num % num_entries];
-                const BackendKeyT& be_key = record.key;
-                const FrontendKeyT fe_key{be_key};
-                frontend_->insert(frontend_entry, fe_key);
-                WrappedFrontendValueT& frontend_value = frontend_entry->second;
-
-                // No need to insert if already inserted into backend
-                LogRecordT* lentry = frontend_value.lentry;
-                if (lentry == nullptr || lentry->applied) { continue; }
-
-                // Add to backend store
-                nop_round = false;
-                if (lentry->opcode == INSERT) {
-                    backend_->insert_or_assign(be_key, frontend_value.value);
-                } else if (lentry->opcode == DELETE) {
-                    backend_->erase(be_key);
-                } else {
-                    throw std::runtime_error("Unknown opcode: " + std::to_string(lentry->opcode));
-                }
-
-                // Update log record
-                lentry->applied = true;
-                pmem_persist(&lentry->applied, sizeof(lentry->applied));
-                __atomic_compare_exchange_n(&frontend_value.lentry, lentry, nullptr, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE);
+            // Add to backend store
+            nop_round = false;
+            if (lentry->opcode == INSERT) {
+                backend_->insert_or_assign(be_key, frontend_value.value);
+            } else if (lentry->opcode == DELETE) {
+                backend_->erase(be_key);
+            } else {
+                throw std::runtime_error("Unknown opcode: " + std::to_string(lentry->opcode));
             }
 
-            const size_t new_head = (tail + 1) % log.NUM_ENTRIES;
-            log.head.store(new_head);
+            // Update log record
+            lentry->applied = true;
+            pmem_persist(&lentry->applied, sizeof(lentry->applied));
+            __atomic_compare_exchange_n(&frontend_value.lentry, lentry, nullptr, false, __ATOMIC_ACQUIRE,
+                                        __ATOMIC_ACQUIRE);
+        }
 
-            const size_t full_tail = log.tail.load();
-            if (full_tail == log.LOG_FULL) {
-                // Need to set log free again
-                log.tail.store(head);
-            }
+        const size_t new_head = (tail + 1) % log.NUM_ENTRIES;
+        log.head.store(new_head);
 
-            log.locked.store(false);
+        const size_t full_tail = log.tail.load();
+        if (full_tail == log.LOG_FULL) {
+            // Need to set log free again
+            log.tail.store(head);
+        }
 
-            if (nop_round) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
+        if (nop_round) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
 }
 
 template<typename KeyT, typename ValueT>
-CrlStore<KeyT, ValueT>::Client::Client(CrlStoreT& crl_store, size_t client_id)
-    : crl_store_{crl_store}, log_{crl_store.logs_->at(client_id)} {}
+CrlStore<KeyT, ValueT>::Client::Client(CrlStoreT& crl_store, size_t client_id, bool add_gleaner)
+    : crl_store_{crl_store}, log_{crl_store.logs_->at(client_id)}, has_gleaner_{add_gleaner} {
+    if (add_gleaner) {
+        auto& gleaner_lock = crl_store_.gleaner_locks_[client_id];
+        gleaner_lock.store(false);
+        crl_store_.gleaners_[client_id] = std::thread{&CrlStoreT::glean, &crl_store_, client_id, std::ref(gleaner_lock)};
+    }
+}
+
+template<typename KeyT, typename ValueT>
+CrlStore<KeyT, ValueT>::Client::~Client() {
+    if (has_gleaner_) {
+        crl_store_.num_clients_--;
+    }
+}
 
 template<typename KeyT, typename ValueT>
 bool CrlStore<KeyT, ValueT>::Client::put(const KeyT& key, const ValueT& value) {
@@ -334,11 +360,13 @@ bool CrlStore<KeyT, ValueT>::Client::remove(const KeyT &key) {
     }
 
     LogRecordT* lentry = found ? frontend_remove->second.lentry : nullptr;
-    LogRecordT log_entry{.len = LogRecordT::SIZE, .klen = sizeof(KeyT), .opcode = DELETE,
-                         .applied = false, .prev = lentry, .epoch = 0, .key = key};
-    log_.log[current_pos] = log_entry;
-    LogRecordT* newest_entry = &log_.log[current_pos];
-    pmem_persist(newest_entry, newest_entry->len);
+    LogRecordT& newest_entry = log_.log[current_pos];
+    newest_entry.len = LogRecordT::SIZE;
+    newest_entry.opcode = DELETE;
+    newest_entry.applied = false;
+    newest_entry.prev = lentry;
+    newest_entry.key = key;
+    pmem_persist(&newest_entry, newest_entry.len);
 
     // Check if this record made log full
     size_t new_tail = (current_pos + 1) % log_.NUM_ENTRIES;

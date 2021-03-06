@@ -34,11 +34,13 @@ void CrlFixture<KeyT, ValueT>::InitMap(const uint64_t num_prefill_inserts, const
         return;
     }
 
+    num_util_threads_ = 18;
     log_pool_name_ = random_file(DB_PMEM_DIR);
     backend_pool_name_ = random_file(DB_PMEM_DIR);
-    const size_t backend_file_size = 0.4 * ONE_GB;
+    const size_t backend_file_size = 80 * ONE_GB;
     crl_store_ = std::make_unique<CrlStore<KeyT, ValueT>>(log_pool_name_, backend_pool_name_, backend_file_size);
     prefill(num_prefill_inserts);
+    crl_store_->collect_gleaners();
     map_initialized_ = true;
 }
 
@@ -85,14 +87,14 @@ uint64_t CrlFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t e
     auto rnd_engine = std::default_random_engine(rnd());
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
 
-    auto client = crl_store_->get_client();
+    auto client = crl_store_->get_read_only_client();
     uint64_t found_counter = 0;
     ValueT value;
     for (uint64_t i = 0; i < num_finds; ++i) {
         const uint64_t key = distrib(rnd_engine);
         const KeyT db_key{key};
         const bool found = client.get(db_key, &value);
-        found_counter += found && (value.data[0] == key);
+        found_counter += found && (value == ValueT{key});
     }
     return found_counter;
 }
@@ -196,7 +198,7 @@ uint64_t CrlFixture<KeyType8, ValueType200>::run_ycsb(uint64_t start_idx, uint64
             }
             case ycsb::Record::Op::GET: {
                 const bool found = client.get(record.key, &value);
-                op_count += found && (value == record.value);
+                op_count += found && (value != null_value);
                 break;
             }
             case ycsb::Record::Op::UPDATE: {
@@ -227,6 +229,7 @@ uint64_t CrlFixture<KeyType8, ValueType200>::run_ycsb(uint64_t start_idx, uint64
 template <typename KeyT, typename ValueT>
 void CrlFixture<KeyT, ValueT>::prefill_ycsb(const std::vector<ycsb::Record>& data) {
     BaseFixture::prefill_ycsb(data);
+    crl_store_->collect_gleaners();
 }
 
 }  // namespace

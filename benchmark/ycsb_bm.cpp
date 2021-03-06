@@ -9,13 +9,19 @@
 #include "fixtures/common_fixture.hpp"
 #include "fixtures/viper_fixture.hpp"
 #include "fixtures/faster_fixture.hpp"
+#include "fixtures/crl_fixture.hpp"
+#include "fixtures/dash_fixture.hpp"
+//#include "fixtures/rocksdb_fixture.hpp"
 #include "fixtures/pmem_kv_fixture.hpp"
-#include "fixtures/cceh_fixture.hpp"
 #include "fixtures/ycsb_common.hpp"
+
+#define YCSB_BM
+#define UTREE_KEY_T viper::kv_bm::KeyType8
+#include "fixtures/utree_fixture.hpp"
 
 using namespace viper::kv_bm;
 
-static constexpr char BASE_DIR[] = "/hpi/fs00/home/lawrence.benson/data";
+static constexpr char BASE_DIR[] = "/mnt/nvme2/viper";
 static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
 
 #define GENERAL_ARGS \
@@ -25,6 +31,7 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
             ->UseRealTime() \
             ->ThreadRange(1, NUM_MAX_THREADS) \
             ->Threads(24)
+//            ->ThreadRange(1, 18) \
 
 #define DEFINE_BM(fixture, workload, data) \
             BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _tp, KeyType8, ValueType200)(benchmark::State& state) { \
@@ -63,6 +70,7 @@ void ycsb_run(benchmark::State& state, BaseFixture& fixture, std::vector<ycsb::R
             ycsb::read_workload_file(wl_file, data);
             std::cout << "Done reading workload file." << std::endl;
         }
+        hdr_init(1, 1000000000, 4, &fixture.hdr_);
     }
 
     struct hdr_histogram* hdr;
@@ -88,6 +96,7 @@ void ycsb_run(benchmark::State& state, BaseFixture& fixture, std::vector<ycsb::R
         state.SetItemsProcessed(num_ops_per_thread);
         if (log_latency) {
             fixture.merge_hdr(hdr);
+            hdr_close(hdr);
         }
     }
 
@@ -105,9 +114,8 @@ void ycsb_run(benchmark::State& state, BaseFixture& fixture, std::vector<ycsb::R
             state.counters["hdr_999"] = hdr_value_at_percentile(global_hdr, 99.9);
             state.counters["hdr_9999"] = hdr_value_at_percentile(global_hdr, 99.99);
             // hdr_percentiles_print(global_hdr, stdout, 3, 1.0, CLASSIC);
-            hdr_close(hdr);
+            hdr_close(global_hdr);
         }
-
 
         fixture.DeInitMap();
     }
@@ -117,13 +125,18 @@ void ycsb_run(benchmark::State& state, BaseFixture& fixture, std::vector<ycsb::R
     }
 }
 
-ALL_BMS(PmemHybridFasterFixture);
 ALL_BMS(ViperFixture);
-ALL_BMS(CcehFixture);
-ALL_BMS(PmemKVFixture);
-ALL_BMS(NvmFasterFixture);
+//ALL_BMS(PmemKVFixture);
+//ALL_BMS(UTreeFixture);
+//ALL_BMS(CrlFixture);
+//ALL_BMS(DashFixture);
+
+//ALL_BMS(RocksDbFixture);
+//ALL_BMS(PmemHybridFasterFixture);
+
 
 int main(int argc, char** argv) {
+    std::cout << "Prefilling data..." << std::endl;
     std::filesystem::path prefill_file = BASE_DIR + std::string{PREFILL_FILE};
     ycsb::read_workload_file(prefill_file, &prefill_data);
 

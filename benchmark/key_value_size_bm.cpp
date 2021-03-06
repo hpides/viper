@@ -5,6 +5,8 @@
 #include "fixtures/cceh_fixture.hpp"
 #include "fixtures/faster_fixture.hpp"
 #include "fixtures/pmem_kv_fixture.hpp"
+#include "fixtures/crl_fixture.hpp"
+#include "fixtures/dash_fixture.hpp"
 
 using namespace viper::kv_bm;
 
@@ -15,7 +17,7 @@ constexpr size_t KV_SIZES_INSERT_SIZE = KV_SIZES_PREFILL_SIZE / 2;
 constexpr size_t KV_SIZES_NUM_FINDS = 50'000'000 * KV_SIZES_SCALE_FACTOR;
 
 #define GENERAL_ARGS \
-            ->Repetitions(KV_SIZES_NUM_REPETITIONS) \
+              Repetitions(KV_SIZES_NUM_REPETITIONS) \
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
@@ -26,7 +28,7 @@ constexpr size_t KV_SIZES_NUM_FINDS = 50'000'000 * KV_SIZES_SCALE_FACTOR;
                                      KeyType##KS, ValueType##VS)(benchmark::State& state) { \
             bm_##method(state, *this); \
         } \
-        BENCHMARK_REGISTER_F(fixture, method ##_ ##KS ##_ ##VS) GENERAL_ARGS
+        BENCHMARK_REGISTER_F(fixture, method ##_ ##KS ##_ ##VS)->GENERAL_ARGS
 
 #define DEFINE_BM(fixture, KS, VS) \
         DEFINE_BM_INTERNAL(fixture, insert, KS, VS) \
@@ -35,10 +37,11 @@ constexpr size_t KV_SIZES_NUM_FINDS = 50'000'000 * KV_SIZES_SCALE_FACTOR;
             ->Args({KV_SIZES_PREFILL_SIZE / (KS + VS), KV_SIZES_NUM_FINDS})
 
 #define DEFINE_ALL_BMS(fixture) \
-        DEFINE_BM(fixture, 8, 8); \
-        DEFINE_BM(fixture, 16, 200); \
-        DEFINE_BM(fixture, 16, 100); \
-        DEFINE_BM(fixture, 100, 900)
+        DEFINE_BM(fixture,   8,   8); \
+        DEFINE_BM(fixture,  16, 200); \
+        DEFINE_BM(fixture,  32, 500); \
+        DEFINE_BM(fixture, 100, 900); \
+
 
 inline void bm_insert(benchmark::State& state, BaseFixture& fixture) {
     const uint64_t num_total_prefill = state.range(0);
@@ -92,7 +95,8 @@ inline void bm_get(benchmark::State& state, BaseFixture& fixture) {
 }
 
 DEFINE_ALL_BMS(ViperFixture);
-DEFINE_ALL_BMS(CcehFixture);
+//DEFINE_ALL_BMS(CrlFixture);
+//DEFINE_ALL_BMS(DashFixture);
 //DEFINE_ALL_BMS(PmemHybridFasterFixture);
 //DEFINE_ALL_BMS(PmemKVFixture);
 

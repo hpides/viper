@@ -5,13 +5,10 @@
 
 using namespace viper::kv_bm;
 
-constexpr size_t RECLAIM_NUM_PREFILLS = 10'000'000;
-constexpr size_t RECLAIM_NUM_TOTAL_VALUES = RECLAIM_NUM_PREFILLS * 2;
-constexpr size_t RECLAIM_NUM_DELETES = 3'300'000;
 constexpr size_t RECLAIM_NUM_OPS_PER_ITERATION = 50'000;
 constexpr size_t RECLAIM_NUM_OP_THREADS = 32;
 constexpr size_t RECLAIM_NUM_WRITE_IT =  200;
-constexpr size_t RECLAIM_NUM_READ_IT =  1000;
+constexpr size_t RECLAIM_NUM_READ_IT =  4000;
 constexpr size_t RECLAIM_NUM_MIXED_IT =  400;
 
 std::atomic<bool> reclaim_done = false;
@@ -21,10 +18,17 @@ std::atomic<bool> reclaim_done = false;
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime()
 
-#define DEFINE_BM(method) \
+#define DEFINE_VAR_BM(method) \
     BENCHMARK_TEMPLATE2_DEFINE_F(ViperFixture, reclaim_var ##_ ##method, std::string, std::string)(benchmark::State& state) { \
         bm_reclaim(state, *this, #method);  } \
     BENCHMARK_REGISTER_F(ViperFixture, reclaim_var ##_ ##method) GENERAL_ARGS \
+     ->Threads(RECLAIM_NUM_OP_THREADS + 1)->Threads(RECLAIM_NUM_OP_THREADS);
+    // Reclaim with extra thread            No reclaim
+
+#define DEFINE_FIXED_BM(method) \
+    BENCHMARK_TEMPLATE2_DEFINE_F(ViperFixture, reclaim_fixed ##_ ##method, KeyType16, ValueType200)(benchmark::State& state) { \
+        bm_reclaim(state, *this, #method);  } \
+    BENCHMARK_REGISTER_F(ViperFixture, reclaim_fixed ##_ ##method) GENERAL_ARGS \
      ->Threads(RECLAIM_NUM_OP_THREADS + 1)->Threads(RECLAIM_NUM_OP_THREADS);
     // Reclaim with extra thread            No reclaim
 
@@ -38,16 +42,20 @@ inline void bm_reclaim(benchmark::State& state, VFixture& fixture, std::string m
 
     set_cpu_affinity(state.thread_index);
 
+    const size_t num_prefills = method == "READ" ? 100'000'000 : 10'000'000;
+    const size_t num_deletes = num_prefills / 3;
+    const size_t num_total_values = num_prefills * 2;
+
     if (is_init_thread(state)) {
         if constexpr (std::is_same_v<typename VFixture::KeyType, std::string>) {
-            fixture.generate_strings(RECLAIM_NUM_TOTAL_VALUES, 16, 200);
+            fixture.generate_strings(num_total_values, 16, 200);
         }
 
-        fixture.InitMap(RECLAIM_NUM_PREFILLS, v_config);
-        fixture.setup_and_delete(0, RECLAIM_NUM_PREFILLS - 1, RECLAIM_NUM_DELETES);
+        fixture.InitMap(num_prefills, v_config);
+        fixture.setup_and_delete(0, num_prefills - 1, num_deletes);
     }
 
-    const size_t ops_per_thread = RECLAIM_NUM_PREFILLS / RECLAIM_NUM_OP_THREADS;
+    const size_t ops_per_thread = num_prefills / RECLAIM_NUM_OP_THREADS;
     size_t ops_performed = 0;
 
     uint64_t duration_ms = 0;
@@ -59,7 +67,7 @@ inline void bm_reclaim(benchmark::State& state, VFixture& fixture, std::string m
             fixture.getViper()->reclaim();
             reclaim_done.store(true);
         } else {
-            size_t base_i = (state.thread_index * ops_per_thread) + RECLAIM_NUM_PREFILLS;
+            size_t base_i = (state.thread_index * ops_per_thread) + num_prefills;
             const bool is_mixed = method == "MIXED";
             bool is_writing = method == "WRITE";
             bool is_reading = method == "READ";
@@ -80,7 +88,7 @@ inline void bm_reclaim(benchmark::State& state, VFixture& fixture, std::string m
                     fixture.insert(start_i, end_i);
                     start_i += RECLAIM_NUM_OPS_PER_ITERATION;
                 } else {
-                    fixture.setup_and_find(0, RECLAIM_NUM_PREFILLS - 1, RECLAIM_NUM_OPS_PER_ITERATION);
+                    fixture.setup_and_find(0, num_prefills - 1, RECLAIM_NUM_OPS_PER_ITERATION);
                 }
 
                 if (is_mixed) {
@@ -112,10 +120,13 @@ inline void bm_reclaim(benchmark::State& state, VFixture& fixture, std::string m
     }
 }
 
+//DEFINE_FIXED_BM(WRITE);
+DEFINE_FIXED_BM(READ);
+//DEFINE_FIXED_BM(MIXED);
 
-DEFINE_BM(WRITE);
-DEFINE_BM(READ);
-//DEFINE_BM(MIXED);
+//DEFINE_VAR_BM(READ);
+//DEFINE_VAR_BM(WRITE);
+//DEFINE_VAR_BM(MIXED);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];

@@ -4,6 +4,7 @@
 #include "core/faster.h"
 #include "environment/file.h"
 #include "device/file_system_disk.h"
+#include "device/null_disk.h"
 #include "libpmem.h"
 
 namespace viper {
@@ -11,15 +12,9 @@ namespace kv_bm {
 
 template <typename KeyT, typename ValueT>
 class FasterFixture : public BaseFixture {
-    static constexpr size_t data_size_max_ = MAX_DATA_SIZE * (sizeof(KeyT) + sizeof(ValueT));
-    static constexpr size_t prefill_size_max_ = NUM_PREFILLS * (sizeof(KeyT) + sizeof(ValueT));
-    static constexpr size_t LOG_FILE_SEGMENT_SIZE = 1 * (1024l * 1024 * 1024);
-    static constexpr size_t LOG_MEMORY_SIZE = 6 * (1024l * 1024 * 1024);
+    static constexpr size_t LOG_FILE_SEGMENT_SIZE = 1 * ONE_GB;
+    static constexpr size_t LOG_MEMORY_SIZE = 6 * ONE_GB;
     static constexpr size_t NVM_LOG_SIZE = LOG_MEMORY_SIZE;
-//    static constexpr size_t LOG_MEMORY_SIZE = prefill_size_max_ / 4;
-//    static constexpr size_t NVM_LOG_SIZE = prefill_size_max_ / 4;
-
-    static constexpr size_t INITIAL_MAP_SIZE = 1L << 25;
 
   public:
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true);
@@ -469,6 +464,7 @@ class FasterFixture : public BaseFixture {
     typedef typename std::conditional<std::is_same_v<ValueT, std::string>, FasterValueVar, FasterValue>::type FV_T;
     typedef FASTER::environment::QueueIoHandler handler_t;
     typedef FASTER::device::FileSystemDisk<handler_t, LOG_FILE_SEGMENT_SIZE> disk_t;
+//    typedef FASTER::device::NullDisk disk_t;
     typedef FASTER::core::FasterKv<FK_T, FV_T, disk_t> faster_t;
 
     std::unique_ptr<faster_t> db_;
@@ -476,7 +472,7 @@ class FasterFixture : public BaseFixture {
     std::filesystem::path db_dir_;
     bool faster_initialized_;
     const uint64_t kRefreshInterval = 64;
-    const uint64_t kCompletePendingInterval = 10;
+    const uint64_t kCompletePendingInterval = 1000;
 };
 
 template <typename KeyT = KeyType16, typename ValueT = ValueType200>
@@ -516,7 +512,6 @@ void FasterFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const bo
         // Default to 33 mio. buckets
         initial_map_size = 1UL << 25;
     }
-//   const size_t initial_map_size = INITIAL_MAP_SIZE;
 
     // Make sure this is a multiple of 32 MiB
     const size_t page_size = FASTER::core::PersistentMemoryMalloc<disk_t>::kPageSize;
@@ -526,10 +521,11 @@ void FasterFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const bo
         log_memory_size = (size_t)(NVM_LOG_SIZE / page_size) * page_size;
     }
 
-    std::cout << "Creating FASTER with " << initial_map_size << " buckets and a "
+    DEBUG_LOG("Creating FASTER with " << initial_map_size << " buckets and a "
               << (log_memory_size / ONE_GB) << " GiB log in " << (is_nvm ? "NVM" : "DRAM")
-              << " mode." << std::endl;
+              << " mode." << std::endl);
     db_ = std::make_unique<faster_t>(initial_map_size, log_memory_size, db_dir_);
+//    db_ = std::make_unique<faster_t>(initial_map_size, log_memory_size, "");
 
     prefill(num_prefill_inserts);
     faster_initialized_ = true;
@@ -546,7 +542,6 @@ template <typename KeyT, typename ValueT>
 uint64_t FasterFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_idx) {
     uint64_t insert_counter = 0;
     auto callback = [](FASTER::core::IAsyncContext* ctxt, FASTER::core::Status result) {
-//        CallbackContext<UpsertContext> context{ctxt};
         if (result != FASTER::core::Status::Ok) {
             throw new std::runtime_error("Bad insert");
         }
@@ -567,10 +562,10 @@ uint64_t FasterFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_id
         BaseContext base{is_nvm, &insert_counter};
         if constexpr (std::is_same_v<KeyT, std::string>) {
             UpsertContext<FasterKeyVar, FasterValueVar> context{FasterKeyVar{key}, key, base};
-            insert_counter += db_->Upsert(context, callback, key) == FASTER::core::Status::Ok;
+            insert_counter += db_->Upsert(context, callback, 1) == FASTER::core::Status::Ok;
         } else {
             UpsertContext<FasterKey, FasterValue> context{FasterKey{key}, key, base};
-            insert_counter += db_->Upsert(context, callback, key) == FASTER::core::Status::Ok;
+            insert_counter += db_->Upsert(context, callback, 1) == FASTER::core::Status::Ok;
         }
     }
 
@@ -615,7 +610,7 @@ uint64_t FasterFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
 
     std::vector<ValueT> results{};
-    results.reserve(num_finds);
+    results.resize(num_finds);
     for (uint64_t i = 0; i < num_finds; ++i) {
         if (i % kRefreshInterval == 0) {
             db_->Refresh();
@@ -747,17 +742,21 @@ uint64_t FasterFixture<KeyType8, ValueType200>::run_ycsb(
 
     db_->StartSession();
     const bool is_nvm = is_nvm_log();
+    ValueType200 value;
+    const ValueType200 null_value{0ul};
+    std::chrono::high_resolution_clock::time_point start;
 
     for (int op_num = start_idx; op_num < end_idx; ++op_num) {
         if (op_num % kRefreshInterval == 0) {
             db_->Refresh();
         }
         if (op_num % kCompletePendingInterval == 0) {
-//              db_->CompletePending(false);
-            db_->CompletePending(true);
+            db_->CompletePending(false);
         }
 
-        const auto start = std::chrono::high_resolution_clock::now();
+        if (hdr != nullptr) {
+            start = std::chrono::high_resolution_clock::now();
+        }
 
         const ycsb::Record& record = data[op_num];
         switch (record.op) {
@@ -795,11 +794,10 @@ uint64_t FasterFixture<KeyType8, ValueType200>::run_ycsb(
                     }
                 };
 
-                ValueType200 result;
                 BaseContext base{is_nvm, &op_count, hdr, start};
-                ReadContext<FasterKey, FasterValue> context{FasterKey{record.key}, &result, base};
+                ReadContext<FasterKey, FasterValue> context{FasterKey{record.key}, &value, base};
                 const bool found = db_->Read(context, callback, op_num) == FASTER::core::Status::Ok;
-                const bool success = found && (result.data[0] != 0);
+                const bool success = found && (value != null_value);
                 if (success) {
                     op_count++;
                     break;

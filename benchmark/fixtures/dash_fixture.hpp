@@ -13,6 +13,16 @@ struct DashVarKeyData {
     std::array<char, 32> data;
 };
 
+struct DashVarValue {
+    size_t length;
+    std::array<char, 400> data;
+
+    inline void from_string(const std::string& value) {
+        length = value.length();
+        memcpy(data.data(), value.data(), value.length());
+    }
+};
+
 template <typename KeyT>
 struct DashVarKey {
     string_key str_k;
@@ -35,9 +45,10 @@ class DashFixture : public BaseFixture {
     static constexpr size_t KeyTSize = sizeof(KeyT);
     using DashVarKeyT = typename std::conditional<std::is_same_v<KeyT, std::string>,
                                                     DashVarKey<DashVarKeyData>, DashVarKey<KeyT>>::type;
+    using DashValueT = typename std::conditional<std::is_same_v<ValueT, std::string>, DashVarValue, ValueT>::type;
     using EntryKeyT = typename std::conditional<KeyTSize == 8, KeyT, DashVarKeyT>::type;
     using DashKeyT = typename std::conditional<KeyTSize == 8, KeyT, string_key*>::type;
-    using Entry = std::pair<EntryKeyT, ValueT>;
+    using Entry = std::pair<EntryKeyT, DashValueT>;
 
     struct DashPool {};
 
@@ -118,14 +129,22 @@ inline bool DashFixture<KeyT, ValueT>::insert_internal(const KeyT& key, const Va
 }
 
 template <>
+inline bool DashFixture<KeyType8, ValueType8>::insert_internal(const KeyType8& key, const ValueType8& value) {
+    return dash_->Insert(key, (char*)value.data.data()) == 0;
+}
+
+template <>
 inline bool DashFixture<std::string, std::string>::insert_internal(const std::string& key, const std::string& value) {
     pmem::obj::persistent_ptr<Entry> offset_ptr;
+    DashVarValue p_val;
+    p_val.from_string(value);
     pmem::obj::transaction::run(pmem_pool_, [&] {
-        offset_ptr = pmem::obj::make_persistent<Entry>(DashVarKeyT::from_string(key), value);
+        offset_ptr = pmem::obj::make_persistent<Entry>(DashVarKeyT::from_string(key), p_val);
     });
 
     return dash_->Insert(&(offset_ptr->first.str_k), (char *)offset_ptr.get()) == 0;
 }
+
 
 template <typename KeyT, typename ValueT>
 uint64_t DashFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_idx) {
@@ -175,9 +194,14 @@ uint64_t DashFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t 
 
         const bool found = val != NONE;
         if (found) {
-            const Entry* entry_ptr = (Entry*) val;
-            ValueT found_val = entry_ptr->second;
-            found_counter += (found_val.data[0] == key);
+            if constexpr (sizeof(ValueT) == 8) {
+                ValueType8 found_val = (uint64_t)val;
+                found_counter += (found_val.data[0] == key);
+            } else {
+                const Entry *entry_ptr = (Entry *) val;
+                ValueT found_val = entry_ptr->second;
+                found_counter += (found_val == ValueT{key});
+            }
         }
     }
     return found_counter;
@@ -203,8 +227,9 @@ uint64_t DashFixture<std::string, std::string>::setup_and_find(uint64_t start_id
         if (found) {
             const std::string& value = values[key];
             const Entry* entry_ptr = (Entry*) val;
-            const std::string found_value = entry_ptr->second;
-            found_counter += (found_value == value);
+            const DashVarValue found_value = entry_ptr->second;
+            const bool cmp_len = found_value.length == value.length();
+            found_counter += cmp_len && memcmp(found_value.data.data(), value.data(), found_value.length) == 0;
         }
     }
     return found_counter;
@@ -230,7 +255,7 @@ uint64_t DashFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_
         const bool found = val != NONE;
         if (found) {
             Entry* entry = (Entry*) val;
-            ValueType200 value = entry->second;
+            ValueT value = entry->second;
             value.update_value();
             update_counter += !insert_internal(KeyT{key}, value);
         }

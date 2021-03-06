@@ -209,10 +209,14 @@ uint64_t PmemKVFixture<KeyType8, ValueType200>::run_ycsb(
     uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
     uint64_t op_count = 0;
 
+    std::chrono::high_resolution_clock::time_point start;
+    std::string value;
     for (int op_num = start_idx; op_num < end_idx; ++op_num) {
         const ycsb::Record& record = data[op_num];
 
-        const auto start = std::chrono::high_resolution_clock::now();
+        if (hdr != nullptr) {
+            start = std::chrono::high_resolution_clock::now();
+        }
 
         switch (record.op) {
             case ycsb::Record::Op::INSERT: {
@@ -222,7 +226,6 @@ uint64_t PmemKVFixture<KeyType8, ValueType200>::run_ycsb(
                 break;
             }
             case ycsb::Record::Op::GET: {
-                std::string value;
                 const pmem::kv::string_view db_key{(char*) &record.key.data, sizeof(KeyType8)};
 
                 const bool found = pmem_db_->get(db_key, &value) == pmem::kv::status::OK;

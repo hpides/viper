@@ -14,34 +14,15 @@ else()
 endif()
 
 # PMDK
-set(PMDK_INCLUDE_HINTS ${CMAKE_INCLUDE_PATH} "/usr/include" "/usr/local/include")
-set(PMDK_HINTS "/usr/local/lib64" "/usr/local/lib" "/usr/lib" "/usr/lib64")
-find_path(PMEM_INCLUDE_DIRS libpmem.h REQUIRED HINTS ${PMDK_INCLUDE_HINTS})
-find_library(PMEM_LIBRARIES NAMES pmem libpmem REQUIRED HINTS ${PMDK_HINTS})
-
-if (NOT PMEM_INCLUDE_DIRS OR "${PMEM_INCLUDE_DIRS}" STREQUAL "")
-    message(FATAL_ERROR "ERROR: libpmem include directory not found.")
-endif ()
-if (NOT PMEM_LIBRARIES OR "${PMEM_LIBRARIES}" STREQUAL "")
-    message(FATAL_ERROR "ERROR: libpmem library not found.")
-endif ()
-
-include_directories(${LIBPMEM_INCLUDE_DIRS})
-message(STATUS "PMDK provided. Including ${PMEM_INCLUDE_DIRS} and linking ${PMEM_LIBRARIES}.")
+set(PMDK_PATH "/scratch/pmem/pmdk")
+set(PMDK_LIB "${PMDK_PATH}/lib/libpmem.so")
+include_directories("${PMDK_PATH}/include")
+link_directories("${PMDK_PATH}/lib")
 
 # memkind
-find_library(MEMKIND_LIBS NAMES memkind REQUIRED HINTS ${PMDK_HINTS})
-if (NOT MEMKIND_LIBS OR "${MEMKIND_LIBS}" STREQUAL "")
-    message(FATAL_ERROR "ERROR: libmemkind library not found.")
-endif ()
-message(STATUS "Found memkind at ${MEMKIND_LIBS}.")
+link_directories("/scratch/pmem/memkind/lib")
 
-#SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${PMEM_LIB_PATH};/usr/local/lib")
-#set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PATH}:${PMEM_LIB_PATH}:/usr/local/lib")
-#set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-
-SET(LINK_LIBS pthread pmem pmemobj pmempool ${MEMKIND_LIBS})
-#pmemkv pmemlog /usr/local/lib/libmemkind.so.0
+SET(LINK_LIBS pthread pmem pmemobj pmempool memkind)
 
 # Concurrent Queue
 FetchContent_Declare(

@@ -59,18 +59,18 @@ DRAM_COLOR = '#0080FF'
 PMEM_COLOR = '#303030'
 
 STYLES = {
-    VIPER[0]:         Style('#990000', '.', 12, 'x'),
-    PMEMKV[0]:        Style('#009900', 'D', 10, ''),
-    HYBRID_FASTER[0]: Style('#990099', '^', 10, '\\\\'),
-    DASH[0]:          Style('#404040', 'o', 10, '//'),
-    ROCKS[0]:         Style('#000099', 'v',  8, ''),
-    UTREE[0]:         Style('#999900', '>',  8, ''),
-    CRL_STORE[0]:     Style('#009999', 's',  8, ''),
+    VIPER[0]:         Style('#990000',  '.', 12, 'x'),
+    PMEMKV[0]:        Style('#009900',  'D', 10, ''),
+    HYBRID_FASTER[0]: Style('#990099',  '^', 10, '\\\\'),
+    DASH[0]:          Style(PMEM_COLOR, 'o', 10, '//'),
+    ROCKS[0]:         Style('#000099',  'v',  8, ''),
+    UTREE[0]:         Style('#999900',  '>',  8, ''),
+    CRL_STORE[0]:     Style(DRAM_COLOR, 's',  8, ''),
 
     VIPER_PMEM[0]:      Style(PMEM_COLOR, 'o', 10, 'o'),
     VIPER_DRAM[0]:      Style(DRAM_COLOR, 's',  8, '//'),
     VIPER_UNALIGNED[0]: Style('#990000',  's',  8, '//'),
-    # CCEH[0]:          Style('#000099', 's',  8, '//'),
+    CCEH[0]:          Style('#000099', 's',  8, '//'),
     # NVM_FASTER[0]:    Style('#666600', 'v', 10, '-'),
     # DRAM_MAP[0]:      Style('#404040', 'o', 10, '//'),
 }

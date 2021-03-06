@@ -33,7 +33,7 @@
 namespace viper {
 
 #ifdef CCEH_PERSISTENT
-static constexpr char CCEH_PMEM_POOL_FILE[] = "/mnt/nvram-viper/cceh-allocator.file";
+static constexpr char CCEH_PMEM_POOL_FILE[] = "/mnt/pmem2/viper/cceh-allocator.file";
 class PMemAllocator {
   public:
     static PMemAllocator& get() {
@@ -560,6 +560,8 @@ IndexV CCEH<KeyType>::Insert(const KeyType& key, IndexV value, KeyCheckFn key_ch
             }
             s[0]->sema.store(0);
         }  // End of critical section
+
+        delete s;
     }
 }
 
@@ -635,6 +637,8 @@ size_t CCEH<KeyType>::Capacity(void) {
 
 template <typename KeyType>
 CCEH<KeyType>::~CCEH() {
+#ifndef CCEH_PERSISTENT
+    // Only clean up in volatile mode
     std::unordered_map<Segment<KeyType>*, bool> set;
     for (size_t i = 0; i < dir->capacity; ++i) {
         set[dir->_[i]] = true;
@@ -642,6 +646,7 @@ CCEH<KeyType>::~CCEH() {
     for (auto const& [seg, foo] : set) {
         delete seg;
     }
+#endif
 }
 
 }  // namespace cceh

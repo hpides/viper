@@ -5,7 +5,7 @@
 
 using namespace viper::kv_bm;
 
-constexpr size_t UPDATE_NUM_REPETITIONS = 3;
+constexpr size_t UPDATE_NUM_REPETITIONS = 1;
 constexpr size_t UPDATE_NUM_PREFILLS = 100'000'000;
 constexpr size_t UPDATE_NUM_INSERTS = 50'000'000;
 
@@ -14,7 +14,7 @@ constexpr size_t UPDATE_NUM_INSERTS = 50'000'000;
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
-            ->ThreadRange(1, 36) \
+            ->ThreadRange(1, NUM_MAX_THREADS) \
             ->Threads(24)
 
 #define DEFINE_BM_INTERNAL(fixture, method) \
@@ -89,7 +89,7 @@ DEFINE_BM(ViperFixture);
 
 int main(int argc, char** argv) {
     std::string exec_name = argv[0];
-//    const std::string arg = get_output_file("update/update");
-//    return bm_main({exec_name, arg});
-    return bm_main({exec_name});
+    const std::string arg = get_output_file("update/update");
+    return bm_main({exec_name, arg});
+//    return bm_main({exec_name});
 }

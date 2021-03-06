@@ -4,19 +4,18 @@
 #include "fixtures/viper_fixture.hpp"
 #include "fixtures/faster_fixture.hpp"
 #include "fixtures/pmem_kv_fixture.hpp"
-#include "fixtures/cceh_fixture.hpp"
+#include "fixtures/crl_fixture.hpp"
+#include "fixtures/dash_fixture.hpp"
 
 using namespace viper::kv_bm;
 
 constexpr size_t VAR_SIZES_NUM_REPETITIONS = 1;
-constexpr size_t VAR_SIZES_PREFILL_SIZE = 20 * (1000l * 1000 * 1000);
+constexpr size_t VAR_SIZES_PREFILL_SIZE = 20 * (1024ul * 1024 * 1024);
 constexpr size_t VAR_SIZES_INSERT_SIZE = VAR_SIZES_PREFILL_SIZE / 2;
 constexpr size_t VAR_SIZES_NUM_FINDS = 50'000'000;
-constexpr size_t VAR_SIZES_NUM_UPDATES = 50'000'000;
-constexpr size_t VAR_SIZES_NUM_DELETES = 50'000'000;
 
 #define GENERAL_ARGS \
-            ->Repetitions(VAR_SIZES_NUM_REPETITIONS) \
+              Repetitions(VAR_SIZES_NUM_REPETITIONS) \
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime() \
@@ -28,7 +27,7 @@ constexpr size_t VAR_SIZES_NUM_DELETES = 50'000'000;
                                     std::string, std::string)(benchmark::State& state) { \
             bm_##method(state, *this, KS, VS); \
         } \
-        BENCHMARK_REGISTER_F(fixture, method ##_ ##KS ##_ ##VS) GENERAL_ARGS
+        BENCHMARK_REGISTER_F(fixture, method ##_ ##KS ##_ ##VS)->GENERAL_ARGS
 
 #define DEFINE_BM(fixture, KS, VS) \
         DEFINE_BM_INTERNAL(fixture, insert, KS, VS) \
@@ -99,9 +98,10 @@ void bm_get(benchmark::State& state, BaseFixture& fixture, size_t key_size, size
 }
 
 //DEFINE_ALL_BMS(ViperFixture);
-DEFINE_ALL_BMS(CcehFixture);
-//DEFINE_ALL_BMS(PmemHybridFasterFixture);
+DEFINE_ALL_BMS(CrlFixture);
 //DEFINE_ALL_BMS(PmemKVFixture);
+//DEFINE_ALL_BMS(DashFixture);
+//DEFINE_ALL_BMS(PmemHybridFasterFixture);
 
 
 int main(int argc, char** argv) {

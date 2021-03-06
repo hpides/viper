@@ -19,6 +19,8 @@ namespace viper::kv_bm {
 template <typename KeyT = KeyType16, typename ValueT = ValueType200>
 class UTreeFixture : public BaseFixture {
   public:
+    static constexpr bool IS_YCSBABLE = std::is_same_v<UTREE_KEY_T, KeyType8>;
+
     void InitMap(const uint64_t num_prefill_inserts, const bool re_init) final;
     void DeInitMap() final;
     uint64_t setup_and_insert(uint64_t start_idx, uint64_t end_idx) final;
@@ -128,9 +130,14 @@ uint64_t UTreeFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64
     auto rnd_engine = std::default_random_engine(rnd());
     std::uniform_int_distribution<> distrib(start_idx, end_idx);
 
+    const size_t prefills_per_thread = (100'000'000 / num_util_threads_) + 1;
+
     uint64_t delete_counter = 0;
     for (uint64_t i = 0; i < num_deletes; ++i) {
         const uint64_t key = distrib(rnd_engine);
+        if (key % prefills_per_thread == 0) {
+            continue;
+        }
         const KeyT db_key{key};
         delete_counter += utree_->remove(db_key);
     }
@@ -151,54 +158,55 @@ uint64_t UTreeFixture<KeyT, ValueT>::run_ycsb(uint64_t, uint64_t, const std::vec
 template <>
 uint64_t UTreeFixture<KeyType8, ValueType200>::run_ycsb(uint64_t start_idx,
     uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
-    throw std::runtime_error("Change UTREE_KEY_T and uncomment block");
+#ifdef YCSB_BM
+    ValueType200 value;
+    const ValueType200 null_value{0ul};
+    std::chrono::high_resolution_clock::time_point start;
+    uint64_t op_count = 0;
+    for (int op_num = start_idx; op_num < end_idx; ++op_num) {
+        const ycsb::Record &record = data[op_num];
 
-//    ValueType200 value;
-//    const ValueType200 null_value{0ul};
-//    std::chrono::high_resolution_clock::time_point start;
-//
-//    uint64_t op_count = 0;
-//    for (int op_num = start_idx; op_num < end_idx; ++op_num) {
-//        const ycsb::Record& record = data[op_num];
-//
-//        if (hdr != nullptr) {
-//            start = std::chrono::high_resolution_clock::now();
-//        }
-//
-//        switch (record.op) {
-//            case ycsb::Record::Op::INSERT: {
-//                utree_->insert(record.key, record.value);
-//                op_count++;
-//                break;
-//            }
-//            case ycsb::Record::Op::GET: {
-//                const bool found = utree_->search(record.key, &value);
-//                op_count += found && (value != null_value);
-//                break;
-//            }
-//            case ycsb::Record::Op::UPDATE: {
-//                const bool found = utree_->search(record.key, &value);
-//                if (found) {
-//                    value.update_value();
-//                    utree_->insert(record.key, value);
-//                    op_count++;
-//                }
-//            }
-//            default: {
-//                throw std::runtime_error("Unknown operation: " + std::to_string(record.op));
-//            }
-//        }
-//
-//        if (hdr == nullptr) {
-//            continue;
-//        }
-//
-//        const auto end = std::chrono::high_resolution_clock::now();
-//        const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-//        hdr_record_value(hdr, duration.count());
-//    }
-//
-//    return op_count;
+        if (hdr != nullptr) {
+            start = std::chrono::high_resolution_clock::now();
+        }
+
+        switch (record.op) {
+            case ycsb::Record::Op::INSERT: {
+                utree_->insert(record.key, record.value);
+                op_count++;
+                break;
+            }
+            case ycsb::Record::Op::GET: {
+                const bool found = utree_->search(record.key, &value);
+                op_count += found && (value != null_value);
+                break;
+            }
+            case ycsb::Record::Op::UPDATE: {
+                const bool found = utree_->search(record.key, &value);
+                if (found) {
+                    value.update_value();
+                    utree_->insert(record.key, value);
+                    op_count++;
+                }
+            }
+            default: {
+                throw std::runtime_error("Unknown operation: " + std::to_string(record.op));
+            }
+        }
+
+        if (hdr == nullptr) {
+            continue;
+        }
+
+        const auto end = std::chrono::high_resolution_clock::now();
+        const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+        hdr_record_value(hdr, duration.count());
+    }
+
+    return op_count;
+#else
+    throw std::runtime_error("Change UTREE_KEY_T to 8");
+#endif
 }
 
 template <typename KeyT, typename ValueT>

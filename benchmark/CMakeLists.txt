@@ -48,74 +48,70 @@ set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing benchmark's tests" FORC
 FetchContent_MakeAvailable(google_benchmark)
 
 # libpmemobj++
-set(LIBPMEMOBJ_CPP_VERSION 2df10e8)
-set(LIBPMEMOBJ_CPP_DOWNLOAD_PATH https://github.com/pmem/libpmemobj-cpp/tarball/${LIBPMEMOBJ_CPP_VERSION})
-set(LIBPMEMOBJ_CPP_DOWNLOAD_DIR ${CMAKE_CURRENT_BINARY_DIR}/libpmemobj-cpp.tar.gz)
-file(DOWNLOAD ${LIBPMEMOBJ_CPP_DOWNLOAD_PATH} ${LIBPMEMOBJ_CPP_DOWNLOAD_DIR})
-execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf "${LIBPMEMOBJ_CPP_DOWNLOAD_DIR}" WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-set(LIBPMEMOBJ_CPP_DIR ${CMAKE_CURRENT_BINARY_DIR}/pmem-libpmemobj-cpp-${LIBPMEMOBJ_CPP_VERSION})
-set(LIBPMEMOBJ_CPP_INCLUDE_PATH ${LIBPMEMOBJ_CPP_DIR}/include)
-include_directories(${LIBPMEMOBJ_CPP_INCLUDE_PATH})
+include_directories("/scratch/pmem/libpmemobj-cpp/include")
 
-set(OLD_CMAKE_INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX})
-set(CMAKE_INSTALL_PREFIX ${LIBPMEMOBJ_CPP_DIR})
-set(SRCVERSION 1.11)
-set(LIBPMEMOBJ_REQUIRED_VERSION 1.9)
-configure_file(${LIBPMEMOBJ_CPP_DIR}/cmake/libpmemobj++.pc.in  ${LIBPMEMOBJ_CPP_DIR}/libpmemobj++.pc @ONLY)
-unset(LIBPMEMOBJ_REQUIRED_VERSION)
-unset(SRCVERSION)
-set(CMAKE_INSTALL_PREFIX ${OLD_CMAKE_INSTALL_PREFIX})
-#
-## PmemKV
-#set(OLD_CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH})
-#set(CMAKE_PREFIX_PATH ${LIBPMEMOBJ_CPP_DIR})
-#FetchContent_Declare(
-#        pmemkv
-#        GIT_REPOSITORY https://github.com/pmem/pmemkv.git
-#        GIT_TAG 69f54ff46a16d9bed408e7b0d4c2b91dcc5759b1
-##        GIT_TAG 1.0.3
-#)
-#set(BUILD_DOC OFF)
-#set(BUILD_EXAMPLES OFF)
-#set(BUILD_TESTS OFF)
-#set(BUILD_JSON_CONFIG OFF)
-#set(ENGINE_VCMAP OFF)
-#set(ENGINE_VSMAP OFF)
-#set(ENGINE_CACHING OFF)
-#set(ENGINE_STREE OFF)
-#set(ENGINE_TREE3 OFF)
-#FetchContent_MakeAvailable(pmemkv)
-#set(CMAKE_PREFIX_PATH ${OLD_CMAKE_PREFIX_PATH})
+# TBB
+set(TBB_TEST OFF CACHE INTERNAL "")
+set(TBB_EXAMPLES OFF CACHE INTERNAL "")
+FetchContent_Declare(
+        oneTBB
+        GIT_REPOSITORY https://github.com/oneapi-src/oneTBB.git
+        GIT_TAG        v2021.1.1
+)
+FetchContent_MakeAvailable(oneTBB)
+include_directories(${oneTBB_SOURCE_DIR}/include)
+#include_directories("/opt/intel/oneapi/tbb/latest/include/")
 
-# TODO: old
-#find_library(PMEMKV_LIBS NAMES pmemkv REQUIRED HINTS ${PMDK_HINTS})
+
+# PmemKV
+cmake_policy(SET CMP0077 NEW)
+set(OLD_CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH})
+set(CMAKE_PREFIX_PATH "/scratch/pmem/libpmemobj-cpp/;/scratch/pmem/pmdk;"
+                      "/scratch/pmem/memkind;${oneTBB_BUILD_DIR}")
+FetchContent_Declare(
+        pmemkv
+        GIT_REPOSITORY https://github.com/pmem/pmemkv.git
+        GIT_TAG 1.4
+)
+set(BUILD_DOC OFF)
+set(BUILD_EXAMPLES OFF)
+set(BUILD_TESTS OFF)
+set(BUILD_JSON_CONFIG OFF)
+set(ENGINE_VCMAP OFF)
+set(ENGINE_VSMAP OFF)
+set(ENGINE_CACHING OFF)
+set(ENGINE_STREE OFF)
+set(ENGINE_TREE3 OFF)
+FetchContent_MakeAvailable(pmemkv)
+include_directories(${pmemkv_SOURCE_DIR}/src)
+set(CMAKE_PREFIX_PATH ${OLD_CMAKE_PREFIX_PATH})
 
 
 # PMEM-ROCKSDB
-#set(PMEM_ROCKSDB_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/pmem-rocksdb")
-#ExternalProject_Add(
-#        pmem_rocksdb
-#        GIT_REPOSITORY https://github.com/lawben/pmem-rocksdb.git
-#        GIT_TAG 8352e95
-#        PREFIX ${PMEM_ROCKSDB_PREFIX}
-#        CONFIGURE_COMMAND ""
-#        UPDATE_COMMAND ""
-#        INSTALL_COMMAND ""
-#        UPDATE_DISCONNECTED 1
-#        LOG_BUILD ON
-#        BUILD_IN_SOURCE 1
-#
-#        # Use DRAM cache for now
-#        # BUILD_COMMAND $(MAKE) shared_lib -j ROCKSDB_BC_ON_DCPMM=1 ROCKSDB_KVS_ON_DCPMM=1 ROCKSDB_WAL_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=1
-#        BUILD_COMMAND $(MAKE) shared_lib -j ROCKSDB_KVS_ON_DCPMM=1 ROCKSDB_WAL_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=1
-#)
-## Use DRAM cache for now
-##add_definitions(-DBC_ON_DCPMM=1 -DKVS_ON_DCPMM=1 -DWAL_ON_DCPMM=1)
-#add_definitions(-DKVS_ON_DCPMM=1 -DWAL_ON_DCPMM=1)
-#
-#link_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb)
-#include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/include)
-#include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/dcpmm)
+set(PMEM_ROCKSDB_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/pmem-rocksdb")
+ExternalProject_Add(
+        pmem_rocksdb
+        GIT_REPOSITORY https://github.com/lawben/pmem-rocksdb.git
+        GIT_TAG 8352e95
+        PREFIX ${PMEM_ROCKSDB_PREFIX}
+        CONFIGURE_COMMAND ""
+        UPDATE_COMMAND ""
+        INSTALL_COMMAND ""
+        UPDATE_DISCONNECTED 1
+        LOG_BUILD ON
+        BUILD_IN_SOURCE 1
+
+        # Use DRAM cache for now
+        # BUILD_COMMAND $(MAKE) shared_lib -j ROCKSDB_BC_ON_DCPMM=1 ROCKSDB_KVS_ON_DCPMM=1 ROCKSDB_WAL_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=1
+        BUILD_COMMAND $(MAKE) shared_lib -j ROCKSDB_KVS_ON_DCPMM=1 ROCKSDB_WAL_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=1
+)
+# Use DRAM cache for now
+#add_definitions(-DBC_ON_DCPMM=1 -DKVS_ON_DCPMM=1 -DWAL_ON_DCPMM=1)
+add_definitions(-DKVS_ON_DCPMM=1 -DWAL_ON_DCPMM=1)
+
+link_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb)
+include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/include)
+include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/dcpmm)
 
 
 # Dash
@@ -143,17 +139,6 @@ execute_process(COMMAND sed -i -e "s/pmemobj_create_addr/pmemobj_create/g" ${das
 execute_process(COMMAND sed -i -e "s/pmemobj_open_addr/pmemobj_open/g" ${dash_SOURCE_DIR}/src/allocator.h)
 execute_process(COMMAND sed -i -e "s#std::cout << \"Directory_Doubling#//#g" ${dash_SOURCE_DIR}/src/ex_finger.h)
 
-# TBB
-set(TBB_TEST OFF CACHE INTERNAL "")
-set(TBB_EXAMPLES OFF CACHE INTERNAL "")
-FetchContent_Declare(
-        oneTBB
-        GIT_REPOSITORY https://github.com/oneapi-src/oneTBB.git
-        GIT_TAG        v2021.1.1
-)
-FetchContent_MakeAvailable(oneTBB)
-include_directories(${oneTBB_SOURCE_DIR}/include)
-
 # FASTER
 FetchContent_Declare(
         faster
@@ -175,11 +160,10 @@ FetchContent_MakeAvailable(hdr_histogram)
 
 add_executable(all_ops_bm all_ops_benchmark.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(all_ops_bm ${LINK_LIBS})
-#target_link_libraries(all_ops_bm benchmark snappy faster tbb uuid aio hdr_histogram_static)
-target_link_libraries(all_ops_bm benchmark tbb hdr_histogram_static)
+target_link_libraries(all_ops_bm benchmark snappy pmemkv faster tbb uuid aio hdr_histogram_static)
 # TODO: add rocksdb when needed
-#add_dependencies(all_ops_bm pmem_rocksdb)
-#target_link_libraries(all_ops_bm rocksdb)
+add_dependencies(all_ops_bm pmem_rocksdb)
+target_link_libraries(all_ops_bm rocksdb)
 set_target_properties(all_ops_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(access_pattern_bm access_pattern_bm.cpp ${BASE_BENCHMARK_FILES})
@@ -204,17 +188,17 @@ set_target_properties(reclaim_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(kv_size_bm key_value_size_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(kv_size_bm ${LINK_LIBS})
-target_link_libraries(kv_size_bm benchmark faster rocksdb uuid aio hdr_histogram_static)
+target_link_libraries(kv_size_bm benchmark faster tbb uuid pmemkv aio hdr_histogram_static)
 set_target_properties(kv_size_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(variable_size_bm variable_size_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(variable_size_bm ${LINK_LIBS})
-target_link_libraries(variable_size_bm benchmark faster rocksdb uuid aio hdr_histogram_static)
+target_link_libraries(variable_size_bm benchmark faster uuid aio tbb pmemkv hdr_histogram_static)
 set_target_properties(variable_size_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(ycsb_bm ycsb_bm.cpp fixtures/ycsb_common.cpp fixtures/ycsb_common.hpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(ycsb_bm ${LINK_LIBS})
-target_link_libraries(ycsb_bm benchmark rocksdb faster uuid aio hdr_histogram_static)
+target_link_libraries(ycsb_bm benchmark faster pmemkv tbb uuid aio hdr_histogram_static)
 set_target_properties(ycsb_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(latency_bw_bm latency_bw_bm.cpp ${BASE_BENCHMARK_FILES})
