@@ -204,3 +204,8 @@ set_target_properties(ycsb_bm PROPERTIES LINKER_LANGUAGE CXX)
 add_executable(latency_bw_bm latency_bw_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(latency_bw_bm ${LINK_LIBS} benchmark hdr_histogram_static)
 set_target_properties(latency_bw_bm PROPERTIES LINKER_LANGUAGE CXX)
+
+add_executable(breakdown_bm breakdown_bm.cpp ${BASE_BENCHMARK_FILES})
+target_link_libraries(breakdown_bm ${LINK_LIBS})
+target_link_libraries(breakdown_bm benchmark hdr_histogram_static)
+set_target_properties(breakdown_bm PROPERTIES LINKER_LANGUAGE CXX)

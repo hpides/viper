@@ -24,6 +24,23 @@
 #define DEBUG_LOG(msg) do {} while(0)
 #endif
 
+#define INIT_TIMERS() \
+    BreakDownTime value_fetch_start_ns; \
+    BreakDownTime pmem_start_ns; \
+    BreakDownTime map_start_ns; \
+    BreakDownTime lock_wait_start_ns;
+
+#define START_TIMER(step) \
+    if (this->viper_.track_op_breakdown_) { \
+        step##_start_ns = Timer::now(); \
+    }
+
+#define END_TIMER(step) \
+    if (this->viper_.track_op_breakdown_) { \
+        BreakDownTime end = Timer::now(); \
+        step##_ns_ += (end - step##_start_ns).count(); \
+    }
+
 /**
  * Define this to use Viper in DRAM instead of PMem. This will allocate all VPages in DRAM.
  */
@@ -65,6 +82,7 @@ struct ViperConfig {
     size_t dax_alignment = ONE_GB;
     size_t fs_alignment = ONE_GB;
     bool enable_reclamation = false;
+    bool track_op_breakdown = false;
 };
 
 namespace internal {
@@ -350,7 +368,13 @@ class Viper {
 
         ~Client();
 
-      protected:
+        // Operation breakdown timers
+        uint64_t pmem_ns_ = 0;
+        uint64_t map_ns_ = 0;
+        uint64_t lock_wait_ns_ = 0;
+
+
+    protected:
         Client(ViperT& viper);
 
         bool put(const K& key, const V& value, bool delete_old);
@@ -433,6 +457,12 @@ class Viper {
 
     std::atomic<uint8_t> num_active_clients_;
     const uint8_t num_recovery_threads_;
+
+    // Operation breakdown timers
+    using Timer = std::chrono::high_resolution_clock;
+    using BreakDownTime = std::chrono::time_point<Timer>;
+    const bool track_op_breakdown_;
+
 };
 
 template <typename K, typename V>
@@ -451,7 +481,8 @@ template <typename K, typename V>
 Viper<K, V>::Viper(ViperBase v_base, const std::filesystem::path pool_dir, const bool owns_pool, const ViperConfig v_config) :
     v_base_{v_base}, map_{131072}, owns_pool_{owns_pool}, v_config_{v_config}, pool_dir_{pool_dir},
     resize_threshold_{v_config.resize_threshold}, reclaim_threshold_{v_config.reclaim_threshold},
-    num_recovery_threads_{v_config.num_recovery_threads} {
+    num_recovery_threads_{v_config.num_recovery_threads},
+    track_op_breakdown_{v_config.track_op_breakdown} {
     current_block_page_ = 0;
     current_size_ = 0;
     reclaimable_ops_ = 0;
@@ -1007,7 +1038,10 @@ inline bool Viper<K, V>::check_key_equality(const K& key, const KVOffset offset_
 
 template <typename K, typename V>
 bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_old) {
+    INIT_TIMERS()
+    START_TIMER(lock_wait)
     v_page_->lock();
+    END_TIMER(lock_wait)
 
     // We now have the lock on this page
     std::bitset<VPage::num_slots_per_page>* free_slots = &v_page_->free_slots;
@@ -1020,6 +1054,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
         return put(key, value, delete_old);
     }
 
+    START_TIMER(pmem)
     // We have found a free slot on this page. Persist data.
     v_page_->data[free_slot_idx] = {key, value};
     typename VPage::VEntry* entry_ptr = v_page_->data.data() + free_slot_idx;
@@ -1027,7 +1062,9 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
 
     free_slots->reset(free_slot_idx);
     pmem_persist(free_slots, sizeof(*free_slots));
+    END_TIMER(pmem)
 
+    START_TIMER(map)
     // Store data in DRAM map.
     const KVOffset kv_offset{v_block_number_, v_page_number_, free_slot_idx};
     KVOffset old_offset;
@@ -1039,6 +1076,7 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
         old_offset = this->viper_.map_.Insert(key, kv_offset);
     }
 
+    END_TIMER(map)
     const bool is_new_item = old_offset.is_tombstone();
     if (!is_new_item && delete_old) {
         // Need to free slot at old location for this key
@@ -1165,11 +1203,16 @@ bool Viper<K, V>::Client::get(const K& key, V* value) {
         else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
     };
 
+    INIT_TIMERS()
+
     while (true) {
+        START_TIMER(map)
         KVOffset kv_offset = this->viper_.map_.Get(key, key_check_fn);
         if (kv_offset.is_tombstone()) {
+            END_TIMER(map)
             return false;
         }
+        END_TIMER(map)
         if (get_value_from_offset(kv_offset, value)) {
             return true;
         }
@@ -1206,25 +1249,35 @@ bool Viper<K, V>::Client::update(const K& key, UpdateFn update_fn) {
         throw std::runtime_error("In-place update not supported for variable length records!");
     }
 
+    INIT_TIMERS()
+
     auto key_check_fn = [&](auto key, auto offset) {
         if constexpr (using_fp) { return this->viper_.check_key_equality(key, offset); }
         else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
     };
 
     while (true) {
+        START_TIMER(map)
         const KVOffset kv_offset = this->viper_.map_.Get(key, key_check_fn);
         if (kv_offset.is_tombstone()) {
+            END_TIMER(map)
             return false;
         }
+        END_TIMER(map)
 
+        START_TIMER(lock_wait)
         const auto [block, page, slot] = kv_offset.get_offsets();
         VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
         if (!v_page.lock(false)) {
             // Could not lock page, so the record could be modified and we need to try again
+            END_TIMER(lock_wait)
             continue;
         }
+        END_TIMER(lock_wait)
 
+        START_TIMER(pmem)
         update_fn(&(v_page.data[slot].second));
+        END_TIMER(pmem)
         v_page.unlock();
         return true;
     }
@@ -1237,10 +1290,14 @@ bool Viper<K, V>::Client::remove(const K& key) {
         else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
     };
 
+    INIT_TIMERS()
+    START_TIMER(map)
     const KVOffset kv_offset = this->viper_.map_.Get(key, key_check_fn);
     if (kv_offset.is_tombstone()) {
+        END_TIMER(map)
         return false;
     }
+    END_TIMER(map)
 
     free_occupied_slot(kv_offset, key, true);
     num_reclaimable_ops_++;
@@ -1249,6 +1306,7 @@ bool Viper<K, V>::Client::remove(const K& key) {
 
 template <typename K, typename V>
 void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, const K& key, const bool delete_offset) {
+    INIT_TIMERS()
     const auto [block_number, page_number, data_offset] = offset_to_delete.get_offsets();
     while (this->viper_.is_v_blocks_resizing_.load(LOAD_ORDER)) {
         // Wait for vector's memmove to complete. Otherwise we might encounter a segfault.
@@ -1282,6 +1340,9 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
     while (true) {
         size_t retries = 0;
         has_lock = true;
+
+        START_TIMER(lock_wait)
+
         while (!v_lock.compare_exchange_weak(lock_value, lock_value + 1)) {
             // Client may be in a deadlock situation
             lock_value &= UNLOCKED_BIT;
@@ -1292,6 +1353,7 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
             }
             _mm_pause();
         }
+        END_TIMER(lock_wait)
 
         if (has_lock) {
             // Acquired lock, delete normally
@@ -1332,7 +1394,9 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
     }
 
     if (delete_offset) {
+        START_TIMER(map)
         this->viper_.map_.Insert(key, IndexV::NONE(), key_check_fn);
+        END_TIMER(map)
     }
 
     if (has_lock) {
@@ -1357,6 +1421,8 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
 
 template <typename K, typename V>
 inline void Viper<K, V>::Client::invalidate_record(VPage* v_page, const data_offset_size_t data_offset) {
+    INIT_TIMERS()
+    START_TIMER(pmem)
     if constexpr (std::is_same_v<K, std::string>) {
         char* raw_data = &v_page->data[data_offset];
         internal::VarSizeEntry* var_entry = reinterpret_cast<internal::VarSizeEntry*>(raw_data);
@@ -1370,6 +1436,7 @@ inline void Viper<K, V>::Client::invalidate_record(VPage* v_page, const data_off
         free_slots->set(data_offset);
         pmem_persist(free_slots, sizeof(*free_slots));
     }
+    END_TIMER(pmem)
 }
 
 template <typename K, typename V>
@@ -1490,14 +1557,21 @@ inline bool Viper<K, V>::ReadOnlyClient::get_const_value_from_offset(KVOffset of
 
 template <typename K, typename V>
 inline bool Viper<K, V>::Client::get_value_from_offset(const KVOffset offset, V* value) {
+    INIT_TIMERS()
     const auto [block, page, slot] = offset.get_offsets();
+    START_TIMER(lock_wait)
     const VPage& v_page = this->viper_.v_blocks_[block]->v_pages[page];
+
     const std::atomic<version_lock_t>& page_lock = v_page.version_lock;
     version_lock_t lock_val = page_lock.load(LOAD_ORDER);
     if (IS_LOCKED(lock_val)) {
+        END_TIMER(lock_wait)
         return false;
     }
+    END_TIMER(lock_wait)
+    START_TIMER(pmem)
     *value = v_page.data[slot].second;
+    END_TIMER(pmem)
     return lock_val == page_lock.load(LOAD_ORDER);
 }
 
