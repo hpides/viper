@@ -45,6 +45,16 @@ enum OpCode : uint8_t {
     DELETE = 1
 };
 
+struct CrlVarValue {
+    size_t length;
+    std::array<char, 400> data;
+
+    inline void from_string(const std::string& value) {
+        length = value.length();
+        memcpy(data.data(), value.data(), value.length());
+    }
+};
+
 template <typename KeyT, typename ValueT>
 struct CrlRecord {
     static constexpr size_t SIZE = sizeof(CrlRecord<KeyT, ValueT>);
@@ -154,7 +164,7 @@ CrlStore<KeyT, ValueT>::CrlStore(const std::string& log_file, const std::string&
     int sds_write_value = 0;
     pmemobj_ctl_set(NULL, "sds.at_create", &sds_write_value);
 
-    log_pool_ = pmem::obj::pool<LogRootT>::create(log_file, "", LOG_FILE_SIZE * 3, S_IRWXU);
+    log_pool_ = pmem::obj::pool<LogRootT>::create(log_file, "", LOG_FILE_SIZE * 100, S_IRWXU);
     pmem::obj::transaction::run(log_pool_, [&] {
         log_pool_.root()->logs = pmem::obj::make_persistent<LogsT>();
     });
@@ -231,10 +241,10 @@ void CrlStore<KeyT, ValueT>::glean(const size_t id, std::atomic<bool>& killed) {
             // Get from frontend store
             typename FrontendT::accessor frontend_entry;
             LogRecordT &record = log.log[entry_num % num_entries];
-            const BackendKeyT &be_key = record.key;
+            const BackendKeyT& be_key = record.key;
             const FrontendKeyT fe_key{be_key};
             frontend_->insert(frontend_entry, fe_key);
-            WrappedFrontendValueT &frontend_value = frontend_entry->second;
+            WrappedFrontendValueT& frontend_value = frontend_entry->second;
 
             // No need to insert if already inserted into backend
             LogRecordT *lentry = frontend_value.lentry;

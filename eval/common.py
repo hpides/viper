@@ -18,8 +18,8 @@ class Style:
         self.hatch = hatch
 
 
-ROCKS = ('PmemRocksDb', "RocksDB")
-PMEMKV = ('PmemKV', "PmemKV")
+ROCKS = ('PmemRocksDb', "PMem-RocksDB")
+PMEMKV = ('PmemKV', "pmemkv")
 VIPER = ('Viper', 'Viper')
 DRAM_MAP = ('DramMap', 'TBB Map')
 DASH = ('Dash', 'Dash')

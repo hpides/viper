@@ -37,7 +37,7 @@ void CrlFixture<KeyT, ValueT>::InitMap(const uint64_t num_prefill_inserts, const
     num_util_threads_ = 18;
     log_pool_name_ = random_file(DB_PMEM_DIR);
     backend_pool_name_ = random_file(DB_PMEM_DIR);
-    const size_t backend_file_size = 80 * ONE_GB;
+    const size_t backend_file_size = 200 * ONE_GB;
     crl_store_ = std::make_unique<CrlStore<KeyT, ValueT>>(log_pool_name_, backend_pool_name_, backend_file_size);
     prefill(num_prefill_inserts);
     crl_store_->collect_gleaners();
@@ -108,7 +108,7 @@ uint64_t CrlFixture<std::string, std::string>::setup_and_find(uint64_t start_idx
     const std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
     const std::vector<std::string>& values = std::get<1>(var_size_kvs_);
 
-    auto client = crl_store_->get_client();
+    auto client = crl_store_->get_read_only_client();
     uint64_t found_counter = 0;
     std::string result;
     for (uint64_t i = 0; i < num_finds; ++i) {
