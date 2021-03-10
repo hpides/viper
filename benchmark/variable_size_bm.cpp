@@ -97,8 +97,8 @@ void bm_get(benchmark::State& state, BaseFixture& fixture, size_t key_size, size
     }
 }
 
-//DEFINE_ALL_BMS(ViperFixture);
-DEFINE_ALL_BMS(CrlFixture);
+DEFINE_ALL_BMS(ViperFixture);
+//DEFINE_ALL_BMS(CrlFixture);
 //DEFINE_ALL_BMS(PmemKVFixture);
 //DEFINE_ALL_BMS(DashFixture);
 //DEFINE_ALL_BMS(PmemHybridFasterFixture);
