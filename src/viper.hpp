@@ -1274,7 +1274,7 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
     version_lock_t lock_value = v_lock.load(LOAD_ORDER);
     lock_value &= UNLOCKED_BIT;
 
-    const size_t num_deadlock_retries = 8;
+    const size_t num_deadlock_retries = 32;
     std::vector<KVOffset>& deadlock_offsets = this->viper_.deadlock_offsets_;
     bool deadlock_offset_inserted = false;
     bool has_lock;
@@ -1286,7 +1286,6 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
             // Client may be in a deadlock situation
             lock_value &= UNLOCKED_BIT;
             if (++retries == num_deadlock_retries) {
-                // std::cout << "Failed" << std::endl;
                 has_lock = false;
                 break;
             }
