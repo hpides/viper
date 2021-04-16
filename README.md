@@ -2,7 +2,7 @@
 This repository contains the code to our [VLDB '21 paper]().
 
 ### Using Viper
-Viper is a header-only an embedded key-value store.
+Viper is an embedded header-only key-value store for persistent memory.
 You can download it and include it in your application. 
 Here is a short example of Viper's interface. 
 
