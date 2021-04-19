@@ -166,11 +166,6 @@ add_dependencies(all_ops_bm pmem_rocksdb)
 target_link_libraries(all_ops_bm rocksdb)
 set_target_properties(all_ops_bm PROPERTIES LINKER_LANGUAGE CXX)
 
-add_executable(access_pattern_bm access_pattern_bm.cpp ${BASE_BENCHMARK_FILES})
-target_link_libraries(access_pattern_bm ${LINK_LIBS})
-target_link_libraries(access_pattern_bm benchmark hdr_histogram_static)
-set_target_properties(access_pattern_bm PROPERTIES LINKER_LANGUAGE CXX)
-
 add_executable(update_bm update_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(update_bm ${LINK_LIBS})
 target_link_libraries(update_bm benchmark hdr_histogram_static)

@@ -2,7 +2,7 @@
 
 #include "../benchmark.hpp"
 #include "common_fixture.hpp"
-#include "viper.hpp"
+#include "viper/viper.hpp"
 
 
 namespace viper {

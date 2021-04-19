@@ -36,7 +36,7 @@ set(CONCURRENT_QUEUE_DIR "${CMAKE_CURRENT_BINARY_DIR}/_deps/concurrent_queue-src
 include_directories(${CONCURRENT_QUEUE_DIR})
 
 # Include viper sources
-include_directories(src)
+include_directories(include)
 
 add_subdirectory(benchmark)
 

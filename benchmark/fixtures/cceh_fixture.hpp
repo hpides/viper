@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cceh.hpp"
+#include "viper/cceh.hpp"
 #include "common_fixture.hpp"
 #include "../benchmark.hpp"
 #include <libpmemobj++/allocator.hpp>
