@@ -5,10 +5,6 @@
 <p align="center">This repository contains the code to our <a href="https://hpi.de/fileadmin/user_upload/fachgebiete/rabl/publications/2021/viper_vldb21.pdf"> VLDB '21 paper<a/>.<p/>
 
 
-
-
-
-
 ### Using Viper
 Viper is an embedded header-only key-value store for persistent memory.
 You can download it and include it in your application. 
@@ -19,8 +15,8 @@ Here is a short example of Viper's interface.
 #include "viper/viper.hpp"
 
 int main(int argc, char** argv) {
-    const size_t inital_size = 1073741824;  // 1 GiB
-    auto viper_db = viper::Viper<uint64_t, uint64_t>::create("/mnt/pmem2/viper", inital_size);
+    const size_t initial_size = 1073741824;  // 1 GiB
+    auto viper_db = viper::Viper<uint64_t, uint64_t>::create("/mnt/pmem2/viper", initial_size);
 
     // To modify records in Viper, you need to use a Viper Client.
     auto v_client = viper_db->get_client();
