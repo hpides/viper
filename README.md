@@ -29,3 +29,16 @@ int main(int argc, char** argv) {
     }
 }
 ```
+
+If you use Viper in your work, please cite us.
+```
+@article{benson_viper_2021,
+  author    = {Lawrence Benson and Hendrik Makait and Tilmann Rabl},
+  title     = {Viper: An Efficient Hybrid PMem-DRAM Key-Value Store},
+  journal   = {Proceedings of the {VLDB} Endowment},
+  volume    = {14},
+  number    = {9},
+  year      = {2021},
+  doi       = {10.14778/3461535.3461543},
+}
+```
