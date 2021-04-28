@@ -1,5 +1,13 @@
-# Viper: An Efficient Hybrid PMem-DRAM Key-Value Store
-This repository contains the code to our [VLDB '21 paper](https://hpi.de/fileadmin/user_upload/fachgebiete/rabl/publications/2021/viper_vldb21.pdf).
+<p align="center">
+  <img src="https://github.com/hpides/viper/raw/gh-pages/viper-logo.png" alt="Viper Logo" width="300"/>
+</p>
+<h1 align="center">Viper: An Efficient Hybrid PMem-DRAM Key-Value Store</h1>
+<p align="center">This repository contains the code to our <a href="https://hpi.de/fileadmin/user_upload/fachgebiete/rabl/publications/2021/viper_vldb21.pdf"> VLDB '21 paper<a/>.<p/>
+
+
+
+
+
 
 ### Using Viper
 Viper is an embedded header-only key-value store for persistent memory.
