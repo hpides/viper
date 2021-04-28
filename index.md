@@ -1,9 +1,10 @@
+# Viper
 ## Abstract
 
 Key-value stores (KVSs) have found wide application in modern software systems. For persistence, their data resides in slow secondary storage, which requires KVSs to employ various techniques to increase their read and write performance from and to the underlying medium. Emerging persistent memory (PMem) technologies offer data persistence at close-to-DRAM speed, making them a promising alternative to classical disk-based storage. However, simply drop-in replacing existing storage with PMem does not yield good results, as block-based access behaves differently in PMem than on disk and ignores PMem's byte addressability, layout, and unique performance characteristics. In this paper, we propose three PMem-specific access patterns and implement them in a hybrid PMem-DRAM KVS called Viper. We employ a DRAM-based hash index and a PMem-aware storage layout to utilize the random-write speed of DRAM and efficient sequential-write performance PMem. Our evaluation shows that Viper significantly outperforms existing KVSs for core KVS operations while providing full data persistence. Moreover, Viper outperforms existing PMem-only, hybrid, and disk-based KVSs by 4--18x for write workloads, while matching or surpassing their get performance.
 
 
-### Using Viper
+## Using Viper
 Viper is an embedded header-only key-value store for persistent memory.
 You can download it and include it in your application.
 Here is a short example of Viper's interface.
@@ -31,6 +32,23 @@ int main(int argc, char** argv) {
     }
 }
 ```
+
+## Viper Architecture
+
+<img src="assets/images/viper-arch.svg" id="arch-svg" alt="Viper Architecture">
+
+Viper consists of a volatile index in DRAM to achieve high random access performance and a persistent storage layer in PMem.
+Check out the paper for more details on why we chose this design.
+
+## Viper Performance
+
+![Viper Performance](assets/images/all_ops.svg)
+
+Viper outperforms existing PMem key-value stores by up 4--18x when inserting and achieves equal or better *get* performance.
+Check out the paper for additional evaluation.
+
+
+## Bibliography
 
 If you use Viper in your work, please cite us.
 ```
