@@ -45,7 +45,9 @@ Check out the paper for more details on why we chose this design.
 
 ## Viper Performance
 
-![Viper Performance](assets/images/all_ops.svg)
+<a href="assets/images/all_ops.svg" target="_blank">
+  <img alt="Viper Performance" src="assets/images/all_ops.svg">
+<a/>
 
 Viper outperforms existing PMem key-value stores by up 4--18x when inserting and achieves equal or better *get* performance.
 Check out the paper for additional evaluation.
