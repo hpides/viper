@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/hpides/viper/raw/gh-pages/viper-logo.png" alt="Viper Logo" width="300"/>
+  <img src="https://github.com/hpides/viper/blob/gh-pages/assets/images/viper-logo.png" alt="Viper Logo" width="300"/>
 </p>
 <h1 align="center">Viper: An Efficient Hybrid PMem-DRAM Key-Value Store</h1>
 <p align="center">This repository contains the code to our <a href="https://hpi.de/fileadmin/user_upload/fachgebiete/rabl/publications/2021/viper_vldb21.pdf"> VLDB '21 paper<a/>.<p/>
