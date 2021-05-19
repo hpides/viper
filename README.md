@@ -7,7 +7,7 @@
 
 ### Using Viper
 Viper is an embedded header-only key-value store for persistent memory.
-You can download it and include it in your application. 
+You can download it and include it in your application without using CMake (check out the [Downloading Viper](#downloading-viper) and [Dependencies](#dependencies) sections below).
 Here is a short example of Viper's interface. 
 
 ```cpp
@@ -34,8 +34,40 @@ int main(int argc, char** argv) {
 }
 ```
 
-If you use Viper in your work, please cite us.
+### Downloading Viper
+As Viper is header-only, you only need to download the header files and include them in your code as shown above.
+You do not need to use Viper's CMakeLists.txt.
+Just make sure you have the [dependencies](#dependencies) installed.
+Here is a common way to do include Viper using `FetchContent` in CMake.
+
+```cmake
+include(FetchContent)
+
+FetchContent_Declare(
+  viper
+  GIT_REPOSITORY https://github.com/hpides/viper.git
+)
+
+FetchContent_GetProperties(viper)
+if(NOT viper_POPULATED)
+  FetchContent_Populate(viper)
+endif()
+include_directories(${viper_SOURCE_DIR}/include)
 ```
+
+This avoids calling all the Viper CMake code, which is mainly needed for the benchmark code.
+Of course you can also simply download the code from GitHub into a third_party directory or use your preferred method.
+
+  
+### Dependencies
+Viper depends on [libpmem 1.10](https://github.com/pmem/pmdk) and [concurrentqueue 1.0.2](https://github.com/cameron314/concurrentqueue).
+As Viper is header-only, you should make sure that these dependencies are available.
+Check out Viper's [CMakeLists.txt](https://github.com/hpides/viper/blob/c5a3707001dac131421f98a36ebf4f5309b19e35/CMakeLists.txt#L28-L36) to see an example of how to add `concurrentqueue` as a dependency. 
+
+### Cite Our Work
+If you use Viper in your work, please cite us.
+
+```bibtex
 @article{benson_viper_2021,
   author    = {Lawrence Benson and Hendrik Makait and Tilmann Rabl},
   title     = {Viper: An Efficient Hybrid PMem-DRAM Key-Value Store},
