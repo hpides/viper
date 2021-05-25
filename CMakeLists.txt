@@ -2,45 +2,80 @@ cmake_minimum_required(VERSION 3.14)
 project(viper)
 
 set(CMAKE_CXX_STANDARD 17)
-include(FetchContent)
 
-add_compile_options(-march=native)
-message("Build type: ${CMAKE_BUILD_TYPE}")
-if (CMAKE_BUILD_TYPE MATCHES Debug)
-    message("BUILDING DEBUG")
-else()
-    message("BUILDING RELEASE")
-    add_compile_options(-O3 -Ofast -mtune=native)
-endif()
+### OPTIONS ###
+option(VIPER_BUILD_PLAYGROUND "Set ON if playground should be built." OFF)
 
-# PMDK
-set(PMDK_PATH "/scratch/pmem/pmdk")
-set(PMDK_LIB "${PMDK_PATH}/lib/libpmem.so")
-include_directories("${PMDK_PATH}/include")
-link_directories("${PMDK_PATH}/lib")
+option(VIPER_BUILD_BENCHMARKS "Set OM if benchmarks should be built." OFF)
 
-# memkind
-link_directories("/scratch/pmem/memkind/lib")
+option(VIPER_CONCURRENT_QUEUE_PROVIDED "Set ON if the concurrentqueue dependency is provided and should not be
+                                        downloaded by Viper." OFF)
 
-SET(LINK_LIBS pthread pmem pmemobj pmempool memkind)
+option(VIPER_PMDK_PROVIDED "Set OFF if libpmem is not used in your project and should be  included by Viper.
+                            This should be ON if you are already including libpmem want to avoid conflicting paths for
+                            libpmem, as Viper will also look at default install locations." ON)
+set(VIPER_PMDK_PATH "/usr" CACHE STRING "Path to custom PMDK install directory")
 
-# Concurrent Queue
-FetchContent_Declare(
-        concurrent_queue
-
-        GIT_REPOSITORY https://github.com/cameron314/concurrentqueue.git
-        GIT_TAG 1.0.2
-)
-FetchContent_MakeAvailable(concurrent_queue)
-set(CONCURRENT_QUEUE_DIR "${CMAKE_CURRENT_BINARY_DIR}/_deps/concurrent_queue-src")
-include_directories(${CONCURRENT_QUEUE_DIR})
-
-# Include viper sources
-include_directories(include)
-
-add_subdirectory(benchmark)
+###############
 
 # VIPER
-add_compile_options(-pthread)
-add_executable(playground playground.cpp)
-target_link_libraries(playground ${LINK_LIBS})
+add_library(viper INTERFACE)
+target_include_directories(viper INTERFACE include/)
+target_compile_options(viper INTERFACE -march=native)
+
+# PMDK
+if (NOT ${VIPER_PMDK_PROVIDED})
+    set(PMDK_INCLUDE_HINTS ${VIPER_PMDK_PATH}/include)
+    set(PMDK_LIB_HINTS ${VIPER_PMDK_PATH}/lib)
+
+    find_path(PMDK_INCLUDE_DIRS libpmem.h HINTS ${PMDK_INCLUDE_HINTS})
+    find_library(PMDK_LIBRARIES NAMES pmem libpmem HINTS ${PMDK_LIB_HINTS})
+
+    set(PMDK_FOUND true)
+    if (NOT PMDK_INCLUDE_DIRS OR "${PMDK_INCLUDE_DIRS}" STREQUAL "")
+        message(FATAL_ERROR "libpmem include directory not found in default locations or custom path (${PMDK_INCLUDE_HINTS}).")
+    endif ()
+    if (NOT PMDK_LIBRARIES OR "${PMDK_LIBRARIES}" STREQUAL "")
+        message(FATAL_ERROR "libmem not found in default locations or custom path (${PMDK_LIB_HINTS}).")
+    endif ()
+
+    target_include_directories(viper INTERFACE ${PMDK_INCLUDE_DIRS})
+    target_link_libraries(viper INTERFACE ${PMDK_LIBRARIES})
+    message(STATUS "Found PMDK. Including ${PMDK_INCLUDE_DIRS} and linking ${PMDK_LIBRARIES}")
+endif()
+
+# CONCURRENTQUEUE
+if (NOT ${VIPER_CONCURRENT_QUEUE_PROVIDED})
+    include(FetchContent)
+    FetchContent_Declare(
+            concurrentqueue
+
+            GIT_REPOSITORY https://github.com/cameron314/concurrentqueue.git
+            GIT_TAG v1.0.3
+    )
+    FetchContent_MakeAvailable(concurrentqueue)
+    target_link_libraries(viper INTERFACE concurrentqueue)
+endif()
+
+# VIPER PLAYGROUND
+if (${VIPER_BUILD_PLAYGROUND})
+    add_executable(playground playground.cpp)
+
+    target_compile_options(playground PRIVATE -march=native -pthread)
+    message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+    if (CMAKE_BUILD_TYPE MATCHES Release)
+        message(STATUS "BUILDING RELEASE")
+        target_compile_options(playground PRIVATE -O3 -Ofast -mtune=native)
+    endif()
+
+    target_link_libraries(playground viper pthread)
+endif()
+
+# VIPER BENCHMARKS
+if (${VIPER_BUILD_BENCHMARKS})
+    if (${VIPER_PMDK_PROVIDED})
+        message(FATAL_ERROR "PMDK cannot be provided for a benchmark build!
+                             Use -DVIPER_PMDK_PROVIDED=OFF and specify -DVIPER_PMDK_PATH=/path/to/pmdk")
+    endif()
+    add_subdirectory(benchmark)
+endif()

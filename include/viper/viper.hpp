@@ -926,11 +926,6 @@ void Viper<K, V>::trigger_resize() {
     // Only one thread can ever get here because for all others the atomic exchange above fails.
     resize_thread_ = std::make_unique<std::thread>([this] {
         DEBUG_LOG("Start resizing.");
-        // Used for benchmarks. remove.
-        cpu_set_t cpuset;
-        CPU_ZERO(&cpuset);
-        CPU_SET(0, &cpuset);
-        pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
         ViperFileMapping mapping = allocate_v_page_blocks();
         add_v_page_blocks(mapping);
         is_resizing_.store(false, STORE_ORDER);

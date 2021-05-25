@@ -1,4 +1,9 @@
+cmake_minimum_required(VERSION 3.18)
+
 include(ExternalProject)
+include(FetchContent)
+
+cmake_policy(SET CMP0077 NEW)
 
 SET(
         BASE_BENCHMARK_FILES
@@ -14,7 +19,7 @@ SET(
         ALL_SYSTEMS_BENCHMARK_FILES
 
         ${BASE_BENCHMARK_FILES}
-#        fixtures/rocksdb_fixture.hpp
+        fixtures/rocksdb_fixture.hpp
         fixtures/faster_fixture.hpp
         fixtures/pmem_kv_fixture.hpp
         fixtures/cceh_fixture.hpp
@@ -47,8 +52,15 @@ FetchContent_Declare(
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing benchmark's tests" FORCE)
 FetchContent_MakeAvailable(google_benchmark)
 
+# libpmemobj + libpmempool
+find_library(PMEMOBJ_LIBRARIES NAMES pmemobj libpmemobj HINTS ${PMDK_LIB_HINTS})
+find_library(PMEMPOOL_LIBRARIES NAMES pmempool libpmempool HINTS ${PMDK_LIB_HINTS})
+
 # libpmemobj++
-include_directories("/scratch/pmem/libpmemobj-cpp/include")
+# Use -DLIBPMEMOBJ++_PATH=/path/to/libpmemobj++ for custom path
+set(LIBPMEMOBJ++_PATH "/scratch/pmem/libpmemobj-cpp" CACHE PATH
+        "Path to custom libpmemobj++ install directory")
+include_directories(${LIBPMEMOBJ++_PATH}/include)
 
 # TBB
 set(TBB_TEST OFF CACHE INTERNAL "")
@@ -60,28 +72,27 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(oneTBB)
 include_directories(${oneTBB_SOURCE_DIR}/include)
-#include_directories("/opt/intel/oneapi/tbb/latest/include/")
 
 
 # PmemKV
-cmake_policy(SET CMP0077 NEW)
 set(OLD_CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH})
-set(CMAKE_PREFIX_PATH "/scratch/pmem/libpmemobj-cpp/;/scratch/pmem/pmdk;"
-                      "/scratch/pmem/memkind;${oneTBB_BUILD_DIR}")
+set(CMAKE_PREFIX_PATH "${LIBPMEMOBJ++_PATH};${VIPER_PMDK_PATH}")
+
+cmake_policy(SET CMP0077 NEW)
+set(BUILD_DOC OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(BUILD_JSON_CONFIG OFF CACHE BOOL "" FORCE)
+set(ENGINE_VCMAP OFF CACHE BOOL "" FORCE)
+set(ENGINE_VSMAP OFF CACHE BOOL "" FORCE)
+set(ENGINE_CACHING OFF CACHE BOOL "" FORCE)
+set(ENGINE_STREE OFF CACHE BOOL "" FORCE)
+set(ENGINE_TREE3 OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
         pmemkv
         GIT_REPOSITORY https://github.com/pmem/pmemkv.git
         GIT_TAG 1.4
 )
-set(BUILD_DOC OFF)
-set(BUILD_EXAMPLES OFF)
-set(BUILD_TESTS OFF)
-set(BUILD_JSON_CONFIG OFF)
-set(ENGINE_VCMAP OFF)
-set(ENGINE_VSMAP OFF)
-set(ENGINE_CACHING OFF)
-set(ENGINE_STREE OFF)
-set(ENGINE_TREE3 OFF)
 FetchContent_MakeAvailable(pmemkv)
 include_directories(${pmemkv_SOURCE_DIR}/src)
 set(CMAKE_PREFIX_PATH ${OLD_CMAKE_PREFIX_PATH})
@@ -158,44 +169,54 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(hdr_histogram)
 
+set(PMEM_LIBS ${PMEMOBJ_LIBRARIES} ${PMEMPOOL_LIBRARIES})
+
+if (CMAKE_BUILD_TYPE MATCHES Release)
+    message(STATUS "BUILDING BENCHMARKS IN RELEASE")
+    add_compile_options(-O3 -Ofast -mtune=native)
+else()
+    message(WARNING "Building benchmarks in ${CMAKE_BUILD_TYPE}. This may impact performance!")
+endif()
+
 add_executable(all_ops_bm all_ops_benchmark.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
-target_link_libraries(all_ops_bm ${LINK_LIBS})
+target_link_libraries(all_ops_bm viper ${PMEM_LIBS})
 target_link_libraries(all_ops_bm benchmark snappy pmemkv faster tbb uuid aio hdr_histogram_static)
-# TODO: add rocksdb when needed
 add_dependencies(all_ops_bm pmem_rocksdb)
 target_link_libraries(all_ops_bm rocksdb)
 set_target_properties(all_ops_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(update_bm update_bm.cpp ${BASE_BENCHMARK_FILES})
-target_link_libraries(update_bm ${LINK_LIBS})
+target_link_libraries(update_bm viper ${PMEM_LIBS})
 target_link_libraries(update_bm benchmark hdr_histogram_static)
 set_target_properties(update_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(recovery_bm recovery_bm.cpp ${BASE_BENCHMARK_FILES})
-target_link_libraries(recovery_bm ${LINK_LIBS})
+target_link_libraries(recovery_bm viper ${PMEM_LIBS})
 target_link_libraries(recovery_bm benchmark hdr_histogram_static)
 set_target_properties(recovery_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(reclaim_bm reclaim_bm.cpp ${BASE_BENCHMARK_FILES})
-target_link_libraries(reclaim_bm ${LINK_LIBS})
+target_link_libraries(reclaim_bm viper ${PMEM_LIBS})
 target_link_libraries(reclaim_bm benchmark hdr_histogram_static)
 set_target_properties(reclaim_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(kv_size_bm key_value_size_bm.cpp ${BASE_BENCHMARK_FILES})
-target_link_libraries(kv_size_bm ${LINK_LIBS})
+target_link_libraries(kv_size_bm viper ${PMEM_LIBS})
 target_link_libraries(kv_size_bm benchmark faster tbb uuid pmemkv aio hdr_histogram_static)
 set_target_properties(kv_size_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(variable_size_bm variable_size_bm.cpp ${BASE_BENCHMARK_FILES})
-target_link_libraries(variable_size_bm ${LINK_LIBS})
+target_link_libraries(variable_size_bm viper ${PMEM_LIBS})
 target_link_libraries(variable_size_bm benchmark faster uuid aio tbb pmemkv hdr_histogram_static)
 set_target_properties(variable_size_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(ycsb_bm ycsb_bm.cpp fixtures/ycsb_common.cpp fixtures/ycsb_common.hpp ${ALL_SYSTEMS_BENCHMARK_FILES})
-target_link_libraries(ycsb_bm ${LINK_LIBS})
+target_link_libraries(ycsb_bm viper ${PMEM_LIBS})
 target_link_libraries(ycsb_bm benchmark faster pmemkv tbb uuid aio hdr_histogram_static)
 set_target_properties(ycsb_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(latency_bw_bm latency_bw_bm.cpp ${BASE_BENCHMARK_FILES})
-target_link_libraries(latency_bw_bm ${LINK_LIBS} benchmark hdr_histogram_static)
+target_link_libraries(latency_bw_bm viper ${PMEM_LIBS})
+target_link_libraries(latency_bw_bm benchmark hdr_histogram_static)
+target_compile_options(latency_bw_bm PRIVATE -march=native)
 set_target_properties(latency_bw_bm PROPERTIES LINKER_LANGUAGE CXX)
