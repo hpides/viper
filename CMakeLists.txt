@@ -11,7 +11,7 @@ option(VIPER_BUILD_BENCHMARKS "Set OM if benchmarks should be built." OFF)
 option(VIPER_CONCURRENT_QUEUE_PROVIDED "Set ON if the concurrentqueue dependency is provided and should not be
                                         downloaded by Viper." OFF)
 
-option(VIPER_PMDK_PROVIDED "Set OFF if libpmem is not used in your project and should be  included by Viper.
+option(VIPER_PMDK_PROVIDED "Set OFF if libpmem is not handled by your project and should be included by Viper.
                             This should be ON if you are already including libpmem want to avoid conflicting paths for
                             libpmem, as Viper will also look at default install locations." ON)
 set(VIPER_PMDK_PATH "/usr" CACHE STRING "Path to custom PMDK install directory")
