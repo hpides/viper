@@ -926,11 +926,6 @@ void Viper<K, V>::trigger_resize() {
     // Only one thread can ever get here because for all others the atomic exchange above fails.
     resize_thread_ = std::make_unique<std::thread>([this] {
         DEBUG_LOG("Start resizing.");
-        // Used for benchmarks. remove.
-        cpu_set_t cpuset;
-        CPU_ZERO(&cpuset);
-        CPU_SET(0, &cpuset);
-        pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
         ViperFileMapping mapping = allocate_v_page_blocks();
         add_v_page_blocks(mapping);
         is_resizing_.store(false, STORE_ORDER);
@@ -1153,11 +1148,22 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
     return is_new_item;
 }
 
+/**
+ * Insert a `value` for a given `key`.
+ * Returns true if the item in new, i.e., the key was not present in Viper,
+ * or false if it replaces an existing value.
+ */
 template <typename K, typename V>
 bool Viper<K, V>::Client::put(const K& key, const V& value) {
     return put(key, value, true);
 }
 
+/**
+ * Get the `value` for a given `key`.
+ * Returns true if the item was found or false if not.
+ * If the item was found, `value` will contain the found entry.
+ * If it was not found, `value` is not modified and will contain whatever was present before the call.
+ */
 template <typename K, typename V>
 bool Viper<K, V>::Client::get(const K& key, V* value) {
     auto key_check_fn = [&](auto key, auto offset) {
@@ -1176,6 +1182,12 @@ bool Viper<K, V>::Client::get(const K& key, V* value) {
     }
 }
 
+/**
+ * Get the `value` for a given `key`.
+ * Returns true if the item was found or false if not.
+ * If the item was found, `value` will contain the found entry.
+ * If it was not found, `value` is not modified and will contain whatever was present before the call.
+ */
 template <typename K, typename V>
 bool Viper<K, V>::ReadOnlyClient::get(const K& key, V* value) const {
     auto key_check_fn = [&](auto key, auto offset) {
@@ -1194,11 +1206,25 @@ bool Viper<K, V>::ReadOnlyClient::get(const K& key, V* value) const {
     }
 }
 
+/**
+ * Get the `value` for a given `key`.
+ * Returns true if the item was found or false if not.
+ * If the item was found, `value` will contain the found entry.
+ * If it was not found, `value` is not modified and will contain whatever was present before the call.
+ */
 template <typename K, typename V>
 bool Viper<K, V>::Client::get(const K& key, V* value) const {
     return static_cast<const Viper<K, V>::ReadOnlyClient*>(this)->get(key, value);
 }
 
+/**
+ * Updates the value for a given `key` atomically.
+ * For non-atomic updates, use `put()`.
+ * Returns true if the item was updated successfully, false otherwise.
+ * `update_fn` should be a function that atomically updated a value and handles persistence,
+ * e.g., through a call to `pmem_persist`.
+ * If the modification is not atomic, Viper cannot guarantee correctness.
+ */
 template <typename K, typename V>
 template <typename UpdateFn>
 bool Viper<K, V>::Client::update(const K& key, UpdateFn update_fn) {
@@ -1230,6 +1256,10 @@ bool Viper<K, V>::Client::update(const K& key, UpdateFn update_fn) {
     }
 }
 
+/**
+ * Delete the value for a given `key`.
+ * Returns true if the item was deleted or false if not.
+ */
 template <typename K, typename V>
 bool Viper<K, V>::Client::remove(const K& key) {
     auto key_check_fn = [&](auto key, auto offset) {

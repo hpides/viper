@@ -8,7 +8,7 @@
 ### Using Viper
 Viper is an embedded header-only key-value store for persistent memory.
 You can download it and include it in your application without using CMake (check out the [Downloading Viper](#downloading-viper) and [Dependencies](#dependencies) sections below).
-Here is a short example of Viper's interface. 
+Here is a short example of Viper's interface (this is the content of `playground.cpp`).
 
 ```cpp
 #include <iostream>
@@ -32,7 +32,7 @@ int main(int argc, char** argv) {
     if (found) {
       std::cout << "Record: " << key << " --> " << value << std::endl;
     } else {
-      std::cout << "No record found for: " << key << std::endl;
+      std::cout << "No record found for key: " << key << std::endl;
     }
   }
 }
@@ -43,6 +43,7 @@ As Viper is header-only, you only need to download the header files and include 
 You do not need to use Viper's CMakeLists.txt.
 Just make sure you have the [dependencies](#dependencies) installed.
 Here is a common way to do include Viper using `FetchContent` in CMake.
+By default, this will install `concurrentqueue` but expect `libpmem` to be provided by you.
 
 ```cmake
 include(FetchContent)
@@ -51,22 +52,40 @@ FetchContent_Declare(
   viper
   GIT_REPOSITORY https://github.com/hpides/viper.git
 )
+FetchContent_MakeAvailable(viper)
 
-FetchContent_GetProperties(viper)
-if(NOT viper_POPULATED)
-  FetchContent_Populate(viper)
-endif()
-include_directories(${viper_SOURCE_DIR}/include)
+# ... other CMake stuff
+
+# Link Viper to get the transitive dependencies
+target_link_libraries(your-target viper)
 ```
 
 This avoids calling all the Viper CMake code, which is mainly needed for the benchmark code.
 Of course you can also simply download the code from GitHub into a third_party directory or use your preferred method.
+Check out the CMake options for Viper at the top of [CMakeLists.txt](https://github.com/hpides/viper/blob/master/CMakeLists.txt)
+for more details on what to include and build.
 
   
 ### Dependencies
-Viper depends on [libpmem 1.10](https://github.com/pmem/pmdk) and [concurrentqueue 1.0.2](https://github.com/cameron314/concurrentqueue).
+Viper depends on [libpmem 1.10](https://github.com/pmem/pmdk) and [concurrentqueue 1.0.3](https://github.com/cameron314/concurrentqueue).
 As Viper is header-only, you should make sure that these dependencies are available.
-Check out Viper's [CMakeLists.txt](https://github.com/hpides/viper/blob/c5a3707001dac131421f98a36ebf4f5309b19e35/CMakeLists.txt#L28-L36) to see an example of how to add `concurrentqueue` as a dependency. 
+Check out the CMake options for Viper at the top of the [CMakeLists.txt](https://github.com/hpides/viper/blob/master/CMakeLists.txt)
+for more details on how to include/disable them or specify a custom PMDK path.
+Check out Viper's [CMakeLists.txt](https://github.com/hpides/viper/blob/c5a3707001dac131421f98a36ebf4f5309b19e35/CMakeLists.txt#L28-L36) to see an example of how to add `concurrentqueue` as a dependency.
+You can find the licenses of the dependencies in the [LICENSE file](https://github.com/hpides/viper/blob/master/LICENSE).
+
+### Building the Benchmarks
+First off, if you want to compare your system's performance against Viper, it's probably best to include Viper in your 
+benchmark framework than to rely on this one.
+To build the benchmarks, you need to use pass `-DVIPER_BUILD_BENCHMARKS=ON`, `-DVIPER_PMDK_PROVIDED=OFF`, 
+`-DVIPER_PMDK_PATH=/path/to/pmdk`, and `-DLIBPMEMOBJ++_PATH=/path/to/libpmemobj++`.
+CMake should download and build all dependencies automatically.
+You can then run the individual benchmarks (executables prefixed with `_bm`) in the `benchmark` directory.
+**NOTE**: not all benchmarks will complete by default, due to things such as out-of-memory errors.
+These problems are in some third party systems that I could not fix.
+You might need to play around with them for a bit and remove certain runs/configurations and run them manually bit-by-bit.
+You will also need to specify some benchmark info in the `benchmark.hpp`, such as the data directories and CPU-affinity.
+
 
 ### Cite Our Work
 If you use Viper in your work, please cite us.
