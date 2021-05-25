@@ -1277,7 +1277,9 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
     const size_t num_deadlock_retries = 32;
     std::vector<KVOffset>& deadlock_offsets = this->viper_.deadlock_offsets_;
     bool deadlock_offset_inserted = false;
+    bool encountered_own_offset = false;
     bool has_lock;
+
     // Acquire lock or clear deadlock loop
     while (true) {
         size_t retries = 0;
@@ -1312,7 +1314,7 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
 
         std::vector<KVOffset> new_offsets;
         new_offsets.reserve(deadlock_offsets.size());
-        bool encountered_own_offset = false;
+        encountered_own_offset = false;
         for (KVOffset offset : deadlock_offsets) {
             encountered_own_offset |= offset_to_delete == offset;
             if (offset.block_number != v_block_number_ || offset.page_number != v_page_number_) {
@@ -1335,7 +1337,7 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
     }
 
     if (has_lock) {
-        if (deadlock_offset_inserted) {
+        if (deadlock_offset_inserted && encountered_own_offset) {
             // We inserted into the queue but manually deleted.
             bool expected_offset_lock = false;
             while (!this->viper_.deadlock_offset_lock_.compare_exchange_weak(expected_offset_lock, true)) {
@@ -1344,8 +1346,9 @@ void Viper<K, V>::Client::free_occupied_slot(const KVOffset offset_to_delete, co
             }
 
             auto own_item_pos = std::find(deadlock_offsets.begin(), deadlock_offsets.end(), offset_to_delete);
-            assert(own_item_pos != deadlock_offsets.end());
-            deadlock_offsets.erase(own_item_pos);
+            if (own_item_pos != deadlock_offsets.end()) {
+                deadlock_offsets.erase(own_item_pos);
+            }
             this->viper_.deadlock_offset_lock_.store(false);
         }
         v_page.unlock();
