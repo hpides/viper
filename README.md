@@ -76,11 +76,17 @@ You can find the licenses of the dependencies in the [LICENSE file](https://gith
 
 ### Building the Benchmarks
 First off, if you want to compare your system's performance against Viper, it's probably best to include Viper in your 
-benchmark framework than to rely on this one.
-To build the benchmarks, you need to use pass `-DVIPER_BUILD_BENCHMARKS=ON`, `-DVIPER_PMDK_PROVIDED=OFF`, 
-`-DVIPER_PMDK_PATH=/path/to/pmdk`, and `-DLIBPMEMOBJ++_PATH=/path/to/libpmemobj++`.
+benchmark framework instead of relying on this one.
+
+To build the benchmarks, you need to use pass:
+```
+-DVIPER_BUILD_BENCHMARKS=ON -DVIPER_PMDK_PROVIDED=OFF \
+  -DVIPER_PMDK_PATH=/path/to/pmdk -DLIBPMEMOBJ++_PATH=/path/to/libpmemobj++
+```
+  
 CMake should download and build all dependencies automatically.
-You can then run the individual benchmarks (executables prefixed with `_bm`) in the `benchmark` directory.
+You can then run the individual benchmarks (executables with `_bm` suffix) in the `benchmark` directory.
+
 **NOTE**: not all benchmarks will complete by default, due to things such as out-of-memory errors.
 These problems are in some third party systems that I could not fix.
 You might need to play around with them for a bit and remove certain runs/configurations and run them manually bit-by-bit.
