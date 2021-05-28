@@ -56,7 +56,8 @@ Check out the paper for additional evaluation.
 ## Bibliography
 
 If you use Viper in your work, please cite us.
-```
+
+```bibtex
 @article{benson_viper_2021,
   author    = {Lawrence Benson and Hendrik Makait and Tilmann Rabl},
   title     = {Viper: An Efficient Hybrid PMem-DRAM Key-Value Store},
