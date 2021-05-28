@@ -65,6 +65,7 @@ If you use Viper in your work, please cite us.
   volume    = {14},
   number    = {9},
   year      = {2021},
-  doi       = {10.14778/3461535.3461543},
+  pages     = {1544--1556},
+  doi       = {10.14778/3461535.3461543}
 }
 ```
