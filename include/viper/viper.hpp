@@ -44,9 +44,10 @@ static constexpr version_lock_t NO_CLIENT_BIT = 0b01111111;
 static constexpr version_lock_t UNUSED_BIT    = 0b01000000;
 static constexpr version_lock_t UNLOCKED_BIT  = 0b11111110;
 
-#define IS_LOCKED(lock)       ((lock) & 1)
+#define IS_LOCKED(lock) ((lock) & 1)
 
-#define IO_ERROR(msg) throw std::runtime_error(std::string(msg) + " | " + std::strerror(errno) + " (LINE: " + std::to_string(__LINE__) + ')')
+#define LINE_NUM (" (LINE: " + std::to_string(__LINE__) + ')')
+#define IO_ERROR(msg) throw std::runtime_error(std::string(msg) + " | " + std::strerror(errno) + LINE_NUM)
 #define MMAP_CHECK(addr) if ((addr) == nullptr || (addr) == MAP_FAILED) { IO_ERROR("Cannot mmap"); }
 
 #define LOAD_ORDER  std::memory_order_acquire
@@ -328,6 +329,8 @@ class Viper {
         friend class Viper<K, V>;
       public:
         bool get(const K& key, V* value) const;
+        size_t get_total_used_pmem() const;
+        size_t get_total_allocated_pmem() const;
       protected:
         explicit ReadOnlyClient(ViperT& viper);
         inline const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>::checker_type> get_const_entry_from_offset(KVOffset offset) const;
@@ -1518,6 +1521,19 @@ inline bool Viper<K, V>::ReadOnlyClient::get_const_value_from_offset(KVOffset of
         *value = *(entry.second);
     }
     return lock_val == page_lock.load(LOAD_ORDER);
+}
+
+/** Return the total number of used bytes in PMem */
+template<typename K, typename V>
+size_t Viper<K, V>::ReadOnlyClient::get_total_used_pmem() const {
+    // + PAGE_SIZE for metadata block
+    return (this->viper_.v_base_.v_metadata->num_used_blocks * sizeof(VPageBlock)) + PAGE_SIZE;
+}
+
+/** Return the total number of allocated bytes in PMem */
+template<typename K, typename V>
+size_t Viper<K, V>::ReadOnlyClient::get_total_allocated_pmem() const {
+    return this->viper_.v_base_.v_metadata->total_mapped_size;
 }
 
 template <typename K, typename V>
