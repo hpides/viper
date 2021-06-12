@@ -41,7 +41,7 @@ static constexpr size_t ONE_GB = 1024l * 1024 * 1024;
 static_assert(sizeof(version_lock_t) == 1, "Lock must be 1 byte.");
 static constexpr version_lock_t CLIENT_BIT    = 0b10000000;
 static constexpr version_lock_t NO_CLIENT_BIT = 0b01111111;
-static constexpr version_lock_t UNUSED_BIT    = 0b01000000;
+static constexpr version_lock_t USED_BIT      = 0b01000000;
 static constexpr version_lock_t UNLOCKED_BIT  = 0b11111110;
 
 #define IS_LOCKED(lock) ((lock) & 1)
@@ -62,7 +62,7 @@ struct ViperConfig {
     double resize_threshold = 0.85;
     double reclaim_free_percentage = 0.4;
     size_t reclaim_threshold = 1'000'000;
-    uint8_t num_recovery_threads = 64;
+    uint8_t num_recovery_threads = 32;
     size_t dax_alignment = ONE_GB;
     size_t fs_alignment = ONE_GB;
     bool enable_reclamation = false;
@@ -162,7 +162,7 @@ struct alignas(PAGE_SIZE) ViperPage {
         static constexpr size_t v_page_size = sizeof(*this);
         static_assert(((v_page_size & (v_page_size - 1)) == 0), "VPage needs to be a power of 2!");
         static_assert(PAGE_SIZE % alignof(*this) == 0, "VPage not page size conform!");
-        version_lock = 0;
+        version_lock = USED_BIT;
         free_slots.set();
     }
 
@@ -179,7 +179,9 @@ struct alignas(PAGE_SIZE) ViperPage {
 
     inline void unlock() {
         const version_lock_t current_version = version_lock.load(LOAD_ORDER);
-        const version_lock_t new_version = (current_version + 1) | (current_version & CLIENT_BIT);
+        version_lock_t new_version = (current_version + 1) % USED_BIT;
+        new_version |= USED_BIT;
+        new_version |= (current_version & CLIENT_BIT);
         version_lock.store(new_version, STORE_ORDER);
     }
 };
@@ -199,7 +201,7 @@ struct alignas(PAGE_SIZE) ViperPage<std::string, std::string> {
         static_assert(((v_page_size & (v_page_size - 1)) == 0), "VPage needs to be a power of 2!");
         static_assert(PAGE_SIZE % alignof(*this) == 0, "VPage not page size conform!");
         static_assert(PAGE_SIZE == v_page_size, "VPage not 4096 Byte!");
-        version_lock = 0;
+        version_lock = USED_BIT;
         next_insert_pos = nullptr;
         modified_percentage = 0;
     }
@@ -217,7 +219,9 @@ struct alignas(PAGE_SIZE) ViperPage<std::string, std::string> {
 
     inline void unlock() {
         const version_lock_t current_version = version_lock.load(LOAD_ORDER);
-        const version_lock_t new_version = (current_version + 1) | (current_version & CLIENT_BIT);
+        version_lock_t new_version = (current_version + 1) % USED_BIT;
+        new_version |= USED_BIT;
+        new_version |= (current_version & CLIENT_BIT);
         version_lock.store(new_version, STORE_ORDER);
     }
 };
@@ -236,7 +240,10 @@ struct alignas(PAGE_SIZE) ViperPageBlock {
     }
 
     inline bool is_unused() const {
-        return IS_BIT_SET(v_pages[0].version_lock, UNUSED_BIT);
+        for (const VPage& v_page : v_pages) {
+            if (IS_BIT_SET(v_page.version_lock, USED_BIT)) return false;
+        }
+        return true;
     }
 };
 
@@ -655,7 +662,7 @@ ViperInitData init_file_pool(const std::string& pool_dir, uint64_t pool_size,
         std::filesystem::path data_file = pool_dir + "/data" + std::to_string(chunk_num);
         const int data_fd = ::open(data_file.c_str(), VIPER_FILE_OPEN_FLAGS, 0644);
         if (data_fd < 0) {
-            IO_ERROR("Cannot open meta file: " + data_file.string());
+            IO_ERROR("Cannot open data file: " + data_file.string());
         }
         if (is_new_pool) {
             if (fallocate(data_fd, 0, 0, alloc_size) != 0) {
@@ -691,7 +698,7 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
     constexpr size_t block_size = sizeof(VPageBlock);
     ViperInitData init_data;
 
-    const auto start = std::chrono::high_resolution_clock::now();
+    const auto start = std::chrono::steady_clock::now();
 
 #ifdef VIPER_DRAM
     const bool is_file_based = false;
@@ -706,7 +713,7 @@ ViperBase Viper<K, V>::init_pool(const std::string& pool_file, uint64_t pool_siz
     }
 #endif
 
-    const auto end = std::chrono::high_resolution_clock::now();
+    const auto end = std::chrono::steady_clock::now();
     DEBUG_LOG((is_new_pool ? "Creating" : "Opening") << " took " << ((end - start).count() / 1e6) << " ms");
     return ViperBase{ .file_descriptor = init_data.fd, .is_new_db = is_new_pool,
                       .is_file_based = is_file_based, .v_metadata = init_data.meta,
@@ -769,13 +776,14 @@ void Viper<K, V>::add_v_page_blocks(ViperFileMapping mapping) {
 
 template <typename K, typename V>
 void Viper<K, V>::recover_database() {
-    auto start = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::steady_clock::now();
 
     const block_size_t num_used_blocks = v_base_.v_metadata->num_used_blocks.load(LOAD_ORDER);
-    DEBUG_LOG("Re-inserting values from " << num_used_blocks << " blocks.");
+    DEBUG_LOG("Re-inserting values from " << num_used_blocks << " block(s).");
+    const size_t num_rec_threads = std::min(num_used_blocks, (size_t) num_recovery_threads_);
 
     std::vector<std::thread> recovery_threads;
-    recovery_threads.reserve(num_recovery_threads_);
+    recovery_threads.reserve(num_rec_threads);
 
     auto key_check_fn = [&](auto key, auto offset) { return check_key_equality(key, offset); };
 
@@ -785,7 +793,7 @@ void Viper<K, V>::recover_database() {
             VPageBlock* block = v_blocks_[block_num];
             for (page_size_t page_num = 0; page_num < num_pages_per_block; ++page_num) {
                 const VPage& page = block->v_pages[page_num];
-                if (IS_BIT_SET(page.version_lock, UNUSED_BIT)) {
+                if (!IS_BIT_SET(page.version_lock, USED_BIT)) {
                     // Page is empty
                     continue;
                 }
@@ -807,9 +815,9 @@ void Viper<K, V>::recover_database() {
     };
 
     // We give each thread + 1 blocks to avoid leaving out blocks at the end.
-    const block_size_t num_blocks_per_thread = (num_used_blocks / num_recovery_threads_) + 1;
+    const block_size_t num_blocks_per_thread = (num_used_blocks / num_rec_threads) + 1;
 
-    for (size_t thread_num = 0; thread_num < num_recovery_threads_; ++thread_num) {
+    for (size_t thread_num = 0; thread_num < num_rec_threads; ++thread_num) {
         const block_size_t start_block = thread_num * num_blocks_per_thread;
         const block_size_t end_block = std::min(start_block + num_blocks_per_thread, num_used_blocks);
         recovery_threads.emplace_back(recover, thread_num, start_block, end_block);
@@ -819,7 +827,7 @@ void Viper<K, V>::recover_database() {
         thread.join();
     }
 
-    auto end = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     DEBUG_LOG("RECOVERY DURATION: " << duration << " ms.");
     DEBUG_LOG("Re-inserted " << current_size_.load(LOAD_ORDER) << " keys.");
@@ -948,11 +956,6 @@ void Viper<K, V>::trigger_reclaim(size_t num_reclaim_ops) {
     reclaimable_ops_.fetch_sub(num_reclaim_ops);
 
     reclaim_thread_ = std::make_unique<std::thread>([this] {
-        DEBUG_LOG("START RECLAIMING...");
-        cpu_set_t cpuset;
-        CPU_ZERO(&cpuset);
-        CPU_SET(71, &cpuset);
-        pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
         reclaim();
         is_reclaiming_.store(false, STORE_ORDER);
         DEBUG_LOG("END RECLAIMING");
@@ -1691,7 +1694,7 @@ void Viper<K, V>::reclaim() {
         if (block_free_slots > free_threshold) {
             compact(client, v_block);
             VPage& head_page = v_block->v_pages[0];
-            head_page.version_lock = UNUSED_BIT;
+            head_page.version_lock = 0;
             free_blocks_.enqueue(block_num);
             total_freed_blocks++;
         }
@@ -1720,7 +1723,7 @@ void Viper<std::string, std::string>::reclaim() {
             if (modified_percentage > modified_threshold) {
                 compact(client, v_block);
                 VPage& head_page = v_block->v_pages[0];
-                head_page.version_lock = UNUSED_BIT;
+                head_page.version_lock = 0;
                 free_blocks_.enqueue(block_num);
                 total_freed_blocks++;
                 break;

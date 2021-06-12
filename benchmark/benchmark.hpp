@@ -97,16 +97,9 @@ using ValueType900 = BMRecord<uint32_t, 225>;
 static constexpr size_t CPU_AFFINITY_OFFSET = 36;
 static constexpr char VIPER_POOL_FILE[] = "/dev/dax1.1";
 static constexpr char DB_PMEM_DIR[] = "/mnt/pmem2/viper";
-static constexpr char DB_FILE_DIR[] = "/scratch/lawrence.benson/viper";
-
-// TODO: change back to home dir
-//static constexpr char RESULT_FILE_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper1/results/";
-//static constexpr char CONFIG_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper1/benchmark/config/";
-static constexpr char RESULT_FILE_DIR[] = "/scratch/lawrence.benson/code/results/";
-static constexpr char CONFIG_DIR[] = "/scratch/lawrence.benson/code/benchmark/config/";
-
-//static constexpr size_t CPU_AFFINITY_OFFSET = 0;
-//static constexpr char DB_PMEM_DIR[] = "/mnt/pmem1/viper";
+static constexpr char DB_FILE_DIR[] = "/scratch/lawrence.benson/viper-dev/data/";
+static constexpr char RESULT_FILE_DIR[] = "/scratch/lawrence.benson/viper-dev/results/";
+static constexpr char CONFIG_DIR[] = "/scratch/lawrence.benson/viper-dev/benchmark/config/";
 #elif defined(NVRAM02)
 static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.0";
 static constexpr char DB_PMEM_DIR[] = "/mnt/nvram-viper";
