@@ -72,7 +72,7 @@ namespace internal {
 
 template <typename K, typename V>
 constexpr data_offset_size_t get_num_slots_per_page() {
-    const uint32_t entry_size = sizeof(K) + sizeof(V);
+    const uint32_t entry_size = sizeof(std::pair<K, V>);
     uint16_t current_page_size = PAGE_SIZE;
 
     const uint16_t page_overhead = sizeof(version_lock_t) + 1;
