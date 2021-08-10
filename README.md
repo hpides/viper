@@ -40,7 +40,7 @@ As Viper is header-only, you only need to download the header files and include 
 You do not need to use Viper's CMakeLists.txt.
 Just make sure you have the [dependencies](#dependencies) installed.
 Here is a common way to do include Viper using `FetchContent` in CMake.
-By default, this will install `concurrentqueue` but expect `libpmem` to be provided by you.
+By default, this will fetch all dependencies.
 
 ```cmake
 include(FetchContent)
@@ -58,16 +58,16 @@ target_link_libraries(your-target viper)
 ```
 
 This avoids calling all the Viper CMake code, which is mainly needed for the benchmark code.
-Of course you can also simply download the code from GitHub into a third_party directory or use your preferred method.
+Of course, you can also simply download the code from GitHub into a third_party directory or use your preferred method.
 Check out the CMake options for Viper at the top of [CMakeLists.txt](https://github.com/hpides/viper/blob/master/CMakeLists.txt)
 for more details on what to include and build.
 
   
 ### Dependencies
-Viper depends on [libpmem 1.10](https://github.com/pmem/pmdk) and [concurrentqueue 1.0.3](https://github.com/cameron314/concurrentqueue).
-As Viper is header-only, you should make sure that these dependencies are available.
+Viper depends on [concurrentqueue 1.0.3](https://github.com/cameron314/concurrentqueue).
+As Viper is header-only, you should make sure that this dependency is available.
 Check out the CMake options for Viper at the top of the [CMakeLists.txt](https://github.com/hpides/viper/blob/master/CMakeLists.txt)
-for more details on how to include/disable them or specify a custom PMDK path.
+for more details.
 Check out Viper's [CMakeLists.txt](https://github.com/hpides/viper/blob/c5a3707001dac131421f98a36ebf4f5309b19e35/CMakeLists.txt#L28-L36) to see an example of how to add `concurrentqueue` as a dependency.
 You can find the licenses of the dependencies in the [LICENSE file](https://github.com/hpides/viper/blob/master/LICENSE).
 
@@ -77,8 +77,7 @@ benchmark framework instead of relying on this one.
 
 To build the benchmarks, you need to use pass:
 ```
--DVIPER_BUILD_BENCHMARKS=ON -DVIPER_PMDK_PROVIDED=OFF \
-  -DVIPER_PMDK_PATH=/path/to/pmdk -DLIBPMEMOBJ++_PATH=/path/to/libpmemobj++
+-DVIPER_BUILD_BENCHMARKS=ON -DVIPER_PMDK_PATH=/path/to/pmdk -DLIBPMEMOBJ++_PATH=/path/to/libpmemobj++
 ```
   
 CMake should download and build all dependencies automatically.

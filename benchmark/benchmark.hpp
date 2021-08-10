@@ -108,7 +108,7 @@ static constexpr char RESULT_FILE_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/
 static constexpr char CONFIG_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper/benchmark/config/";
 static constexpr size_t CPU_AFFINITY_OFFSET = 0;
 #else
-static constexpr char VIPER_POOL_FILE[] = "/dex/dax0";
+static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.0";
 static constexpr char DB_PMEM_DIR[] = "/mnt/pmem/";
 static constexpr char DB_FILE_DIR[] = "/home/user/data/";
 static constexpr char RESULT_FILE_DIR[] = "/home/user/viper/results/";

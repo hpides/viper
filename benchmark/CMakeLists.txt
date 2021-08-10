@@ -52,6 +52,24 @@ FetchContent_Declare(
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing benchmark's tests" FORCE)
 FetchContent_MakeAvailable(google_benchmark)
 
+# PMDK
+set(PMDK_INCLUDE_HINTS ${VIPER_PMDK_PATH}/include)
+set(PMDK_LIB_HINTS ${VIPER_PMDK_PATH}/lib)
+
+find_path(PMDK_INCLUDE_DIRS libpmem.h HINTS ${PMDK_INCLUDE_HINTS})
+find_library(PMDK_LIBRARIES NAMES pmem libpmem HINTS ${PMDK_LIB_HINTS})
+
+set(PMDK_FOUND true)
+if (NOT PMDK_INCLUDE_DIRS OR "${PMDK_INCLUDE_DIRS}" STREQUAL "")
+    message(FATAL_ERROR "libpmem include directory not found in default locations or custom path (${PMDK_INCLUDE_HINTS}).")
+endif ()
+if (NOT PMDK_LIBRARIES OR "${PMDK_LIBRARIES}" STREQUAL "")
+    message(FATAL_ERROR "libmem not found in default locations or custom path (${PMDK_LIB_HINTS}).")
+endif ()
+
+message(STATUS "Found PMDK. Including ${PMDK_INCLUDE_DIRS} and linking ${PMDK_LIBRARIES}")
+include_directories(${PMDK_INCLUDE_DIRS})
+
 # libpmemobj + libpmempool
 find_library(PMEMOBJ_LIBRARIES NAMES pmemobj libpmemobj HINTS ${PMDK_LIB_HINTS})
 find_library(PMEMPOOL_LIBRARIES NAMES pmempool libpmempool HINTS ${PMDK_LIB_HINTS})
@@ -169,7 +187,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(hdr_histogram)
 
-set(PMEM_LIBS ${PMEMOBJ_LIBRARIES} ${PMEMPOOL_LIBRARIES})
+set(PMEM_LIBS ${PMDK_LIBRARIES} ${PMEMOBJ_LIBRARIES} ${PMEMPOOL_LIBRARIES})
 
 if (CMAKE_BUILD_TYPE MATCHES Release)
     message(STATUS "BUILDING BENCHMARKS IN RELEASE")
@@ -180,9 +198,10 @@ endif()
 
 add_executable(all_ops_bm all_ops_benchmark.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(all_ops_bm viper ${PMEM_LIBS})
-target_link_libraries(all_ops_bm benchmark snappy pmemkv faster tbb uuid aio hdr_histogram_static)
-add_dependencies(all_ops_bm pmem_rocksdb)
-target_link_libraries(all_ops_bm rocksdb)
+target_link_libraries(all_ops_bm benchmark pmemkv faster tbb uuid aio hdr_histogram_static)
+# TODO: fix rocksdb build
+#add_dependencies(all_ops_bm pmem_rocksdb)
+#target_link_libraries(all_ops_bm rocksdb snappy)
 set_target_properties(all_ops_bm PROPERTIES LINKER_LANGUAGE CXX)
 
 add_executable(update_bm update_bm.cpp ${BASE_BENCHMARK_FILES})

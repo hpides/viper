@@ -5,7 +5,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <vector>
-#include <libpmem.h>
 #include <thread>
 #include <cmath>
 #include <linux/mman.h>
@@ -97,6 +96,19 @@ constexpr data_offset_size_t get_num_slots_per_page() {
     }
     assert(num_slots_per_page > 0 && "Cannot fit KV pair into single page!");
     return num_slots_per_page;
+}
+
+inline void pmem_persist(const void* addr, const size_t len) {
+    char* addr_ptr = (char*) addr;
+    char* end_ptr = addr_ptr + len;
+    for (; addr_ptr < end_ptr; addr_ptr += CACHE_LINE_SIZE) {
+        _mm_clwb(addr_ptr);
+    }
+}
+
+inline void pmem_memcpy_persist(void* dest, const void* src, const size_t len) {
+    memcpy(dest, src, len);
+    pmem_persist(dest, len);
 }
 
 struct VarSizeEntry {
@@ -538,7 +550,7 @@ ViperInitData init_dram_pool(uint64_t pool_size, ViperConfig v_config, const siz
 
     // Update num allocated blocks with correct counting of allocation chunks.
     metadata->num_allocated_blocks = num_allocated_blocks;
-    pmem_persist(metadata, sizeof(ViperFileMetadata));
+    internal::pmem_persist(metadata, sizeof(ViperFileMetadata));
     return ViperInitData{ .fd = -1, .meta = metadata, .mappings = std::move(mappings) };
 
 }
@@ -584,7 +596,7 @@ ViperInitData init_devdax_pool(const std::string& pool_file, uint64_t pool_size,
         ViperFileMetadata v_metadata{ .block_offset = PAGE_SIZE, .block_size = block_size,
                                       .alloc_size = alloc_size, .num_used_blocks = 0,
                                       .num_allocated_blocks = 0, .total_mapped_size = pool_size};
-        pmem_memcpy_persist(pmem_addr, &v_metadata, sizeof(v_metadata));
+        internal::pmem_memcpy_persist(pmem_addr, &v_metadata, sizeof(v_metadata));
     }
     ViperFileMetadata* metadata = static_cast<ViperFileMetadata*>(pmem_addr);
     char* map_start_addr = (char*) pmem_addr;
@@ -609,7 +621,7 @@ ViperInitData init_devdax_pool(const std::string& pool_file, uint64_t pool_size,
 
     // Update num allocated blocks with correct counting of allocation chunks.
     metadata->num_allocated_blocks = num_allocated_blocks;
-    pmem_persist(metadata, sizeof(ViperFileMetadata));
+    internal::pmem_persist(metadata, sizeof(ViperFileMetadata));
     return ViperInitData{ .fd = fd, .meta = metadata, .mappings = std::move(mappings) };
 }
 
@@ -685,7 +697,7 @@ ViperInitData init_file_pool(const std::string& pool_dir, uint64_t pool_size,
         ViperFileMetadata v_metadata{ .block_offset = PAGE_SIZE, .block_size = block_size,
                 .alloc_size = alloc_size, .num_used_blocks = 0,
                 .num_allocated_blocks = num_allocated_blocks, .total_mapped_size = pool_size};
-        pmem_memcpy_persist(metadata_addr, &v_metadata, sizeof(v_metadata));
+        internal::pmem_memcpy_persist(metadata_addr, &v_metadata, sizeof(v_metadata));
         metadata = static_cast<ViperFileMetadata*>(metadata_addr);
     }
     ::close(meta_fd);
@@ -752,7 +764,7 @@ ViperFileMapping Viper<K, V>::allocate_v_page_blocks() {
     const block_size_t num_blocks_to_map = alloc_size / sizeof(VPageBlock);
     v_base_.v_metadata->num_allocated_blocks += num_blocks_to_map;
     v_base_.v_metadata->total_mapped_size += alloc_size;
-    pmem_persist(v_base_.v_metadata, sizeof(ViperFileMetadata));
+    internal::pmem_persist(v_base_.v_metadata, sizeof(ViperFileMetadata));
     DEBUG_LOG("Allocated " << num_blocks_to_map << " blocks in " << (alloc_size / ONE_GB) << " GiB.");
 
     ViperFileMapping mapping{alloc_size, pmem_addr};
@@ -862,7 +874,7 @@ void Viper<K, V>::get_new_var_size_access_information(Client* client) {
     client->v_page_->next_insert_pos = client->v_page_->data.data();
 
     v_base_.v_metadata->num_used_blocks.fetch_add(1, std::memory_order_relaxed);
-    pmem_persist(v_base_.v_metadata, sizeof(ViperFileMetadata));
+    internal::pmem_persist(v_base_.v_metadata, sizeof(ViperFileMetadata));
 }
 
 template <typename K, typename V>
@@ -897,7 +909,7 @@ void Viper<K, V>::get_block_based_access(Client* client) {
     client->v_block_->v_pages[0].version_lock |= CLIENT_BIT;
 
     v_base_.v_metadata->num_used_blocks.fetch_add(1, std::memory_order_relaxed);
-    pmem_persist(v_base_.v_metadata, sizeof(ViperFileMetadata));
+    internal::pmem_persist(v_base_.v_metadata, sizeof(ViperFileMetadata));
 }
 
 template <typename K, typename V>
@@ -1024,10 +1036,10 @@ bool Viper<K, V>::Client::put(const K& key, const V& value, const bool delete_ol
     // We have found a free slot on this page. Persist data.
     v_page_->data[free_slot_idx] = {key, value};
     typename VPage::VEntry* entry_ptr = v_page_->data.data() + free_slot_idx;
-    pmem_persist(entry_ptr, sizeof(typename VPage::VEntry));
+    internal::pmem_persist(entry_ptr, sizeof(typename VPage::VEntry));
 
     free_slots->reset(free_slot_idx);
-    pmem_persist(free_slots, sizeof(*free_slots));
+    internal::pmem_persist(free_slots, sizeof(*free_slots));
 
     // Store data in DRAM map.
     const KVOffset kv_offset{v_block_number_, v_page_number_, free_slot_idx};
@@ -1091,14 +1103,14 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
             value_entry.data = insert_pos + meta_size;
             memcpy(value_entry.data, value.data(), value_entry.value_size);
             memcpy(insert_pos, &value_entry.size_info, meta_size);
-            pmem_persist(insert_pos, meta_size + value_entry.value_size);
+            internal::pmem_persist(insert_pos, meta_size + value_entry.value_size);
 
             // 0 size indicates value is on next page.
             entry.value_size = 0;
             entry.data = key_insert_pos + meta_size;
             memcpy(entry.data, key.data(), entry.key_size);
             memcpy(key_insert_pos, &entry.size_info, meta_size);
-            pmem_persist(key_insert_pos, meta_size + entry.key_size);
+            internal::pmem_persist(key_insert_pos, meta_size + entry.key_size);
 
             current_v_page->next_insert_pos = reinterpret_cast<char*>(current_v_page);
             v_page_->next_insert_pos = insert_pos + meta_size + value_entry.value_size;
@@ -1109,7 +1121,7 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
             if (offset_in_page + meta_size <= v_page_size) {
                 // 0-entry metadata fits into current page.
                 internal::VarSizeEntry next_page_entry{0, 0};
-                pmem_memcpy_persist(insert_pos, &next_page_entry.size_info, meta_size);
+                internal::pmem_memcpy_persist(insert_pos, &next_page_entry.size_info, meta_size);
             }
 
             current_v_page->next_insert_pos = reinterpret_cast<char*>(current_v_page);
@@ -1126,9 +1138,9 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
         entry.data = insert_pos + meta_size;
         memcpy(entry.data, key.data(), entry.key_size);
         memcpy(entry.data + entry.key_size, value.data(), entry.value_size);
-        pmem_persist(entry.data, entry_length);
+        internal::pmem_persist(entry.data, entry_length);
         memcpy(insert_pos, &entry.size_info, meta_size);
-        pmem_persist(insert_pos, meta_size);
+        internal::pmem_persist(insert_pos, meta_size);
         v_page_->next_insert_pos = insert_pos + (meta_size + entry_length);
     }
 
@@ -1400,13 +1412,13 @@ inline void Viper<K, V>::Client::invalidate_record(VPage* v_page, const data_off
         internal::VarSizeEntry* var_entry = reinterpret_cast<internal::VarSizeEntry*>(raw_data);
         var_entry->is_set = false;
         const size_t meta_size = sizeof(var_entry->size_info);
-        pmem_persist(&var_entry->size_info, meta_size);
+        internal::pmem_persist(&var_entry->size_info, meta_size);
         const size_t entry_size = var_entry->key_size + var_entry->value_size + meta_size;
         v_page->modified_percentage += (entry_size * 100) / VPage::DATA_SIZE;
     } else {
         auto* free_slots = &v_page->free_slots;
         free_slots->set(data_offset);
-        pmem_persist(free_slots, sizeof(*free_slots));
+        internal::pmem_persist(free_slots, sizeof(*free_slots));
     }
 }
 
@@ -1588,7 +1600,7 @@ void Viper<K, V>::compact(Client& client, VPageBlock* v_block) {
             const auto& record = v_page.data[slot];
             client.put(record.first, record.second, false);
             free_slots[slot] = 1;
-            pmem_persist(&v_page.free_slots, sizeof(v_page.free_slots));
+            internal::pmem_persist(&v_page.free_slots, sizeof(v_page.free_slots));
         }
         v_page.unlock();
     }
@@ -1659,7 +1671,7 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
             if (!offset.is_tombstone()) {
                 client.put(key, std::string{var_entry.value()}, false);
                 var_entry.is_set = false;
-                pmem_persist(&var_entry.is_set, sizeof(var_entry.is_set));
+                internal::pmem_persist(&var_entry.is_set, sizeof(var_entry.is_set));
             }
 
         }

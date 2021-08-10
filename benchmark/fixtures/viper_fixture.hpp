@@ -191,7 +191,7 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64
 
     auto update_fn = [](ValueT* value) {
         value->update_value();
-        pmem_persist(value, sizeof(uint64_t));
+        internal::pmem_persist(value, sizeof(uint64_t));
     };
 
     for (uint64_t i = 0; i < num_updates; ++i) {
@@ -267,7 +267,7 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
             case ycsb::Record::Op::UPDATE: {
                 auto update_fn = [&](ValueType200* value) {
                     value->data[0] = record.value.data[0];
-                    pmem_persist(value->data.data(), sizeof(uint64_t));
+                    internal::pmem_persist(value->data.data(), sizeof(uint64_t));
                 };
                 op_count += v_client.update(record.key, update_fn);
                 break;
