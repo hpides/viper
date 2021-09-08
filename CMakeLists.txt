@@ -18,7 +18,7 @@ set(VIPER_PMDK_PATH "/usr" CACHE STRING "Path to custom PMDK install directory")
 # VIPER
 add_library(viper INTERFACE)
 target_include_directories(viper INTERFACE include/)
-target_compile_options(viper INTERFACE -march=native)
+target_compile_options(viper INTERFACE -march=native -mclwb)
 
 # CONCURRENTQUEUE
 if (NOT ${VIPER_CONCURRENT_QUEUE_PROVIDED})
@@ -37,7 +37,7 @@ endif()
 if (${VIPER_BUILD_PLAYGROUND})
     add_executable(playground playground.cpp)
 
-    target_compile_options(playground PRIVATE -march=native -pthread)
+    target_compile_options(playground PRIVATE -march=native -mclwb -pthread)
     message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
     if (CMAKE_BUILD_TYPE MATCHES Release)
         message(STATUS "BUILDING RELEASE")
