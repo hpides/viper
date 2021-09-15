@@ -104,6 +104,7 @@ inline void pmem_persist(const void* addr, const size_t len) {
     for (; addr_ptr < end_ptr; addr_ptr += CACHE_LINE_SIZE) {
         _mm_clwb(addr_ptr);
     }
+    _mm_sfence();
 }
 
 inline void pmem_memcpy_persist(void* dest, const void* src, const size_t len) {
