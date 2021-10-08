@@ -201,11 +201,11 @@ struct alignas(PAGE_SIZE) ViperPage {
 
 template <>
 struct alignas(PAGE_SIZE) ViperPage<std::string, std::string> {
-    char* next_insert_pos;
+    uint16_t next_insert_offset;
     std::atomic<version_lock_t> version_lock;
     uint8_t modified_percentage;
 
-    static constexpr size_t METADATA_SIZE = sizeof(version_lock) + sizeof(next_insert_pos) + sizeof(modified_percentage);
+    static constexpr size_t METADATA_SIZE = sizeof(version_lock) + sizeof(next_insert_offset) + sizeof(modified_percentage);
     static constexpr uint16_t DATA_SIZE = PAGE_SIZE - METADATA_SIZE;
     std::array<char, DATA_SIZE> data;
 
@@ -215,7 +215,7 @@ struct alignas(PAGE_SIZE) ViperPage<std::string, std::string> {
         static_assert(PAGE_SIZE % alignof(*this) == 0, "VPage not page size conform!");
         static_assert(PAGE_SIZE == v_page_size, "VPage not 4096 Byte!");
         version_lock = USED_BIT;
-        next_insert_pos = nullptr;
+        next_insert_offset = 0;
         modified_percentage = 0;
     }
 
@@ -872,9 +872,9 @@ void Viper<K, V>::get_new_var_size_access_information(Client* client) {
     }
 
     get_new_access_information(client);
-    client->v_page_->next_insert_pos = client->v_page_->data.data();
+    client->v_page_->next_insert_offset = 0;
 
-    v_base_.v_metadata->num_used_blocks.fetch_add(1, std::memory_order_relaxed);
+    v_base_.v_metadata->num_used_blocks.fetch_add(1);
     internal::pmem_persist(v_base_.v_metadata, sizeof(ViperFileMetadata));
 }
 
@@ -1075,9 +1075,10 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
 
     internal::VarSizeEntry entry{key.size(), value.size()};
     bool is_inserted = false;
-    char* insert_pos = v_page_->next_insert_pos;
+    char* insert_pos = v_page_->data.data() + v_page_->next_insert_offset;
     const size_t entry_length = entry.key_size + entry.value_size;
     const size_t meta_size = sizeof(entry.size_info);
+    const size_t insert_offset_size = sizeof(VPage::next_insert_offset);
 
     ptrdiff_t offset_in_page = insert_pos - reinterpret_cast<char*>(v_page_);
     assert(offset_in_page <= v_page_size);
@@ -1113,8 +1114,10 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
             memcpy(key_insert_pos, &entry.size_info, meta_size);
             internal::pmem_persist(key_insert_pos, meta_size + entry.key_size);
 
-            current_v_page->next_insert_pos = reinterpret_cast<char*>(current_v_page);
-            v_page_->next_insert_pos = insert_pos + meta_size + value_entry.value_size;
+            current_v_page->next_insert_offset = VPage::DATA_SIZE;
+            internal::pmem_persist(current_v_page, insert_offset_size);
+            v_page_->next_insert_offset += meta_size + value_entry.value_size;
+            internal::pmem_persist(v_page_, insert_offset_size);
             current_v_page = v_page_;
             is_inserted = true;
         } else {
@@ -1125,7 +1128,8 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
                 internal::pmem_memcpy_persist(insert_pos, &next_page_entry.size_info, meta_size);
             }
 
-            current_v_page->next_insert_pos = reinterpret_cast<char*>(current_v_page);
+            current_v_page->next_insert_offset = VPage::DATA_SIZE;
+            internal::pmem_persist(current_v_page, insert_offset_size);
             insert_pos = v_page_->data.data();
             offset_in_page = v_page_->METADATA_SIZE;
             current_block_number = v_block_number_;
@@ -1137,12 +1141,13 @@ bool Viper<std::string, std::string>::Client::put(const std::string& key, const 
     if (!is_inserted) {
         // Entire record fits into current page.
         entry.data = insert_pos + meta_size;
+        memcpy(insert_pos, &entry.size_info, meta_size);
         memcpy(entry.data, key.data(), entry.key_size);
         memcpy(entry.data + entry.key_size, value.data(), entry.value_size);
-        internal::pmem_persist(entry.data, entry_length);
-        memcpy(insert_pos, &entry.size_info, meta_size);
-        internal::pmem_persist(insert_pos, meta_size);
-        v_page_->next_insert_pos = insert_pos + (meta_size + entry_length);
+        internal::pmem_persist(insert_pos, meta_size + entry_length);
+        v_page_->next_insert_offset += meta_size + entry_length;
+        internal::pmem_persist(v_page_, insert_offset_size);
+        _mm_prefetch(v_page_, _MM_HINT_T0);
     }
 
     const uint16_t data_offset = offset_in_page - v_page_->METADATA_SIZE;
@@ -1453,7 +1458,7 @@ void Viper<K, V>::Client::update_access_information() {
 template <typename K, typename V>
 void Viper<K, V>::Client::update_var_size_page_information() {
     update_access_information();
-    v_page_->next_insert_pos = v_page_->data.data();
+    v_page_->next_insert_offset = 0;
 }
 
 template <typename K, typename V>
@@ -1616,8 +1621,8 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
     VPage* v_page = &v_block->v_pages[current_page];
     v_page->lock();
     const char* raw_data = v_page->data.data();
-    const char* next_insert_pos = v_page->next_insert_pos;
-    bool is_last_page = reinterpret_cast<const void*>(next_insert_pos) != reinterpret_cast<const void*>(v_page);
+    uint16_t next_insert_off = v_page->next_insert_offset;
+    bool is_last_page = next_insert_off != VPage::DATA_SIZE;
 
     auto key_check_fn = [&](auto key, auto offset) { return check_key_equality(key, offset); };
 
@@ -1627,23 +1632,23 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
         const ptrdiff_t offset_in_page = raw_data - reinterpret_cast<char*>(v_page);
         const bool end_of_page = (offset_in_page + meta_size) > v_page_size;
 
-        if (is_last_page && raw_data == next_insert_pos) {
+        if (is_last_page && (raw_data == v_page->data.data() + next_insert_off)) {
             // Previous client has not written further than this, so we can stop here.
-            return;
+            break;
         }
 
         // No more entries in this page
         if (end_of_page || (var_entry.key_size == 0 && var_entry.value_size == 0)) {
             if (++current_page == num_pages_per_block) {
-                return;
+                break;
             }
 
             v_page->unlock();
             v_page = &v_block->v_pages[current_page];
             v_page->lock();
-            next_insert_pos = v_page->next_insert_pos;
+            next_insert_off = v_page->next_insert_offset;
             raw_data = v_page->data.data();
-            is_last_page = reinterpret_cast<const void*>(next_insert_pos) != reinterpret_cast<const void*>(v_page);
+            is_last_page = next_insert_off != VPage::DATA_SIZE;
             continue;
         }
 
@@ -1651,14 +1656,14 @@ void Viper<std::string, std::string>::compact(Client& client, VPageBlock* v_bloc
         if (var_entry.value_size == 0) {
             // Value is on next page
             if (++current_page == num_pages_per_block) {
-                return;
+                break;
             }
 
             v_page->unlock();
             v_page = &v_block->v_pages[current_page];
             v_page->lock();
-            next_insert_pos = v_page->next_insert_pos;
-            is_last_page = reinterpret_cast<const void*>(next_insert_pos) != reinterpret_cast<const void*>(v_page);
+            next_insert_off = v_page->next_insert_offset;
+            is_last_page = next_insert_off != VPage::DATA_SIZE;
             const char* raw_value_data = v_page->data.data();
             var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
             raw_data = raw_value_data + meta_size + var_entry.value_size;
@@ -1742,7 +1747,7 @@ void Viper<std::string, std::string>::reclaim() {
                 break;
             }
 
-            if (v_page.next_insert_pos != reinterpret_cast<const char*>(&v_page)) {
+            if (v_page.next_insert_offset != VPage::DATA_SIZE) {
                 // This page has not been completed, so no need to check next one.
                 break;
             }
