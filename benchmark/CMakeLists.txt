@@ -19,7 +19,7 @@ SET(
         ALL_SYSTEMS_BENCHMARK_FILES
 
         ${BASE_BENCHMARK_FILES}
-        fixtures/rocksdb_fixture.hpp
+        #[[fixtures/rocksdb_fixture.hpp
         fixtures/faster_fixture.hpp
         fixtures/pmem_kv_fixture.hpp
         fixtures/cceh_fixture.hpp
@@ -28,7 +28,7 @@ SET(
         fixtures/utree_fixture.hpp
         fixtures/crl.hpp
         fixtures/crl_fixture.hpp
-        fixtures/tbb_fixture.hpp
+        fixtures/tbb_fixture.hpp]]
 )
 
 cmake_host_system_information(RESULT host_name QUERY HOSTNAME)
@@ -52,7 +52,7 @@ FetchContent_Declare(
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing benchmark's tests" FORCE)
 FetchContent_MakeAvailable(google_benchmark)
 
-# PMDK
+#[[# PMDK
 set(PMDK_INCLUDE_HINTS ${VIPER_PMDK_PATH}/include)
 set(PMDK_LIB_HINTS ${VIPER_PMDK_PATH}/lib)
 
@@ -78,10 +78,10 @@ find_library(PMEMPOOL_LIBRARIES NAMES pmempool libpmempool HINTS ${PMDK_LIB_HINT
 # Use -DLIBPMEMOBJ++_PATH=/path/to/libpmemobj++ for custom path
 set(LIBPMEMOBJ++_PATH "/scratch/pmem/libpmemobj-cpp" CACHE PATH
         "Path to custom libpmemobj++ install directory")
-include_directories(${LIBPMEMOBJ++_PATH}/include)
+include_directories(${LIBPMEMOBJ++_PATH}/include)]]
 
 # TBB
-set(TBB_TEST OFF CACHE INTERNAL "")
+#[[set(TBB_TEST OFF CACHE INTERNAL "")
 set(TBB_EXAMPLES OFF CACHE INTERNAL "")
 FetchContent_Declare(
         oneTBB
@@ -89,14 +89,14 @@ FetchContent_Declare(
         GIT_TAG        v2021.1.1
 )
 FetchContent_MakeAvailable(oneTBB)
-include_directories(${oneTBB_SOURCE_DIR}/include)
+include_directories(${oneTBB_SOURCE_DIR}/include)]]
 
 
 # PmemKV
 set(OLD_CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH})
 set(CMAKE_PREFIX_PATH "${LIBPMEMOBJ++_PATH};${VIPER_PMDK_PATH}")
 
-cmake_policy(SET CMP0077 NEW)
+#[[cmake_policy(SET CMP0077 NEW)
 set(BUILD_DOC OFF CACHE BOOL "" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -113,11 +113,11 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(pmemkv)
 include_directories(${pmemkv_SOURCE_DIR}/src)
-set(CMAKE_PREFIX_PATH ${OLD_CMAKE_PREFIX_PATH})
+set(CMAKE_PREFIX_PATH ${OLD_CMAKE_PREFIX_PATH})]]
 
 
 # PMEM-ROCKSDB
-set(PMEM_ROCKSDB_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/pmem-rocksdb")
+#[[set(PMEM_ROCKSDB_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/pmem-rocksdb")
 ExternalProject_Add(
         pmem_rocksdb
         GIT_REPOSITORY https://github.com/lawben/pmem-rocksdb.git
@@ -133,17 +133,18 @@ ExternalProject_Add(
         # Use DRAM cache for now
         # BUILD_COMMAND $(MAKE) shared_lib -j ROCKSDB_BC_ON_DCPMM=1 ROCKSDB_KVS_ON_DCPMM=1 ROCKSDB_WAL_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=1
         BUILD_COMMAND $(MAKE) shared_lib -j ROCKSDB_KVS_ON_DCPMM=1 ROCKSDB_WAL_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=1
-)
+)]]
 # Use DRAM cache for now
 #add_definitions(-DBC_ON_DCPMM=1 -DKVS_ON_DCPMM=1 -DWAL_ON_DCPMM=1)
-add_definitions(-DKVS_ON_DCPMM=1 -DWAL_ON_DCPMM=1)
+#[[add_definitions(-DKVS_ON_DCPMM=1 -DWAL_ON_DCPMM=1)
 
 link_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb)
 include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/include)
-include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/dcpmm)
+include_directories(${PMEM_ROCKSDB_PREFIX}/src/pmem_rocksdb/dcpmm)]]
 
 
 # Dash
+#[[
 FetchContent_Declare(
         epoch_reclaimer
         GIT_REPOSITORY https://github.com/XiangpengHao/epoch-reclaimer.git
@@ -167,8 +168,10 @@ execute_process(COMMAND sed -i -e "s/, (void\\*)pool_addr//g" ${dash_SOURCE_DIR}
 execute_process(COMMAND sed -i -e "s/pmemobj_create_addr/pmemobj_create/g" ${dash_SOURCE_DIR}/src/allocator.h)
 execute_process(COMMAND sed -i -e "s/pmemobj_open_addr/pmemobj_open/g" ${dash_SOURCE_DIR}/src/allocator.h)
 execute_process(COMMAND sed -i -e "s#std::cout << \"Directory_Doubling#//#g" ${dash_SOURCE_DIR}/src/ex_finger.h)
+]]
 
 # FASTER
+#[[
 FetchContent_Declare(
         faster
         GIT_REPOSITORY https://github.com/lawben/faster.git
@@ -177,8 +180,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(faster)
 include_directories(${faster_SOURCE_DIR}/cc/src)
+]]
 
 # HdrHistogram
+#[[
 set(HDR_HISTOGRAM_BUILD_PROGRAMS OFF CACHE INTERNAL "")
 FetchContent_Declare(
         hdr_histogram
@@ -186,6 +191,7 @@ FetchContent_Declare(
         GIT_TAG 0.11.2
 )
 FetchContent_MakeAvailable(hdr_histogram)
+]]
 
 set(PMEM_LIBS ${PMDK_LIBRARIES} ${PMEMOBJ_LIBRARIES} ${PMEMPOOL_LIBRARIES})
 
@@ -196,7 +202,7 @@ else()
     message(WARNING "Building benchmarks in ${CMAKE_BUILD_TYPE}. This may impact performance!")
 endif()
 
-add_executable(all_ops_bm all_ops_benchmark.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
+#[[add_executable(all_ops_bm all_ops_benchmark.cpp ${ALL_SYSTEMS_BENCHMARK_FILES})
 target_link_libraries(all_ops_bm viper ${PMEM_LIBS})
 target_link_libraries(all_ops_bm benchmark pmemkv faster tbb uuid aio hdr_histogram_static)
 # TODO: fix rocksdb build
@@ -227,15 +233,15 @@ set_target_properties(kv_size_bm PROPERTIES LINKER_LANGUAGE CXX)
 add_executable(variable_size_bm variable_size_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(variable_size_bm viper ${PMEM_LIBS})
 target_link_libraries(variable_size_bm benchmark faster uuid aio tbb pmemkv hdr_histogram_static)
-set_target_properties(variable_size_bm PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(variable_size_bm PROPERTIES LINKER_LANGUAGE CXX)]]
 
 add_executable(ycsb_bm ycsb_bm.cpp fixtures/ycsb_common.cpp fixtures/ycsb_common.hpp ${ALL_SYSTEMS_BENCHMARK_FILES})
-target_link_libraries(ycsb_bm viper ${PMEM_LIBS})
+#[[target_link_libraries(ycsb_bm viper ${PMEM_LIBS})
 target_link_libraries(ycsb_bm benchmark faster pmemkv tbb uuid aio hdr_histogram_static)
-set_target_properties(ycsb_bm PROPERTIES LINKER_LANGUAGE CXX)
-
+set_target_properties(ycsb_bm PROPERTIES LINKER_LANGUAGE CXX)]]
+#[[
 add_executable(latency_bw_bm latency_bw_bm.cpp ${BASE_BENCHMARK_FILES})
 target_link_libraries(latency_bw_bm viper ${PMEM_LIBS})
 target_link_libraries(latency_bw_bm benchmark hdr_histogram_static)
 target_compile_options(latency_bw_bm PRIVATE -march=native)
-set_target_properties(latency_bw_bm PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(latency_bw_bm PROPERTIES LINKER_LANGUAGE CXX)]]

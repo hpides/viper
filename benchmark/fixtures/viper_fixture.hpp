@@ -61,7 +61,11 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
 //    pool_file_ = DB_PMEM_DIR + std::string("/viper");
 
 //    viper_ = ViperT::open(pool_file_, v_config);
-    viper_ = ViperT::create(pool_file_, BM_POOL_SIZE, v_config);
+//todo
+// 1 cceh
+// 2 alex
+// 3 pgm
+    viper_ = ViperT::create(pool_file_, BM_POOL_SIZE, v_config,1);
     this->prefill(num_prefill_inserts);
     viper_initialized_ = true;
 }

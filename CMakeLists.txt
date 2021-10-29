@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.14)
+set(CMAKE_CXX_COMPILER "/usr/bin/g++")
 project(viper)
 
 set(CMAKE_CXX_STANDARD 17)
+
 
 ### OPTIONS ###
 option(VIPER_BUILD_PLAYGROUND "Set ON if playground should be built." OFF)
@@ -44,10 +46,12 @@ if (${VIPER_BUILD_PLAYGROUND})
         target_compile_options(playground PRIVATE -O3 -Ofast -mtune=native)
     endif()
 
-    target_link_libraries(playground viper pthread)
+    target_link_libraries(playground viper pthread stdc++fs)
 endif()
 
 # VIPER BENCHMARKS
 if (${VIPER_BUILD_BENCHMARKS})
     add_subdirectory(benchmark)
 endif()
+
+add_subdirectory(index-test)
