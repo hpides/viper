@@ -27,7 +27,7 @@ namespace viper::index{
 
         KeyValueOffset() : offset{INVALID} {}
 
-        KeyValueOffset(KeyValueOffset &k) : offset{k.get_offset()} {}
+        //KeyValueOffset(KeyValueOffset &k) : offset{k.get_offset()} {}
 
         static KeyValueOffset NONE() { return KeyValueOffset{INVALID}; }
 

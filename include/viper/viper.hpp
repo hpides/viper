@@ -347,8 +347,8 @@ namespace viper {
         using VPageBlock = internal::ViperPageBlock<VPage, num_pages_per_block>;
 
     public:
-        static std::unique_ptr<Viper<K, V>> create(const std::string &pool_file, uint64_t initial_pool_size,
-                                                   ViperConfig v_config = ViperConfig{}, int index_type = 1);
+        static std::unique_ptr<Viper<K, V>> create(const std::string &pool_file, uint64_t initial_pool_size, int index_type,
+                                                   ViperConfig v_config = ViperConfig{});
 
         static std::unique_ptr<Viper<K, V>> open(const std::string &pool_file, ViperConfig v_config = ViperConfig{});
 
@@ -500,8 +500,8 @@ namespace viper {
     };
 
     template<typename K, typename V>
-    std::unique_ptr<Viper<K, V>> Viper<K, V>::create(const std::string &pool_file, uint64_t initial_pool_size,
-                                                     ViperConfig v_config, int index_type) {
+    std::unique_ptr<Viper<K, V>> Viper<K, V>::create(const std::string &pool_file, uint64_t initial_pool_size, int index_type
+                                                     ,ViperConfig v_config) {
         return std::make_unique<Viper < K, V>>
         (
                 init_pool(pool_file, initial_pool_size, true, v_config), pool_file, true, v_config, index_type);
