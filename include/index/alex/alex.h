@@ -918,6 +918,7 @@ namespace viper::alex {
         }
 
         P Get(const KeyType& k){
+            std::cout<<"alex get"<<std::endl;
             self_type::Iterator iterator=find(k);
             if (iterator.is_end()) {
                 return (P)index::KeyValueOffset::NONE();
@@ -1141,6 +1142,7 @@ namespace viper::alex {
 
 
         P Insert(const KeyType & k, P p) {
+            std::cout<<"alex insert"<<std::endl;
             self_type::Iterator iterator=find(k);
             if (iterator.is_end()) {
                 std::pair<Iterator, bool> pair=insert(k, p);

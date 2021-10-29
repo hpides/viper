@@ -521,9 +521,11 @@ namespace viper {
             num_recovery_threads_{v_config.num_recovery_threads} {
         if (index_type == 1) {
             map_ = new cceh::CCEH<K>{131072};
-        }/*else if(index_type == 2){
+            std::cout<<"11111"<<std::endl;
+        }else if(index_type == 2){
             map_ = new alex::Alex<K,index::KeyValueOffset>{};
-        }*/
+            std::cout<<"22222"<<std::endl;
+        }
         current_block_page_ = 0;
         current_size_ = 0;
         reclaimable_ops_ = 0;
