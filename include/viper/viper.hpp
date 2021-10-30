@@ -68,8 +68,8 @@ namespace viper {
         double reclaim_free_percentage = 0.4;
         size_t reclaim_threshold = 1'000'000;
         uint8_t num_recovery_threads = 32;
-        size_t dax_alignment = TWO_MB*8;
-        size_t fs_alignment = TWO_MB*8;
+        size_t dax_alignment = ONE_GB;
+        size_t fs_alignment = ONE_GB;
         bool enable_reclamation = false;
     };
 

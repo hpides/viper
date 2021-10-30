@@ -5,7 +5,7 @@
 #include "viper/viper.hpp"
 
 int main(int argc, char** argv) {
-    const size_t initial_size = 16 * 1024 * 1024;  // 1 GiB
+    const size_t initial_size = 1024l * 1024 * 1024;  // 1 GiB
     auto viper_db = viper::Viper<uint64_t, uint64_t>::create("/mnt/pmem1/viper", initial_size,2);
 
     // To modify records in Viper, you need to use a Viper Client.
