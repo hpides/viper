@@ -50,9 +50,10 @@
 
 namespace viper::alex {
 
+    // allow_duplicates must be false in 505 lab
     template<class KeyType, class P, class Compare = AlexCompare,
             class Alloc = std::allocator<std::pair<KeyType, P>>,
-            bool allow_duplicates = true>
+            bool allow_duplicates = false>
     class Alex : public viper::index::BaseIndex<KeyType> {
         static_assert(std::is_arithmetic<KeyType>::value, "ALEX key type must be numeric.");
         static_assert(std::is_same<Compare, AlexCompare>::value,
@@ -913,18 +914,20 @@ namespace viper::alex {
         /*** Lookup ***/
 
     public:
-        P Get(const KeyType& k,std::function<bool(KeyType,index::KeyValueOffset)> func){
+        P Get(const KeyType &k, std::function<bool(KeyType, index::KeyValueOffset)> func) {
             return Get(k);
         }
 
-        P Get(const KeyType& k){
-            std::cout<<"alex get"<<std::endl;
-            self_type::Iterator iterator=find(k);
+        P Get(const KeyType &k) {
+            std::cout << "alex get" << std::endl;
+            self_type::Iterator iterator = find(k);
             if (iterator.is_end()) {
-                return (P)index::KeyValueOffset::NONE();
+                return (P) index::KeyValueOffset::NONE();
             }
+            //std::cout<<std::to_string(((index::KeyValueOffset)iterator.payload()).get_offset())<<std::endl;
             return iterator.payload();
         }
+
         // Looks for an exact match of the key
         // If the key does not exist, returns an end iterator
         // If there are multiple keys with the same value, returns an iterator to the
@@ -1136,21 +1139,21 @@ namespace viper::alex {
         /*** Insert ***/
 
     public:
-        P Insert(const KeyType & k, P p, std::function<bool(KeyType, index::KeyValueOffset)>) {
-            return Insert(k,p);
+        P Insert(const KeyType &k, P p, std::function<bool(KeyType, index::KeyValueOffset)>) {
+            return Insert(k, p);
         }
 
-
-        P Insert(const KeyType & k, P p) {
-            std::cout<<"alex insert"<<std::endl;
-            self_type::Iterator iterator=find(k);
-            if (iterator.is_end()) {
-                std::pair<Iterator, bool> pair=insert(k, p);
-                return (P)index::KeyValueOffset::NONE();
+        P Insert(const KeyType &k, P p) {
+            std::cout << "alex insert" << std::endl;
+            // allow_duplicates must be false
+            std::pair<Iterator, bool> pair = insert(k, p);
+            if (pair.second == true) {
+                return (P) index::KeyValueOffset::NONE();
             }
-            P old_payload(iterator.payload());
-            erase(iterator);
-            std::pair<Iterator, bool> pair=insert(k,p);
+            // duplicate detected
+            P &payload = pair.first.payload();
+            P old_payload(payload);
+            payload = p;
             return old_payload;
         }
 

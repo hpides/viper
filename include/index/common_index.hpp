@@ -27,8 +27,6 @@ namespace viper::index{
 
         KeyValueOffset() : offset{INVALID} {}
 
-        //KeyValueOffset(KeyValueOffset &k) : offset{k.get_offset()} {}
-
         static KeyValueOffset NONE() { return KeyValueOffset{INVALID}; }
 
         explicit KeyValueOffset(const offset_size_t offset) : offset(offset) {}
@@ -60,6 +58,7 @@ namespace viper::index{
     template <typename KeyType>
     class BaseIndex{
     public:
+        virtual ~BaseIndex(){};
         virtual KeyValueOffset Insert(const KeyType&, KeyValueOffset){
             throw std::runtime_error("Insert not implemented");
         }

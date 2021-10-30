@@ -25,5 +25,4 @@ int main(int argc, char** argv) {
             std::cout << "No record found for key: " << key << std::endl;
         }
     }
-    std::cout << "No record found for key: " << std::endl;
 }
