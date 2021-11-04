@@ -2,7 +2,7 @@
 
 #include <rocksdb/utilities/options_util.h>
 #include <rocksdb/table.h>
-#include "common_fixture.hpp"
+#include "../common_fixture.hpp"
 #include "rocksdb/db.h"
 #include "env_dcpmm.h"
 #include "cache_dcpmm.h"

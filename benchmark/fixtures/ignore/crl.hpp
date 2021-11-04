@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "common_fixture.hpp"
+#include "../common_fixture.hpp"
 #include "tbb/concurrent_hash_map.h"
 #include "libpmem.h"
 #include "libpmemobj++/container/concurrent_hash_map.hpp"

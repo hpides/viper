@@ -1,9 +1,21 @@
 #include "common_fixture.hpp"
 #include "ycsb_common.hpp"
+#include <stdlib.h>
 #include <fcntl.h>
+#include <linux/mman.h>
 #include <sys/mman.h>
 #include <thread>
 #include <unordered_set>
+#include <cstring>
+#include <iostream>
+#include <bitset>
+#include <fcntl.h>
+#include <unistd.h>
+#include <vector>
+#include <cmath>
+#include <atomic>
+#include <assert.h>
+#include <filesystem>
 
 namespace viper::kv_bm {
 

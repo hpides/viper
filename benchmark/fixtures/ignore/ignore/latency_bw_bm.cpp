@@ -8,8 +8,8 @@
 #include <fstream>
 
 #include <benchmark/benchmark.h>
-#include "benchmark.hpp"
-#include "fixtures/common_fixture.hpp"
+#include "../../../benchmark.hpp"
+#include "../../common_fixture.hpp"
 #include "viper/viper.hpp"
 
 

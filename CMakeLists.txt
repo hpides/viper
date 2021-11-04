@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 17)
 ### OPTIONS ###
 option(VIPER_BUILD_PLAYGROUND "Set ON if playground should be built." OFF)
 
-option(VIPER_BUILD_BENCHMARKS "Set OM if benchmarks should be built." OFF)
+option(VIPER_BUILD_BENCHMARKS "Set OM if benchmarks should be built." ON)
 
 option(VIPER_CONCURRENT_QUEUE_PROVIDED "Set ON if the concurrentqueue dependency is provided and should not be
                                         downloaded by Viper." OFF)
@@ -50,8 +50,6 @@ if (${VIPER_BUILD_PLAYGROUND})
 endif()
 
 # VIPER BENCHMARKS
-if (${VIPER_BUILD_BENCHMARKS})
-    add_subdirectory(benchmark)
-endif()
+add_subdirectory(benchmark )
 
 add_subdirectory(index-test)

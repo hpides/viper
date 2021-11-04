@@ -3,16 +3,16 @@
 
 #include <benchmark/benchmark.h>
 
-#include "benchmark.hpp"
-#include "fixtures/common_fixture.hpp"
-#include "fixtures/viper_fixture.hpp"
-#include "fixtures/utree_fixture.hpp"
-#include "fixtures/faster_fixture.hpp"
-#include "fixtures/dash_fixture.hpp"
-#include "fixtures/tbb_fixture.hpp"
-#include "fixtures/crl_fixture.hpp"
-#include "fixtures/pmem_kv_fixture.hpp"
-#include "fixtures/rocksdb_fixture.hpp"
+#include "../../benchmark.hpp"
+#include "../common_fixture.hpp"
+#include "../viper_fixture.hpp"
+#include "utree_fixture.hpp"
+#include "faster_fixture.hpp"
+#include "dash_fixture.hpp"
+#include "tbb_fixture.hpp"
+#include "crl_fixture.hpp"
+#include "pmem_kv_fixture.hpp"
+#include "rocksdb_fixture.hpp"
 
 using namespace viper::kv_bm;
 

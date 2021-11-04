@@ -3,14 +3,14 @@
 set -e
 
 #BASE_DIR="/hpi/fs00/home/lawrence.benson/clion/viper1/benchmark"
-BASE_DIR="/scratch/lawrence.benson/code/benchmark"
+BASE_DIR="/lab505/gjk/viper/benchmark"
 PREFILL_CONF="${BASE_DIR}/config/ycsb_prefill.conf"
-DATA_DIR="/mnt/nvme2/viper"
+DATA_DIR="/lab505/gjk/ycsb-data"
 
 CONFIGS=( "5050_uniform" "5050_zipf" "1090_uniform" "1090_zipf" )
 
 #cd "/hpi/fs00/home/lawrence.benson/ycsb"
-cd "/scratch/lawrence.benson/ycsb"
+cd "/lab505/gjk/ycsb-0.17.0"
 
 echo "GENERATING PREFILL DATA"
 ./bin/ycsb load basic -P ${PREFILL_CONF} -s > "${DATA_DIR}/raw_prefill.dat"

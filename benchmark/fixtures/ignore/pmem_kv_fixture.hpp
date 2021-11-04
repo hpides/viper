@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common_fixture.hpp"
+#include "../common_fixture.hpp"
 #include <libpmemkv.hpp>
 
 namespace std {

@@ -1,7 +1,7 @@
 #include <benchmark/benchmark.h>
 
-#include "benchmark.hpp"
-#include "fixtures/viper_fixture.hpp"
+#include "../../../benchmark.hpp"
+#include "../../viper_fixture.hpp"
 
 using namespace viper::kv_bm;
 

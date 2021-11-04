@@ -8,20 +8,20 @@
 #include "benchmark.hpp"
 #include "fixtures/common_fixture.hpp"
 #include "fixtures/viper_fixture.hpp"
-#include "fixtures/faster_fixture.hpp"
-#include "fixtures/crl_fixture.hpp"
-#include "fixtures/dash_fixture.hpp"
+//#include "fixtures/faster_fixture.hpp"
+//#include "fixtures/crl_fixture.hpp"
+//#include "fixtures/dash_fixture.hpp"
 //#include "fixtures/rocksdb_fixture.hpp"
-#include "fixtures/pmem_kv_fixture.hpp"
+//#include "fixtures/pmem_kv_fixture.hpp"
 #include "fixtures/ycsb_common.hpp"
 
 #define YCSB_BM
 #define UTREE_KEY_T viper::kv_bm::KeyType8
-#include "fixtures/utree_fixture.hpp"
+//#include "fixtures/utree_fixture.hpp"
 
 using namespace viper::kv_bm;
 
-static constexpr char BASE_DIR[] = "/mnt/nvme2/viper";
+static constexpr char BASE_DIR[] = "/lab505/gjk/ycsb-data";
 static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
 
 #define GENERAL_ARGS \
@@ -46,10 +46,10 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
             BENCHMARK_REGISTER_F(fixture, workload ## _lat) GENERAL_ARGS
 
 #define ALL_BMS(fixture) \
-            DEFINE_BM(fixture, 5050_uniform, data_uniform_50_50); \
+            DEFINE_BM(fixture, 5050_uniform, data_uniform_50_50)/*; \
             DEFINE_BM(fixture, 1090_uniform, data_uniform_10_90); \
             DEFINE_BM(fixture, 5050_zipf,    data_zipf_50_50); \
-            DEFINE_BM(fixture, 1090_zipf,    data_zipf_10_90)
+            DEFINE_BM(fixture, 1090_zipf,    data_zipf_10_90)*/
 
 
 static std::vector<ycsb::Record> prefill_data;

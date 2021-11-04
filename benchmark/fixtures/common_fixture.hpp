@@ -7,8 +7,8 @@
 #include <mutex>
 
 #include <benchmark/benchmark.h>
-#include <libpmempool.h>
-#include <libpmemobj++/pool.hpp>
+//#include <libpmempool.h>
+//#include <libpmemobj++/pool.hpp>
 #include <hdr_histogram.h>
 #include <thread>
 
@@ -88,7 +88,7 @@ class BaseFixture : public benchmark::Fixture {
     static VarSizeKVs var_size_kvs_;
 };
 
-template <typename RootType>
+/*template <typename RootType>
 class BasePmemFixture : public BaseFixture {
   public:
     void SetUp(benchmark::State& state) override {
@@ -125,6 +125,6 @@ class BasePmemFixture : public BaseFixture {
     pmem::obj::pool<RootType> pmem_pool_;
     std::filesystem::path pool_file_;
     std::mutex pool_mutex_;
-};
+};*/
 
 }  // namespace viper::kv_bm

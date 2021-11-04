@@ -16,6 +16,11 @@ int main(int argc, char** argv) {
         v_client.put(key, value);
     }
 
+    for (uint64_t key = 0; key < 10; ++key) {
+        const uint64_t value = key + 20;
+        v_client.put(key, value);
+    }
+
     for (uint64_t key = 0; key < 11; ++key) {
         uint64_t value;
         const bool found = v_client.get(key, &value);

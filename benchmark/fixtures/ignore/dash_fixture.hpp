@@ -1,8 +1,8 @@
 #pragma once
 
 #include "ex_finger.h"
-#include "common_fixture.hpp"
-#include "../benchmark.hpp"
+#include "../common_fixture.hpp"
+#include "../../benchmark.hpp"
 #include <libpmemobj++/allocator.hpp>
 #include <libpmemobj++/transaction.hpp>
 #include <libpmemobj++/make_persistent.hpp>

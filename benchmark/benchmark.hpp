@@ -108,17 +108,17 @@ static constexpr char RESULT_FILE_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/
 static constexpr char CONFIG_DIR[] = "/hpi/fs00/home/lawrence.benson/clion/viper/benchmark/config/";
 static constexpr size_t CPU_AFFINITY_OFFSET = 0;
 #else
-static constexpr char VIPER_POOL_FILE[] = "/dev/dax0.0";
-static constexpr char DB_PMEM_DIR[] = "/mnt/pmem/";
-static constexpr char DB_FILE_DIR[] = "/home/user/data/";
-static constexpr char RESULT_FILE_DIR[] = "/home/user/viper/results/";
-static constexpr char CONFIG_DIR[] = "/home/user/viper/benchmark/config/";
+static constexpr char VIPER_POOL_FILE[] = "/mnt/pmem1/viper";
+static constexpr char DB_PMEM_DIR[] = "/mnt/pmem1/viper";
+static constexpr char DB_FILE_DIR[] = "/lab505/gjk/ycsb-data/";
+static constexpr char RESULT_FILE_DIR[] = "/lab505/gjk/results/";
+static constexpr char CONFIG_DIR[] = "/lab505/gjk/viper/benchmark/config/";
 static constexpr size_t CPU_AFFINITY_OFFSET = 0;  // 0 or #logical-cpu-per-socket
 //static_assert(false, "Need to set these variables for unknown host.");
 #endif
 
 static constexpr uint64_t ONE_GB = (1024ul*1024*1024) * 1;  // 1GB
-static constexpr uint64_t BM_POOL_SIZE = ONE_GB;
+static constexpr uint64_t BM_POOL_SIZE = 2*ONE_GB;
 
 std::string get_time_string();
 std::string get_output_file(const std::string& bm_name);
