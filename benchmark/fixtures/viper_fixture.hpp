@@ -8,7 +8,7 @@
 namespace viper {
 namespace kv_bm {
 
-template <typename KeyT = KeyType16, typename ValueT = ValueType200>
+template <typename KeyT = KeyType8, typename ValueT = ValueType200>
 class ViperFixture : public BaseFixture {
   public:
     typedef KeyT KeyType;
@@ -65,7 +65,7 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
 // 1 cceh
 // 2 alex
 // 3 pgm
-    viper_ = ViperT::create(pool_file_, BM_POOL_SIZE, v_config,1);
+    viper_ = ViperT::create(pool_file_, BM_POOL_SIZE,2, v_config);
     this->prefill(num_prefill_inserts);
     viper_initialized_ = true;
 }
@@ -92,7 +92,7 @@ uint64_t ViperFixture<KeyT, ValueT>::insert(uint64_t start_idx, uint64_t end_idx
     return insert_counter;
 }
 
-template <>
+/*template <>
 uint64_t ViperFixture<std::string, std::string>::insert(uint64_t start_idx, uint64_t end_idx) {
     uint64_t insert_counter = 0;
     auto v_client = viper_->get_client();
@@ -104,7 +104,7 @@ uint64_t ViperFixture<std::string, std::string>::insert(uint64_t start_idx, uint
         insert_counter += v_client.put(db_key, value);
     }
     return insert_counter;
-}
+}*/
 
 template <typename KeyT, typename ValueT>
 uint64_t ViperFixture<KeyT, ValueT>::setup_and_insert(uint64_t start_idx, uint64_t end_idx) {
@@ -129,7 +129,7 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_find(uint64_t start_idx, uint64_t
     return found_counter;
 }
 
-template <>
+/*template <>
 uint64_t ViperFixture<std::string, std::string>::setup_and_find(uint64_t start_idx, uint64_t end_idx, uint64_t num_finds) {
     std::random_device rnd{};
     auto rnd_engine = std::default_random_engine(rnd());
@@ -149,7 +149,7 @@ uint64_t ViperFixture<std::string, std::string>::setup_and_find(uint64_t start_i
         found_counter += found && (result == value);
     }
     return found_counter;
-}
+}*/
 
 template <typename KeyT, typename ValueT>
 uint64_t ViperFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
@@ -167,7 +167,7 @@ uint64_t ViperFixture<KeyT, ValueT>::setup_and_delete(uint64_t start_idx, uint64
     return delete_counter;
 }
 
-template <>
+/*template <>
 uint64_t ViperFixture<std::string, std::string>::setup_and_delete(uint64_t start_idx, uint64_t end_idx, uint64_t num_deletes) {
     std::random_device rnd{};
     auto rnd_engine = std::default_random_engine(rnd());
@@ -182,7 +182,7 @@ uint64_t ViperFixture<std::string, std::string>::setup_and_delete(uint64_t start
         delete_counter += v_client.remove(db_key);
     }
     return delete_counter;
-}
+}*/
 
 template <typename KeyT, typename ValueT>
 uint64_t ViperFixture<KeyT, ValueT>::setup_and_update(uint64_t start_idx, uint64_t end_idx, uint64_t num_updates) {

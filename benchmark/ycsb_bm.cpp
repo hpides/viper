@@ -28,9 +28,10 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
             ->Repetitions(1) \
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
-            ->UseRealTime() \
-            ->ThreadRange(1, NUM_MAX_THREADS) \
-            ->Threads(24)
+            ->UseRealTime()  \
+            ->Threads(1)\
+//            ->ThreadRange(1, 1) \
+
 //            ->ThreadRange(1, 18) \
 
 #define DEFINE_BM(fixture, workload, data) \

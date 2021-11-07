@@ -35,6 +35,15 @@ if (NOT ${VIPER_CONCURRENT_QUEUE_PROVIDED})
     target_link_libraries(viper INTERFACE concurrentqueue)
 endif()
 
+FetchContent_Declare(
+        google_benchmark
+        GIT_REPOSITORY https://github.com/google/benchmark.git
+        GIT_TAG v1.5.2
+)
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing benchmark's tests" FORCE)
+FetchContent_MakeAvailable(google_benchmark)
+target_link_libraries(viper INTERFACE benchmark)
+
 # VIPER PLAYGROUND
 if (${VIPER_BUILD_PLAYGROUND})
     add_executable(playground playground.cpp)

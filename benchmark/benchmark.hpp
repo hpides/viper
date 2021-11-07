@@ -19,8 +19,8 @@ static constexpr uint64_t NUM_FINDS = NUM_OPS;
 static constexpr uint64_t NUM_DELETES = NUM_OPS;
 static constexpr uint64_t MAX_DATA_SIZE = NUM_PREFILLS + NUM_INSERTS;
 static constexpr uint64_t NUM_REPETITIONS = 1;
-static constexpr uint64_t NUM_MAX_THREADS = 36;
-static constexpr uint64_t NUM_UTIL_THREADS = 36;
+static constexpr uint64_t NUM_MAX_THREADS = 1;
+static constexpr uint64_t NUM_UTIL_THREADS = 1;
 static constexpr benchmark::TimeUnit BM_TIME_UNIT = benchmark::TimeUnit::kMicrosecond;
 
 template <typename T, size_t N>

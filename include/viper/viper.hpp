@@ -18,6 +18,7 @@
 #include "concurrentqueue.h"
 #include "../index/common_index.hpp"
 #include "../index/alex/alex.h"
+#include "../../benchmark/benchmark.hpp"
 
 #ifndef NDEBUG
 #define DEBUG_LOG(msg) (std::cout << msg << std::endl)
@@ -206,7 +207,7 @@ namespace viper {
             }
         };
 
-        template<>
+        /*template<>
         struct alignas(PAGE_SIZE) ViperPage<std::string, std::string> {
             uint16_t next_insert_offset;
             std::atomic<version_lock_t> version_lock;
@@ -245,7 +246,7 @@ namespace viper {
                 new_version |= (current_version & CLIENT_BIT);
                 version_lock.store(new_version, STORE_ORDER);
             }
-        };
+        };*/
 
         template<typename VPage, page_size_t num_pages>
         struct alignas(PAGE_SIZE) ViperPageBlock {
@@ -473,7 +474,7 @@ namespace viper {
         ViperConfig v_config_;
         std::filesystem::path pool_dir_;
 
-        index::BaseIndex<K> * map_;
+        index::BaseIndex<uint64_t> * map_;
         static constexpr bool using_fp = requires_fingerprint(K);
 
         std::vector<VPageBlock *> v_blocks_;
@@ -520,12 +521,12 @@ namespace viper {
             resize_threshold_{v_config.resize_threshold}, reclaim_threshold_{v_config.reclaim_threshold},
             num_recovery_threads_{v_config.num_recovery_threads} {
         if (index_type == 1) {
-            map_ = new cceh::CCEH<K>{131072};
+            map_ = new cceh::CCEH<uint64_t>{131072};
             std::cout<<"use cceh as index"<<std::endl;
-        }/*else if(index_type == 2){
-            map_ = new alex::Alex<K,index::KeyValueOffset>{};
+        }else if(index_type == 2){
+            map_ = new alex::Alex<uint64_t,index::KeyValueOffset>{};
             std::cout<<"use alex as index"<<std::endl;
-        }*/
+        }
         current_block_page_ = 0;
         current_size_ = 0;
         reclaimable_ops_ = 0;
@@ -871,7 +872,7 @@ namespace viper {
                         // Data is present
                         const K &key = page.data[slot_num].first;
                         const KVOffset offset{block_num, page_num, slot_num};
-                        map_->Insert(key, offset, key_check_fn);
+                        map_->Insert(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), offset, key_check_fn);
                         num_entries++;
                     }
                 }
@@ -897,12 +898,12 @@ namespace viper {
         DEBUG_LOG("RECOVERY DURATION: " << duration << " ms.");
         DEBUG_LOG("Re-inserted " << current_size_.load(LOAD_ORDER) << " keys.");
     }
-
+/*
     template<>
     void Viper<std::string, std::string>::recover_database() {
         // TODO
         throw std::runtime_error("Not implemented yet");
-    }
+    }*/
 
     template<typename K, typename V>
     void Viper<K, V>::get_new_access_information(Client *client) {
@@ -1034,7 +1035,7 @@ namespace viper {
         num_active_clients_++;
         Client client{*this};
         if constexpr (std::is_same_v<K, std::string>) {
-            get_new_var_size_access_information(&client);
+            //get_new_var_size_access_information(&client);
         } else {
             get_new_access_information(&client);
         }
@@ -1100,9 +1101,9 @@ namespace viper {
 
         if constexpr (using_fp) {
             auto key_check_fn = [&](auto key, auto offset) { return this->viper_.check_key_equality(key, offset); };
-            old_offset = this->viper_.map_->Insert(key, kv_offset, key_check_fn);
+            old_offset = this->viper_.map_->Insert(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), kv_offset, key_check_fn);
         } else {
-            old_offset = this->viper_.map_->Insert(key, kv_offset);
+            old_offset = this->viper_.map_->Insert(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), kv_offset);
         }
 
         const bool is_new_item = old_offset.is_tombstone();
@@ -1120,7 +1121,7 @@ namespace viper {
         return is_new_item;
     }
 
-    template<>
+    /*template<>
     bool Viper<std::string, std::string>::Client::put(const std::string &key, const std::string &value,
                                                       const bool delete_old) {
         v_page_->lock();
@@ -1223,7 +1224,7 @@ namespace viper {
 
         info_sync();
         return is_new_item;
-    }
+    }*/
 
 /**
  * Insert a `value` for a given `key`.
@@ -1249,7 +1250,7 @@ namespace viper {
         };
 
         while (true) {
-            KVOffset kv_offset = this->viper_.map_->Get(key, key_check_fn);
+            KVOffset kv_offset = this->viper_.map_->Get(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), key_check_fn);
             if (kv_offset.is_tombstone()) {
                 return false;
             }
@@ -1273,7 +1274,7 @@ namespace viper {
         };
 
         while (true) {
-            KVOffset kv_offset = this->viper_.map_->Get(key, key_check_fn);
+            KVOffset kv_offset = this->viper_.map_->Get(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), key_check_fn);
             if (kv_offset.is_tombstone()) {
                 return false;
             }
@@ -1315,7 +1316,7 @@ namespace viper {
         };
 
         while (true) {
-            const KVOffset kv_offset = this->viper_.map_->Get(key, key_check_fn);
+            const KVOffset kv_offset = this->viper_.map_->Get(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), key_check_fn);
             if (kv_offset.is_tombstone()) {
                 return false;
             }
@@ -1344,7 +1345,7 @@ namespace viper {
             else { return cceh::CCEH<K>::dummy_key_check(key, offset); }
         };
 
-        const KVOffset kv_offset = this->viper_.map_->Get(key, key_check_fn);
+        const KVOffset kv_offset = this->viper_.map_->Get(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), key_check_fn);
         if (kv_offset.is_tombstone()) {
             return false;
         }
@@ -1371,7 +1372,7 @@ namespace viper {
             // Old record to delete is on the same page. We already hold the lock here.
             invalidate_record(v_page_, data_offset);
             if (delete_offset) {
-                this->viper_.map_->Insert(key, IndexV::NONE(), key_check_fn);
+                this->viper_.map_->Insert(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), IndexV::NONE(), key_check_fn);
             }
             --size_delta_;
             return;
@@ -1441,7 +1442,7 @@ namespace viper {
         }
 
         if (delete_offset) {
-            this->viper_.map_->Insert(key, IndexV::NONE(), key_check_fn);
+            this->viper_.map_->Insert(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), IndexV::NONE(), key_check_fn);
         }
 
         if (has_lock) {
@@ -1467,7 +1468,7 @@ namespace viper {
 
     template<typename K, typename V>
     inline void Viper<K, V>::Client::invalidate_record(VPage *v_page, const data_offset_size_t data_offset) {
-        if constexpr (std::is_same_v<K, std::string>) {
+        /*if constexpr (std::is_same_v<K, std::string>) {
             char *raw_data = &v_page->data[data_offset];
             internal::VarSizeEntry *var_entry = reinterpret_cast<internal::VarSizeEntry *>(raw_data);
             var_entry->is_set = false;
@@ -1475,11 +1476,11 @@ namespace viper {
             internal::pmem_persist(&var_entry->size_info, meta_size);
             const size_t entry_size = var_entry->key_size + var_entry->value_size + meta_size;
             v_page->modified_percentage += (entry_size * 100) / VPage::DATA_SIZE;
-        } else {
+        } else {*/
             auto *free_slots = &v_page->free_slots;
             free_slots->set(data_offset);
             internal::pmem_persist(free_slots, sizeof(*free_slots));
-        }
+        //}
     }
 
     template<typename K, typename V>
@@ -1560,7 +1561,7 @@ namespace viper {
     template<typename K, typename V>
     inline const std::pair<typename KeyAccessor<K>::checker_type, typename ValueAccessor<V>::checker_type>
     Viper<K, V>::ReadOnlyClient::get_const_entry_from_offset(Viper::KVOffset offset) const {
-        if constexpr (std::is_same_v<K, std::string>) {
+        /*if constexpr (std::is_same_v<K, std::string>) {
             const auto[block, page, data_offset] = offset.get_offsets();
             const VPageBlock *v_block = this->viper_.v_blocks_[block];
             const VPage &v_page = v_block->v_pages[page];
@@ -1572,11 +1573,11 @@ namespace viper {
                 var_entry = internal::VarEntryAccessor{raw_data, raw_value_data};
             }
             return {var_entry.key(), var_entry.value()};
-        } else {
+        } else {*/
             const auto[block, page, slot] = offset.get_offsets();
             const auto &entry = this->viper_.v_blocks_[block]->v_pages[page].data[slot];
             return {&entry.first, &entry.second};
-        }
+        //}
     }
 
     template<typename K, typename V>
@@ -1589,12 +1590,12 @@ namespace viper {
             return false;
         }
         const auto entry = this->get_const_entry_from_offset(offset);
-        if constexpr (std::is_same_v<K, std::string>) {
+        /*if constexpr (std::is_same_v<K, std::string>) {
             const std::string_view &str_val = entry.second;
             value->assign(str_val.data(), str_val.size());
-        } else {
+        } else {*/
             *value = *(entry.second);
-        }
+        //}
         return lock_val == page_lock.load(LOAD_ORDER);
     }
 
@@ -1624,7 +1625,7 @@ namespace viper {
         return lock_val == page_lock.load(LOAD_ORDER);
     }
 
-    template<>
+    /*template<>
     inline bool
     Viper<std::string, std::string>::Client::get_value_from_offset(const KVOffset offset, std::string *value) {
         const auto[block, page, data_offset] = offset.get_offsets();
@@ -1645,7 +1646,7 @@ namespace viper {
         }
         value->assign(var_entry.value_data, var_entry.value_size);
         return lock_val == page_lock.load(LOAD_ORDER);
-    }
+    }*/
 
     template<typename K, typename V>
     void Viper<K, V>::compact(Client &client, VPageBlock *v_block) {
@@ -1668,7 +1669,7 @@ namespace viper {
 
     }
 
-    template<>
+    /*template<>
     void Viper<std::string, std::string>::compact(Client &client, VPageBlock *v_block) {
         const size_t meta_size = sizeof(internal::VarSizeEntry::size_info);
 
@@ -1741,7 +1742,7 @@ namespace viper {
 
         v_page->unlock();
     }
-
+*/
     template<typename K, typename V>
     void Viper<K, V>::reclaim() {
         const size_t num_slots_per_block = num_pages_per_block * VPage::num_slots_per_page;
@@ -1776,7 +1777,7 @@ namespace viper {
         DEBUG_LOG("TOTAL FREED BLOCKS: " << total_freed_blocks);
     }
 
-    template<>
+    /*template<>
     void Viper<std::string, std::string>::reclaim() {
         const block_size_t max_block = KVOffset{current_block_page_.load(LOAD_ORDER)}.block_number;
         const double modified_threshold = v_config_.reclaim_free_percentage;
@@ -1810,6 +1811,6 @@ namespace viper {
         }
 
         DEBUG_LOG("TOTAL FREED BLOCKS: " << total_freed_blocks);
-    }
+    }*/
 
 }  // namespace viper
