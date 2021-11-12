@@ -16,8 +16,8 @@
 #include <x86intrin.h>
 #include "cceh.hpp"
 #include "concurrentqueue.h"
-#include "../index/common_index.hpp"
-#include "../index/alex/alex.h"
+#include "../../index/common_index.hpp"
+#include "../../index/alex/alex.h"
 #include "../../benchmark/benchmark.hpp"
 
 #ifndef NDEBUG

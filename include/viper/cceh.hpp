@@ -36,7 +36,7 @@
 #include "hash.hpp"
 
 #include "viper.hpp"
-#include "../index/common_index.hpp"
+#include "../../index/common_index.hpp"
 
 #ifdef CCEH_PERSISTENT
 #include <libpmemobj++/allocator.hpp>
