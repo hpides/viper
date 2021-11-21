@@ -44,6 +44,13 @@ set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Suppressing benchmark's tests" FORC
 FetchContent_MakeAvailable(google_benchmark)
 target_link_libraries(viper INTERFACE benchmark)
 
+FetchContent_Declare(
+        hdr_histogram
+        GIT_REPOSITORY https://github.com/HdrHistogram/HdrHistogram_c.git
+        GIT_TAG 0.11.2
+)
+FetchContent_MakeAvailable(hdr_histogram)
+target_link_libraries(viper INTERFACE hdr_histogram)
 # VIPER PLAYGROUND
 if (${VIPER_BUILD_PLAYGROUND})
     add_executable(playground playground.cpp)

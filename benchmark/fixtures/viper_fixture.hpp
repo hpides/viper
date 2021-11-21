@@ -14,6 +14,14 @@ class ViperFixture : public BaseFixture {
     typedef KeyT KeyType;
     using ViperT = Viper<KeyT, ValueT>;
 
+    hdr_histogram* GetRetrainHdr();
+
+    uint64_t GetIndexSize();
+
+    std::string GetIndexType();
+
+    hdr_histogram* GetOpHdr();
+
     void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) override;
     void InitMap(const uint64_t num_prefill_inserts, ViperConfig v_config);
 
@@ -35,12 +43,30 @@ class ViperFixture : public BaseFixture {
         return viper_.get();
     }
 
+
   protected:
     std::unique_ptr<ViperT> viper_;
+    std::string index_type;
     bool viper_initialized_ = false;
     std::string pool_file_;
 };
 
+    template <typename KeyT, typename ValueT>
+    hdr_histogram* ViperFixture<KeyT, ValueT>::GetRetrainHdr(){
+        return viper_->GetRetrainHdr();
+    }
+    template <typename KeyT, typename ValueT>
+    uint64_t ViperFixture<KeyT, ValueT>::GetIndexSize(){
+        return viper_->get_index_size();
+    }
+    template <typename KeyT, typename ValueT>
+    hdr_histogram* ViperFixture<KeyT, ValueT>::GetOpHdr(){
+        return viper_->GetOpHdr();
+    }
+    template <typename KeyT, typename ValueT>
+    std::string ViperFixture<KeyT, ValueT>::GetIndexType(){
+        return index_type;
+    }
 template <typename KeyT, typename ValueT>
 void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, const bool re_init) {
     if (viper_initialized_ && !re_init) {
@@ -65,7 +91,17 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
 // 1 cceh
 // 2 alex
 // 3 pgm
-    viper_ = ViperT::create(pool_file_, BM_POOL_SIZE,2, v_config);
+
+    int index_num=2;
+
+    viper_ = ViperT::create(pool_file_, BM_POOL_SIZE,index_num, v_config);
+    if(index_num==1){
+        index_type="cceh";
+    }else if(index_num==2){
+        index_type="alex";
+    }else if(index_num==3){
+        index_type="pgm";
+    }
     this->prefill(num_prefill_inserts);
     viper_initialized_ = true;
 }

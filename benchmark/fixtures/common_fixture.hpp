@@ -50,6 +50,11 @@ class BaseFixture : public benchmark::Fixture {
     virtual void InitMap(const uint64_t num_prefill_inserts = 0, const bool re_init = true) {};
     virtual void DeInitMap() {};
 
+    virtual uint64_t GetIndexSize() {throw std::runtime_error("GetIndexSize not implemented");}
+
+    virtual hdr_histogram* GetOpHdr(){throw std::runtime_error("GetOpHdr not implemented");}
+
+    virtual std::string GetIndexType(){throw std::runtime_error("GetIndexType not implemented");}
     template <typename PrefillFn>
     void prefill_internal(size_t num_prefills, PrefillFn prefill_fn);
 
@@ -74,8 +79,13 @@ class BaseFixture : public benchmark::Fixture {
         hdr_add(hdr_, other);
     }
 
-    hdr_histogram* get_hdr() { return hdr_; }
     hdr_histogram* hdr_ = nullptr;
+    hdr_histogram* get_hdr() { return hdr_; }
+
+
+    virtual hdr_histogram* GetRetrainHdr(){
+        return nullptr;
+    }
 
     static void log_find_count(benchmark::State& state, const uint64_t num_found, const uint64_t num_expected);
 

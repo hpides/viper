@@ -286,13 +286,15 @@ namespace viper {
 
             ~CCEH();
 
-            IndexV Insert(const KeyType &, IndexV, std::function<bool(KeyType, index::KeyValueOffset)>) override;
+            uint64_t GetIndexSize();
 
-            IndexV Get(const KeyType &, std::function<bool(KeyType, index::KeyValueOffset)>) override;
+            IndexV CoreInsert(const KeyType &, IndexV, std::function<bool(KeyType, index::KeyValueOffset)>) override;
 
-            IndexV Insert(const KeyType &, IndexV) override;
+            IndexV CoreGet(const KeyType &, std::function<bool(KeyType, index::KeyValueOffset)>) override;
 
-            IndexV Get(const KeyType &) override;
+            IndexV CoreInsert(const KeyType &, IndexV) override;
+
+            IndexV CoreGet(const KeyType &) override;
 
             template<typename KeyCheckFn>
             bool Delete(const KeyType &, KeyCheckFn);
@@ -455,12 +457,21 @@ namespace viper {
         }
 
         template<typename KeyType>
-        IndexV CCEH<KeyType>::Insert(const KeyType &key, IndexV value) {
-            return Insert(key, value, dummy_key_check);
+        uint64_t CCEH<KeyType>::GetIndexSize(){
+            std::unordered_map<Segment < KeyType>*, bool > set;
+            for (size_t i = 0; i < dir->capacity; ++i) {
+                set[dir->_[i]] = true;
+            }
+            return 1;
         }
 
         template<typename KeyType>
-        IndexV CCEH<KeyType>::Insert(const KeyType &key, IndexV value,
+        IndexV CCEH<KeyType>::CoreInsert(const KeyType &key, IndexV value) {
+            return CoreInsert(key, value, dummy_key_check);
+        }
+
+        template<typename KeyType>
+        IndexV CCEH<KeyType>::CoreInsert(const KeyType &key, IndexV value,
                                      std::function<bool(KeyType, index::KeyValueOffset)> key_check_fn) {
             size_t key_hash;
             if constexpr (std::is_same_v<KeyType, std::string>) { key_hash = h(key.data(), key.length()); }
@@ -552,13 +563,13 @@ namespace viper {
         }
 
         template<typename KeyType>
-        IndexV CCEH<KeyType>::Get(const KeyType &key) {
-            return Get(key, dummy_key_check);
+        IndexV CCEH<KeyType>::CoreGet(const KeyType &key) {
+            return CoreGet(key, dummy_key_check);
         }
 
         template<typename KeyType>
         IndexV
-        CCEH<KeyType>::Get(const KeyType &key, std::function<bool(KeyType, index::KeyValueOffset)> key_check_fn) {
+        CCEH<KeyType>::CoreGet(const KeyType &key, std::function<bool(KeyType, index::KeyValueOffset)> key_check_fn) {
             size_t key_hash;
             if constexpr (std::is_same_v<KeyType, std::string>) { key_hash = h(key.data(), key.length()); }
             else { key_hash = h(&key, sizeof(key)); }

@@ -28,10 +28,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(hdr_histogram)
 
-add_executable(t t.cpp)
-target_compile_options(t PRIVATE -march=native -mclwb -pthread)
-target_link_libraries(t viper pthread stdc++fs)
-
 add_executable(ycsb ${src})
 target_compile_options(ycsb PRIVATE -march=native -mclwb -pthread)
 target_link_libraries(ycsb pthread stdc++fs stdc++ viper benchmark hdr_histogram_static)

@@ -19,7 +19,7 @@
 #include "../../index/common_index.hpp"
 #include "../../index/alex/alex.h"
 #include "../../benchmark/benchmark.hpp"
-
+#include <hdr_histogram.h>
 #ifndef NDEBUG
 #define DEBUG_LOG(msg) (std::cout << msg << std::endl)
 #else
@@ -357,6 +357,12 @@ namespace viper {
 
         ~Viper();
 
+        uint64_t get_index_size();
+
+        hdr_histogram* GetRetrainHdr();
+
+        hdr_histogram* GetOpHdr();
+
         void reclaim();
 
         class ReadOnlyClient {
@@ -499,6 +505,11 @@ namespace viper {
         std::atomic<uint8_t> num_active_clients_;
         const uint8_t num_recovery_threads_;
     };
+
+    template<typename K, typename V>
+    uint64_t Viper<K, V>::get_index_size(){
+        return map_->GetIndexSize();
+    }
 
     template<typename K, typename V>
     std::unique_ptr<Viper<K, V>> Viper<K, V>::create(const std::string &pool_file, uint64_t initial_pool_size, int index_type
@@ -1040,6 +1051,16 @@ namespace viper {
             get_new_access_information(&client);
         }
         return client;
+    }
+
+    template<typename K, typename V>
+    hdr_histogram* Viper<K, V>::GetRetrainHdr(){
+        return map_->GetRetrainHdr();
+    }
+
+    template<typename K, typename V>
+    hdr_histogram* Viper<K, V>::GetOpHdr(){
+        return map_->GetOpHdr();
     }
 
     template<typename K, typename V>
@@ -1812,5 +1833,4 @@ namespace viper {
 
         DEBUG_LOG("TOTAL FREED BLOCKS: " << total_freed_blocks);
     }*/
-
 }  // namespace viper

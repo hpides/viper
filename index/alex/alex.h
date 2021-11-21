@@ -370,6 +370,10 @@ namespace viper::alex {
         }
 
     public:
+
+        uint64_t GetIndexSize(){
+            return model_size();
+        }
         // When bulk loading, Alex can use provided knowledge of the expected fraction
         // of operations that will be inserts
         // For simplicity, operations are either point lookups ("reads") or inserts
@@ -914,12 +918,9 @@ namespace viper::alex {
         /*** Lookup ***/
 
     public:
-        P Get(const KeyType &k, std::function<bool(KeyType, index::KeyValueOffset)> func) {
-            return Get(k);
-        }
 
-        P Get(const KeyType &k) {
-            std::cout << "alex get" << std::endl;
+        P CoreGet(const KeyType &k) {
+            //std::cout << "alex get" << std::endl;
             self_type::Iterator iterator = find(k);
             if (iterator.is_end()) {
                 return (P) index::KeyValueOffset::NONE();
@@ -1139,12 +1140,9 @@ namespace viper::alex {
         /*** Insert ***/
 
     public:
-        P Insert(const KeyType &k, P p, std::function<bool(KeyType, index::KeyValueOffset)>) {
-            return Insert(k, p);
-        }
 
-        P Insert(const KeyType &k, P p) {
-            std::cout << "alex insert" << std::endl;
+        P CoreInsert(const KeyType &k, P p) {
+            //std::cout << "alex insert" << std::endl;
             // allow_duplicates must be false
             std::pair<Iterator, bool> pair = insert(k, p);
             if (pair.second == true) {
@@ -1193,7 +1191,7 @@ namespace viper::alex {
             data_node_type *leaf = get_leaf(key);
 
             // Nonzero fail flag means that the insert did not happen
-            std::pair<int, int> ret = leaf->insert(key, payload);
+            std::pair<int, int> ret = leaf->insert(this,key, payload);
             int fail = ret.first;
             int insert_pos = ret.second;
             if (fail == -1) {
@@ -1210,6 +1208,7 @@ namespace viper::alex {
 
                 while (fail) {
                     auto start_time = std::chrono::high_resolution_clock::now();
+                    viper::index::BaseIndex<KeyType>::LogRetrainStart();
                     stats_.num_expand_and_scales += leaf->num_resizes_;
 
                     if (parent == superroot_) {
@@ -1284,6 +1283,7 @@ namespace viper::alex {
                         }
                         leaf = static_cast<data_node_type *>(parent->get_child_node(key));
                     }
+                    viper::index::BaseIndex<KeyType>::LogRetrainEnd();
                     auto end_time = std::chrono::high_resolution_clock::now();
                     auto duration = end_time - start_time;
                     stats_.splitting_time +=
@@ -1291,7 +1291,7 @@ namespace viper::alex {
                                     .count();
 
                     // Try again to insert the key
-                    ret = leaf->insert(key, payload);
+                    ret = leaf->insert(this,key, payload);
                     fail = ret.first;
                     insert_pos = ret.second;
                     if (fail == -1) {
