@@ -374,6 +374,9 @@ namespace viper::alex {
         uint64_t GetIndexSize(){
             return model_size();
         }
+        bool SupportBulk(){
+            return true;
+        }
         // When bulk loading, Alex can use provided knowledge of the expected fraction
         // of operations that will be inserts
         // For simplicity, operations are either point lookups ("reads") or inserts
@@ -661,15 +664,16 @@ namespace viper::alex {
         /*** Bulk loading ***/
 
     public:
-        viper::index::BaseIndex<KeyType> * bulk_load(std::set<std::pair<uint64_t, index::KeyValueOffset>> set){
-            auto* pairs=new std::pair<uint64_t, index::KeyValueOffset>[set.size()];
-            int i=0;
-            for(std::pair<uint64_t, index::KeyValueOffset> pair:set){
-                pairs[i]=pair;
-                i++;
+        viper::index::BaseIndex<KeyType> * bulk_load(std::vector<std::pair<uint64_t, index::KeyValueOffset>> * vector){
+            auto* pairs=new std::pair<uint64_t, index::KeyValueOffset>[vector->size()];
+            for(int x = 0; x < vector->size(); ++x)
+            {
+                std::pair<uint64_t, index::KeyValueOffset> p = (*vector)[x];
+                pairs[x] = p;
             }
             auto p= new alex::Alex<uint64_t,index::KeyValueOffset>{};
-            p->bulk_load(pairs,set.size());
+            p->bulk_load(pairs,vector->size());
+            delete pairs;
             return p;
         }
         // values should be the sorted array of key-payload pairs.

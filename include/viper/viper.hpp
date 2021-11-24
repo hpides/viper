@@ -12,6 +12,7 @@
 #include <atomic>
 #include <assert.h>
 #include <filesystem>
+#include <algorithm>
 //#include <immintrin.h>
 #include <x86intrin.h>
 #include "cceh.hpp"
@@ -20,6 +21,8 @@
 #include "../../index/alex/alex.h"
 #include "../../benchmark/benchmark.hpp"
 #include <hdr_histogram.h>
+#include <list>
+
 #ifndef NDEBUG
 #define DEBUG_LOG(msg) (std::cout << msg << std::endl)
 #else
@@ -515,11 +518,12 @@ namespace viper {
 
     template<typename K, typename V>
     void Viper<K, V>::bulkload_index(){
-        if(map_->support_bulk==false){
+        if(map_->SupportBulk()==false){
             return;
         }
-        std::set<std::pair<uint64_t, KVOffset>> set;
         const block_size_t num_used_blocks = v_base_.v_metadata->num_used_blocks.load(LOAD_ORDER);
+
+        std::vector<std::pair<uint64_t, KVOffset>> * vector= new std::vector<std::pair<uint64_t, KVOffset>>;
         for (block_size_t block_num = 0; block_num < num_used_blocks; ++block_num) {
             VPageBlock *block = v_blocks_[block_num];
             for (page_size_t page_num = 0; page_num < num_pages_per_block; ++page_num) {
@@ -533,17 +537,20 @@ namespace viper {
                         // No data, continue
                         continue;
                     }
-
                     // Data is present
                     const K &key = page.data[slot_num].first;
                     const KVOffset offset{block_num, page_num, slot_num};
-                    set.insert(std::pair<uint64_t,KVOffset>(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(),offset));
+                    vector->emplace_back(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(),offset);
                 }
             }
         }
-        auto p = map_->bulk_load(set);
-        free(map_);
+        std::sort (vector->begin(), vector->end(), index::BulkComparator<uint64_t, index::KeyValueOffset>());
+        std::cout<<"Bulk load size:"+std::to_string(vector->size())<<std::endl;
+        auto p = map_->bulk_load(vector);
+        delete map_;
+        delete vector;
         map_=p;
+        std::cout<<"Done bulk load"<<std::endl;
         return;
     }
 

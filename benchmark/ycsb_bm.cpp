@@ -23,7 +23,7 @@
 
 using namespace viper::kv_bm;
 
-static constexpr char BASE_DIR[] = "/mnt/tmpssd/aikv/ycsb-data-test";
+static constexpr char BASE_DIR[] = "/mnt/tmpssd/aikv/ycsb-data";
 static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
 
 #define GENERAL_ARGS \
@@ -85,6 +85,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
             ycsb::read_workload_file(wl_file, data);
             std::cout << "Done reading workload file." << std::endl;
         }
+        fixture.BulkLoadIndex();
         hdr_init(1, 1000000000, 4, &fixture.hdr_);
     }
 

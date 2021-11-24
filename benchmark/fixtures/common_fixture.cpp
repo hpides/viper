@@ -81,11 +81,9 @@ void BaseFixture::prefill(const size_t num_prefills) {
     if (num_prefills == 0) {
         return;
     }
-
     auto prefill_fn = [this](const size_t start, const size_t end) {
         this->insert(start, end);
     };
-
     prefill_internal(num_prefills, prefill_fn);
 }
 

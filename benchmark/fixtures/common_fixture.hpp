@@ -51,6 +51,7 @@ class BaseFixture : public benchmark::Fixture {
     virtual void DeInitMap() {};
 
     virtual uint64_t GetIndexSize() {throw std::runtime_error("GetIndexSize not implemented");}
+    virtual void BulkLoadIndex() {throw std::runtime_error("GetIndexSize not implemented");}
 
     virtual hdr_histogram* GetOpHdr(){throw std::runtime_error("GetOpHdr not implemented");}
 

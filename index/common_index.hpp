@@ -56,6 +56,15 @@ namespace viper::index {
         inline bool operator!=(const KeyValueOffset &rhs) const { return offset != rhs.offset; }
     };
 
+    template<typename T1, typename T2>
+    struct BulkComparator
+    {
+        bool operator() (const std::pair<T1, T2>& lhs,
+                         const std::pair<T1, T2>& rhs) const
+        {
+            return lhs.first < rhs.first;
+        }
+    };
 
     template<typename KeyType>
     class BaseIndex {
@@ -63,11 +72,11 @@ namespace viper::index {
         hdr_histogram *op_hdr;
         hdr_histogram *retrain_hdr;
         std::chrono::high_resolution_clock::time_point start;
-        bool support_bulk;
 
-        virtual BaseIndex* bulk_load(std::set<std::pair<uint64_t, KeyValueOffset>> set){
+        virtual BaseIndex* bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector){
             return nullptr;
         }
+
 
         virtual hdr_histogram *GetOpHdr() {
             if (op_hdr == nullptr) {
@@ -101,10 +110,13 @@ namespace viper::index {
         BaseIndex() {
             op_hdr = nullptr;
             retrain_hdr = nullptr;
-            support_bulk=false;
         }
 
         virtual ~BaseIndex() {};
+
+        virtual bool SupportBulk(){
+            return false;
+        }
 
         virtual uint64_t GetIndexSize() { throw std::runtime_error("GetIndexSize not implemented"); }
 
