@@ -363,6 +363,8 @@ namespace viper {
 
         hdr_histogram* GetOpHdr();
 
+        void bulkload_index();
+
         void reclaim();
 
         class ReadOnlyClient {
@@ -509,6 +511,40 @@ namespace viper {
     template<typename K, typename V>
     uint64_t Viper<K, V>::get_index_size(){
         return map_->GetIndexSize();
+    }
+
+    template<typename K, typename V>
+    void Viper<K, V>::bulkload_index(){
+        if(map_->support_bulk==false){
+            return;
+        }
+        std::set<std::pair<uint64_t, KVOffset>> set;
+        const block_size_t num_used_blocks = v_base_.v_metadata->num_used_blocks.load(LOAD_ORDER);
+        for (block_size_t block_num = 0; block_num < num_used_blocks; ++block_num) {
+            VPageBlock *block = v_blocks_[block_num];
+            for (page_size_t page_num = 0; page_num < num_pages_per_block; ++page_num) {
+                const VPage &page = block->v_pages[page_num];
+                if (!IS_BIT_SET(page.version_lock, USED_BIT)) {
+                    // Page is empty
+                    continue;
+                }
+                for (data_offset_size_t slot_num = 0; slot_num < VPage::num_slots_per_page; ++slot_num) {
+                    if (page.free_slots[slot_num]) {
+                        // No data, continue
+                        continue;
+                    }
+
+                    // Data is present
+                    const K &key = page.data[slot_num].first;
+                    const KVOffset offset{block_num, page_num, slot_num};
+                    set.insert(std::pair<uint64_t,KVOffset>(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(),offset));
+                }
+            }
+        }
+        auto p = map_->bulk_load(set);
+        free(map_);
+        map_=p;
+        return;
     }
 
     template<typename K, typename V>
@@ -770,7 +806,7 @@ namespace viper {
     }
 
     template<typename K, typename V>
-    ViperBase Viper<K, V>::init_pool(const std::string &pool_file, uint64_t pool_size,
+    ViperBase Viper<K, V>:: init_pool(const std::string &pool_file, uint64_t pool_size,
                                      bool is_new_pool, ViperConfig v_config) {
         constexpr size_t block_size = sizeof(VPageBlock);
         ViperInitData init_data;

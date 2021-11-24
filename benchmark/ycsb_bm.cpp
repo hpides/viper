@@ -23,7 +23,7 @@
 
 using namespace viper::kv_bm;
 
-static constexpr char BASE_DIR[] = "/lab505/gjk/ycsb-data";
+static constexpr char BASE_DIR[] = "/mnt/tmpssd/aikv/ycsb-data-test";
 static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
 
 #define GENERAL_ARGS \

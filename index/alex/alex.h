@@ -661,6 +661,17 @@ namespace viper::alex {
         /*** Bulk loading ***/
 
     public:
+        viper::index::BaseIndex<KeyType> * bulk_load(std::set<std::pair<uint64_t, index::KeyValueOffset>> set){
+            auto* pairs=new std::pair<uint64_t, index::KeyValueOffset>[set.size()];
+            int i=0;
+            for(std::pair<uint64_t, index::KeyValueOffset> pair:set){
+                pairs[i]=pair;
+                i++;
+            }
+            auto p= new alex::Alex<uint64_t,index::KeyValueOffset>{};
+            p->bulk_load(pairs,set.size());
+            return p;
+        }
         // values should be the sorted array of key-payload pairs.
         // The number of elements should be num_keys.
         // The index must be empty when calling this method.

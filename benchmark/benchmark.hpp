@@ -110,7 +110,7 @@ static constexpr size_t CPU_AFFINITY_OFFSET = 0;
 #else
 static constexpr char VIPER_POOL_FILE[] = "/mnt/pmem1/viper";
 static constexpr char DB_PMEM_DIR[] = "/mnt/pmem1/viper";
-static constexpr char DB_FILE_DIR[] = "/lab505/gjk/ycsb-data/";
+static constexpr char DB_FILE_DIR[] = "/mnt/tmpssd/aikv/ycsb-data-test/";
 static constexpr char RESULT_FILE_DIR[] = "/lab505/gjk/results/";
 static constexpr char CONFIG_DIR[] = "/lab505/gjk/viper/benchmark/config/";
 static constexpr size_t CPU_AFFINITY_OFFSET = 0;  // 0 or #logical-cpu-per-socket

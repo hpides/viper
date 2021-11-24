@@ -92,7 +92,7 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
 // 2 alex
 // 3 pgm
 
-    int index_num=2;
+    int index_num=1;
 
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE,index_num, v_config);
     if(index_num==1){
@@ -103,6 +103,7 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
         index_type="pgm";
     }
     this->prefill(num_prefill_inserts);
+    viper_->bulkload_index();
     viper_initialized_ = true;
 }
 

@@ -6,6 +6,7 @@
 #define VIPER_COMMON_INDEX_H
 
 #include <hdr_histogram.h>
+#include <set>
 
 namespace viper::index {
     using offset_size_t = uint64_t;
@@ -62,6 +63,11 @@ namespace viper::index {
         hdr_histogram *op_hdr;
         hdr_histogram *retrain_hdr;
         std::chrono::high_resolution_clock::time_point start;
+        bool support_bulk;
+
+        virtual BaseIndex* bulk_load(std::set<std::pair<uint64_t, KeyValueOffset>> set){
+            return nullptr;
+        }
 
         virtual hdr_histogram *GetOpHdr() {
             if (op_hdr == nullptr) {
@@ -95,6 +101,7 @@ namespace viper::index {
         BaseIndex() {
             op_hdr = nullptr;
             retrain_hdr = nullptr;
+            support_bulk=false;
         }
 
         virtual ~BaseIndex() {};

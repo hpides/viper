@@ -5,7 +5,7 @@ set -e
 #BASE_DIR="/hpi/fs00/home/lawrence.benson/clion/viper1/benchmark"
 BASE_DIR="/lab505/gjk/viper/benchmark"
 PREFILL_CONF="${BASE_DIR}/config/ycsb_prefill.conf"
-DATA_DIR="/lab505/gjk/ycsb-data"
+DATA_DIR="/mnt/tmpssd/aikv/ycsb-data-test"
 
 CONFIGS=( "5050_uniform" "5050_zipf" "1090_uniform" "1090_zipf" )
 
