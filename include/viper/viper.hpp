@@ -540,14 +540,15 @@ namespace viper {
                     // Data is present
                     const K &key = page.data[slot_num].first;
                     const KVOffset offset{block_num, page_num, slot_num};
-                    vector->emplace_back(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(),offset);
+                    vector->push_back(std::pair<uint64_t, KVOffset>(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(),offset));
                 }
             }
         }
         std::sort (vector->begin(), vector->end(), index::BulkComparator<uint64_t, index::KeyValueOffset>());
         std::cout<<"Bulk load size:"+std::to_string(vector->size())<<std::endl;
         auto p = map_->bulk_load(vector);
-        delete map_;
+        auto temp_p=map_;
+        delete temp_p;
         delete vector;
         map_=p;
         std::cout<<"Done bulk load"<<std::endl;

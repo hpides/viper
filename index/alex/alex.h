@@ -665,11 +665,10 @@ namespace viper::alex {
 
     public:
         viper::index::BaseIndex<KeyType> * bulk_load(std::vector<std::pair<uint64_t, index::KeyValueOffset>> * vector){
-            auto* pairs=new std::pair<uint64_t, index::KeyValueOffset>[vector->size()];
+            std::pair<uint64_t, index::KeyValueOffset> * pairs=new std::pair<uint64_t, index::KeyValueOffset>[vector->size()];
             for(int x = 0; x < vector->size(); ++x)
             {
-                std::pair<uint64_t, index::KeyValueOffset> p = (*vector)[x];
-                pairs[x] = p;
+                pairs[x] = (*vector)[x];
             }
             auto p= new alex::Alex<uint64_t,index::KeyValueOffset>{};
             p->bulk_load(pairs,vector->size());
