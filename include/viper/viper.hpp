@@ -18,6 +18,7 @@
 #include "cceh.hpp"
 #include "concurrentqueue.h"
 #include "../../index/common_index.hpp"
+#include "../../index/dummy_index.hpp"
 #include "../../index/alex/alex.h"
 #include "../../index/pgm/pgm_index_dynamic.hpp"
 #include "../../benchmark/benchmark.hpp"

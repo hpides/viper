@@ -677,7 +677,7 @@ namespace viper::alex {
             const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
             hdr_record_value(bulk_hdr, duration.count());
             std::cout<<"Bulk time: "+std::to_string(hdr_max(bulk_hdr))<<std::endl;
-            delete pairs;
+            delete[] pairs;
             return p;
         }
         // values should be the sorted array of key-payload pairs.

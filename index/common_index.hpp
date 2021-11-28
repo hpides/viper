@@ -198,5 +198,6 @@ namespace viper::index {
             return CoreGet(k);
         }
     };
+
 }
 #endif //VIPER_COMMON_INDEX_H
