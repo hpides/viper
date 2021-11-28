@@ -23,7 +23,7 @@
 
 using namespace viper::kv_bm;
 
-static constexpr char BASE_DIR[] = "/mnt/tmpssd/aikv/ycsb-data-test";
+static constexpr char BASE_DIR[] = "/mnt/tmpssd/aikv/ycsb-data";
 static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
 
 #define GENERAL_ARGS \
@@ -88,7 +88,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
         struct hdr_histogram * bulk_hdr;
         hdr_init(1, 1000000000, 4, &bulk_hdr);
         fixture.BulkLoadIndex(bulk_hdr);
-        state.counters["bulk_time"] = hdr_max(bulk_hdr);
+        state.counters["bulk_time ms"] = hdr_max(bulk_hdr);
         hdr_close(bulk_hdr);
         hdr_init(1, 1000000000, 4, &fixture.hdr_);
     }
