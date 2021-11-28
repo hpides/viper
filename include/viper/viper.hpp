@@ -586,6 +586,8 @@ namespace viper {
         }else if(index_type == 3){
             map_ = new pgm::DynamicPGMIndex<uint64_t,index::KeyValueOffset>{};
             std::cout<<"use pgm as index"<<std::endl;
+        }else if(index_type==4||index_type==5){
+            map_=new index::DummyIndex<uint64_t>(index_type);
         }
         current_block_page_ = 0;
         current_size_ = 0;

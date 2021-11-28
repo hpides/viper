@@ -125,7 +125,7 @@ public:
         if(equal(current_key, key))
             return get_payload(position);
         else
-            return NULL;
+            return viper::index::KeyValueOffset::NONE();
     }
 
     bool range_query(bool type, K lower_bound, K upper_bound, std::vector<std::pair<K, P>>& answers) const {

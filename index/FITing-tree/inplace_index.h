@@ -34,10 +34,7 @@ protected:
         return KeyValueOffset::NONE();
     }
     KeyValueOffset CoreGet(const K & k) {
-        P p=find(k);
-        if(p==NULL){
-            return KeyValueOffset::NONE();
-        }
+        auto p=find(k);
         return p;
     }
 
@@ -275,10 +272,10 @@ struct InplaceIndex<K, P>::Buffer {
                 if(equal(keys[i], key))
                     return payloads[i];
                 else
-                    return NULL;
+                    return viper::index::KeyValueOffset::NONE();
             }
         }
-        return NULL;
+        return viper::index::KeyValueOffset::NONE();
     }
 
     void range_query(K lower_bound, K upper_bound, std::vector<std::pair<K, P>>& answers) const {

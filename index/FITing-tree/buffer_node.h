@@ -5,6 +5,7 @@
 #pragma once
 
 #include "parameters.h"
+#include "../common_index.hpp"
 
 template<typename K, typename P>
 class BufferNode {
@@ -225,10 +226,10 @@ struct BufferNode<K, P>::Buffer {
                 if(equal(keys[i], key))
                     return payloads[i];
                 else
-                    return NULL;
+                    return viper::index::KeyValueOffset::NONE();
             }
         }
-        return NULL;
+        return viper::index::KeyValueOffset::NONE();
     }
 
     void range_query(K lower_bound, K upper_bound, std::vector<std::pair<K, P>>& answers) const {
