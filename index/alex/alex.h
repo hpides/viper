@@ -38,7 +38,7 @@
 #include "alex_base.h"
 #include "alex_fanout_tree.h"
 #include "alex_nodes.h"
-
+#include <hdr_histogram.h>
 #include "../common_index.hpp"
 
 // Whether we account for floating-point precision issues when traversing down

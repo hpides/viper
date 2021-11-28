@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 #include "../common_index.hpp"
+#include <hdr_histogram.h>
 
 namespace pgm {
 
@@ -60,9 +61,9 @@ class DynamicPGMIndex : public viper::index::BaseIndex<K>{
     bool SupportBulk(){
         return true;
     }
-    viper::index::BaseIndex<K> * bulk_load(std::vector<std::pair<uint64_t, KeyValueOffsett>> * vector,hdr_histogram * bulk_hdr){
+    viper::index::BaseIndex<K> * bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr){
         std::chrono::high_resolution_clock::time_point start= std::chrono::high_resolution_clock::now();
-        auto p= new DynamicPGMIndex<uint64_t,viper::index::KeyValueOffset>(vector.begin(),vector.end);
+        auto p= new DynamicPGMIndex<uint64_t,viper::index::KeyValueOffset>(vector->begin(),vector->end());
         const auto end = std::chrono::high_resolution_clock::now();
         const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
         hdr_record_value(bulk_hdr, duration.count());
@@ -70,17 +71,17 @@ class DynamicPGMIndex : public viper::index::BaseIndex<K>{
 
     }
     uint64_t GetIndexSize() { return size_in_bytes(); }
-    KeyValueOffset CoreInsert(const KeyType & k, viper::index::KeyValueOffset offset) {
+    KeyValueOffset CoreInsert(const K & k, viper::index::KeyValueOffset offset) {
         insert_or_assign(k,offset);
-        return index::KeyValueOffset::NONE();
+        return KeyValueOffset::NONE();
     }
-    KeyValueOffset CoreGet(const KeyType & k) {
+    KeyValueOffset CoreGet(const K & k) {
         iterator i=find(k);
         if(i==end()){
-            return index::KeyValueOffset::NONE();
+            return KeyValueOffset::NONE();
         }
-        Item& item=*i;
-        KeyValueOffset offset=item.V;
+        ItemB item=*i;
+        KeyValueOffset offset=item.second;
         return offset;
     }
     const Level &level(uint8_t level) const { return levels[level - min_level]; }
