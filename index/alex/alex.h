@@ -664,14 +664,18 @@ namespace viper::alex {
         /*** Bulk loading ***/
 
     public:
-        viper::index::BaseIndex<KeyType> * bulk_load(std::vector<std::pair<uint64_t, index::KeyValueOffset>> * vector){
+        viper::index::BaseIndex<KeyType> * bulk_load(std::vector<std::pair<uint64_t, index::KeyValueOffset>> * vector,hdr_histogram * bulk_hdr){
             std::pair<uint64_t, index::KeyValueOffset> * pairs=new std::pair<uint64_t, index::KeyValueOffset>[vector->size()];
             for(int x = 0; x < vector->size(); ++x)
             {
                 pairs[x] = (*vector)[x];
             }
             auto p= new alex::Alex<uint64_t,index::KeyValueOffset>{};
+            std::chrono::high_resolution_clock::time_point start= std::chrono::high_resolution_clock::now();
             p->bulk_load(pairs,vector->size());
+            const auto end = std::chrono::high_resolution_clock::now();
+            const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+            hdr_record_value(bulk_hdr, duration.count());
             delete pairs;
             return p;
         }

@@ -85,7 +85,11 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
             ycsb::read_workload_file(wl_file, data);
             std::cout << "Done reading workload file." << std::endl;
         }
-        fixture.BulkLoadIndex();
+        struct hdr_histogram * bulk_hdr;
+        hdr_init(1, 1000000000, 4, &bulk_hdr);
+        fixture.BulkLoadIndex(bulk_hdr);
+        state.counters["bulk_time"] = hdr_max(bulk_hdr);
+        hdr_close(bulk_hdr);
         hdr_init(1, 1000000000, 4, &fixture.hdr_);
     }
 
@@ -131,6 +135,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
     }
 
     if (is_init_thread(state)) {
+        state.counters["total_count"] = op_counter;
         if (log_latency) {
             hdr_histogram *global_hdr = fixture.get_hdr();
             state.counters["hdr_max"] = hdr_max(global_hdr);
@@ -159,6 +164,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
             state.counters["op_hdr_99"] = hdr_value_at_percentile(index_op_hdr, 99.0);
             state.counters["op_hdr_999"] = hdr_value_at_percentile(index_op_hdr, 99.9);
             state.counters["op_hdr_9999"] = hdr_value_at_percentile(index_op_hdr, 99.99);
+            hdr_close(index_op_hdr);
         }
         if(log_index_retrain){
             state.counters["retrain_hdr_total"] = viper::cus_hdr::hdr_total(index_retrain_hdr);
@@ -173,6 +179,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
             state.counters["retrain_hdr_99"] = hdr_value_at_percentile(index_retrain_hdr, 99.0);
             state.counters["retrain_hdr_999"] = hdr_value_at_percentile(index_retrain_hdr, 99.9);
             state.counters["retrain_hdr_9999"] = hdr_value_at_percentile(index_retrain_hdr, 99.99);
+            hdr_close(index_retrain_hdr);
         }
 
         state.counters["index_size"] = fixture.GetIndexSize();

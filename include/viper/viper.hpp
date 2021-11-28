@@ -19,6 +19,7 @@
 #include "concurrentqueue.h"
 #include "../../index/common_index.hpp"
 #include "../../index/alex/alex.h"
+#include "../../index/pgm/pgm_index_dynamic.hpp"
 #include "../../benchmark/benchmark.hpp"
 #include <hdr_histogram.h>
 #include <list>
@@ -366,7 +367,7 @@ namespace viper {
 
         hdr_histogram* GetOpHdr();
 
-        void bulkload_index();
+        void bulkload_index(hdr_histogram * bulk_hdr);
 
         void reclaim();
 
@@ -517,7 +518,7 @@ namespace viper {
     }
 
     template<typename K, typename V>
-    void Viper<K, V>::bulkload_index(){
+    void Viper<K, V>::bulkload_index(hdr_histogram * bulk_hdr){
         if(map_->SupportBulk()==false){
             return;
         }
@@ -546,7 +547,7 @@ namespace viper {
         }
         std::sort (vector->begin(), vector->end(), index::BulkComparator<uint64_t, index::KeyValueOffset>());
         std::cout<<"Bulk load size:"+std::to_string(vector->size())<<std::endl;
-        auto p = map_->bulk_load(vector);
+        auto p = map_->bulk_load(vector,bulk_hdr);
         auto temp_p=map_;
         delete temp_p;
         delete vector;
@@ -581,6 +582,9 @@ namespace viper {
         }else if(index_type == 2){
             map_ = new alex::Alex<uint64_t,index::KeyValueOffset>{};
             std::cout<<"use alex as index"<<std::endl;
+        }else if(index_type == 3){
+            map_ = new pgm::DynamicPGMIndex<uint64_t,index::KeyValueOffset>{};
+            std::cout<<"use pgm as index"<<std::endl;
         }
         current_block_page_ = 0;
         current_size_ = 0;

@@ -73,7 +73,7 @@ namespace viper::index {
         hdr_histogram *retrain_hdr;
         std::chrono::high_resolution_clock::time_point start;
 
-        virtual BaseIndex* bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector){
+        virtual BaseIndex* bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr){
             return nullptr;
         }
 

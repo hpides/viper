@@ -16,7 +16,7 @@ class ViperFixture : public BaseFixture {
 
     hdr_histogram* GetRetrainHdr();
 
-    void BulkLoadIndex();
+    void BulkLoadIndex(hdr_histogram * bulk_hdr);
 
     uint64_t GetIndexSize();
 
@@ -53,8 +53,8 @@ class ViperFixture : public BaseFixture {
     std::string pool_file_;
 };
     template <typename KeyT, typename ValueT>
-    void  ViperFixture<KeyT, ValueT>::BulkLoadIndex(){
-        viper_->bulkload_index();
+    void  ViperFixture<KeyT, ValueT>::BulkLoadIndex(hdr_histogram * bulk_hdr){
+        viper_->bulkload_index(bulk_hdr);
     }
     template <typename KeyT, typename ValueT>
     hdr_histogram* ViperFixture<KeyT, ValueT>::GetRetrainHdr(){
@@ -97,7 +97,7 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
 // 2 alex
 // 3 pgm
 
-    int index_num=2;
+    int index_num=3;
 
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE,index_num, v_config);
     if(index_num==1){
