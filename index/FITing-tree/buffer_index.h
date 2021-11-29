@@ -144,6 +144,7 @@ public:
             }
             // Split leaf
             else {
+                this->LogRetrainStart();
                 btree.erase(it);
                 leaf->merge_buffer();
                 size_t old_number = leaf->get_number();
@@ -163,6 +164,7 @@ public:
                 }
                 delete leaf;
                 btree.insert(key_node_pairs, key_node_pairs + last_n);
+                this->LogRetrainEnd();
             }
         }
         else if (less_than(key, min_key)) {
@@ -171,6 +173,7 @@ public:
                 return;
             }
             else {
+                this->LogRetrainStart();
                 K* old_keys = left_buffer.keys;
                 P* old_payloads = left_buffer.payloads;
                 std::vector<Segment> segments;
@@ -188,6 +191,7 @@ public:
                 btree.insert(key_node_pairs, key_node_pairs + last_n);
                 min_key = left_buffer.keys[0];
                 left_buffer.init();
+                this->LogRetrainEnd();
             }
         }
         else {
@@ -196,6 +200,7 @@ public:
                 return;
             }
             else {
+                this->LogRetrainStart();
                 K* old_keys = right_buffer.keys;
                 P* old_payloads = right_buffer.payloads;
                 std::vector<Segment> segments;
@@ -213,6 +218,7 @@ public:
                 btree.insert(key_node_pairs, key_node_pairs + last_n);
                 max_key = right_buffer.keys[right_buffer.number];
                 right_buffer.init();
+                this->LogRetrainEnd();
             }
         }
     }

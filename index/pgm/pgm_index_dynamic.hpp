@@ -102,6 +102,7 @@ class DynamicPGMIndex : public viper::index::BaseIndex<K>{
         Level tmp_a(size_hint + level(target).size());
         Level tmp_b(size_hint + level(target).size());
 
+        this->LogRetrainStart();
         // Insert new_item in sorted order in the first level
         auto alternate = true;
         auto it = std::move(level(min_level).begin(), insertion_point, tmp_a.begin());
@@ -139,6 +140,7 @@ class DynamicPGMIndex : public viper::index::BaseIndex<K>{
         // Rebuild index, if needed
         if (has_pgm(target))
             pgm(target) = PGMType(level(target).begin(), level(target).end());
+        this->LogRetrainEnd();
     }
 
     void insert(const Item &new_item) {
