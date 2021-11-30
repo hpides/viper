@@ -104,7 +104,7 @@ namespace viper::index {
             }
             const auto end = std::chrono::high_resolution_clock::now();
             const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-            hdr_record_value(retrain_hdr, duration.count());
+            hdr_record_value_atomic(retrain_hdr, duration.count());
         }
 
         BaseIndex() {
@@ -131,7 +131,7 @@ namespace viper::index {
             }
             const auto end = std::chrono::high_resolution_clock::now();
             const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-            hdr_record_value(op_hdr, duration.count());
+            hdr_record_value_atomic(op_hdr, duration.count());
             return ret;
         }
 
@@ -147,7 +147,7 @@ namespace viper::index {
             }
             const auto end = std::chrono::high_resolution_clock::now();
             const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-            hdr_record_value(op_hdr, duration.count());
+            hdr_record_value_atomic(op_hdr, duration.count());
             return ret;
         }
 
@@ -171,7 +171,7 @@ namespace viper::index {
             }
             const auto end = std::chrono::high_resolution_clock::now();
             const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-            hdr_record_value(op_hdr, duration.count());
+            hdr_record_value_atomic(op_hdr, duration.count());
             return ret;
         }
 
@@ -186,7 +186,7 @@ namespace viper::index {
             }
             const auto end = std::chrono::high_resolution_clock::now();
             const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-            hdr_record_value(op_hdr, duration.count());
+            hdr_record_value_atomic(op_hdr, duration.count());
             return ret;
         }
 

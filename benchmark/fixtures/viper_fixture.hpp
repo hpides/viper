@@ -333,7 +333,7 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
 
         const auto end = std::chrono::high_resolution_clock::now();
         const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
-        hdr_record_value(hdr, duration.count());
+        hdr_record_value_atomic(hdr, duration.count());
     }
 
     return op_count;

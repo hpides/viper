@@ -66,7 +66,7 @@ class DynamicPGMIndex : public viper::index::BaseIndex<K>{
         auto p= new DynamicPGMIndex<uint64_t,viper::index::KeyValueOffset>(vector->begin(),vector->end());
         const auto end = std::chrono::high_resolution_clock::now();
         const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        hdr_record_value(bulk_hdr, duration.count());
+        hdr_record_value_atomic(bulk_hdr, duration.count());
         std::cout<<"Bulk time: "+std::to_string(duration.count())<<std::endl;
         return p;
 

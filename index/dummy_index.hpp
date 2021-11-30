@@ -35,7 +35,7 @@ namespace viper::index {
                 auto p=new BufferIndex<uint64_t, KeyValueOffset>(ks,vs,vector->size());
                 const auto end = std::chrono::high_resolution_clock::now();
                 const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-                hdr_record_value(bulk_hdr, duration.count());
+                hdr_record_value_atomic(bulk_hdr, duration.count());
                 delete[] ks;
                 delete[] vs;
                 return p;
@@ -51,7 +51,7 @@ namespace viper::index {
                 auto p=new InplaceIndex<uint64_t, KeyValueOffset>(ks,vs,vector->size());
                 const auto end = std::chrono::high_resolution_clock::now();
                 const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-                hdr_record_value(bulk_hdr, duration.count());
+                hdr_record_value_atomic(bulk_hdr, duration.count());
                 delete[] ks;
                 delete[] vs;
                 return p;
