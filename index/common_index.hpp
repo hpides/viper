@@ -73,7 +73,7 @@ namespace viper::index {
         hdr_histogram *retrain_hdr;
         std::chrono::high_resolution_clock::time_point start;
 
-        virtual BaseIndex* bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr){
+        virtual BaseIndex* bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr,int threads){
             return nullptr;
         }
 
@@ -135,6 +135,21 @@ namespace viper::index {
             return ret;
         }
 
+        virtual KeyValueOffset Insert(const KeyType &k, KeyValueOffset o,uint32_t thread_id) {
+            std::chrono::high_resolution_clock::time_point start;
+            if (op_hdr != nullptr) {
+                start = std::chrono::high_resolution_clock::now();
+            }
+            KeyValueOffset ret = CoreInsert(k, o,thread_id);
+            if (op_hdr == nullptr) {
+                return ret;
+            }
+            const auto end = std::chrono::high_resolution_clock::now();
+            const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+            hdr_record_value_atomic(op_hdr, duration.count());
+            return ret;
+        }
+
         virtual KeyValueOffset
         Insert(const KeyType &k, KeyValueOffset o, std::function<bool(KeyType, KeyValueOffset)> f) {
             std::chrono::high_resolution_clock::time_point start;
@@ -155,6 +170,10 @@ namespace viper::index {
             throw std::runtime_error("Insert not implemented");
         }
 
+        virtual KeyValueOffset CoreInsert(const KeyType &, KeyValueOffset,uint32_t thread_id) {
+            throw std::runtime_error("Insert not implemented");
+        }
+
         virtual KeyValueOffset
         CoreInsert(const KeyType & k, KeyValueOffset o, std::function<bool(KeyType, KeyValueOffset)> f) {
             return CoreInsert(k,o);
@@ -166,6 +185,21 @@ namespace viper::index {
                 start = std::chrono::high_resolution_clock::now();
             }
             KeyValueOffset ret = CoreGet(k);
+            if (op_hdr == nullptr) {
+                return ret;
+            }
+            const auto end = std::chrono::high_resolution_clock::now();
+            const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+            hdr_record_value_atomic(op_hdr, duration.count());
+            return ret;
+        }
+
+        virtual KeyValueOffset Get(const KeyType &k,uint32_t thread_id) {
+            std::chrono::high_resolution_clock::time_point start;
+            if (op_hdr != nullptr) {
+                start = std::chrono::high_resolution_clock::now();
+            }
+            KeyValueOffset ret = CoreGet(k,thread_id);
             if (op_hdr == nullptr) {
                 return ret;
             }
@@ -191,6 +225,10 @@ namespace viper::index {
         }
 
         virtual KeyValueOffset CoreGet(const KeyType &) {
+            throw std::runtime_error("Get not implemented");
+        }
+
+        virtual KeyValueOffset CoreGet(const KeyType &,uint32_t thread_id) {
             throw std::runtime_error("Get not implemented");
         }
 

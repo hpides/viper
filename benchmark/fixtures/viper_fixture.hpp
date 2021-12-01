@@ -40,6 +40,8 @@ class ViperFixture : public BaseFixture {
 
     uint64_t run_ycsb(uint64_t start_idx, uint64_t end_idx,
         const std::vector<ycsb::Record>& data, hdr_histogram* hdr) final;
+    uint64_t run_ycsb(uint64_t start_idx, uint64_t end_idx,
+                      const std::vector<ycsb::Record>& data, hdr_histogram* hdr,uint32_t thread_id) final;
 
     ViperT* getViper() {
         return viper_.get();
@@ -53,8 +55,8 @@ class ViperFixture : public BaseFixture {
     std::string pool_file_;
 };
     template <typename KeyT, typename ValueT>
-    void  ViperFixture<KeyT, ValueT>::BulkLoadIndex(hdr_histogram * bulk_hdr){
-        viper_->bulkload_index(bulk_hdr);
+    void  ViperFixture<KeyT, ValueT>::BulkLoadIndex(hdr_histogram * bulk_hdr,int threads){
+        viper_->bulkload_index(bulk_hdr,threads);
     }
     template <typename KeyT, typename ValueT>
     hdr_histogram* ViperFixture<KeyT, ValueT>::GetRetrainHdr(){
@@ -110,6 +112,8 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
         index_type="FITing-tree BufferIndex";
     }else if(index_num==5){
         index_type="FITing-tree InplaceIndex";
+    }else if(index_num==6){
+        index_type="R-Xindex";
     }
     this->prefill(num_prefill_inserts);
     viper_initialized_ = true;
@@ -338,6 +342,57 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
 
     return op_count;
 }
+    template <>
+    uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
+            uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr,uint32_t thread_id){
+        uint64_t op_count = 0;
+        auto v_client = viper_->get_client();
+        ValueType200 value;
+        const ValueType200 null_value{0ul};
 
+        std::chrono::high_resolution_clock::time_point start;
+        for (int op_num = start_idx; op_num < end_idx; ++op_num) {
+            const ycsb::Record& record = data[op_num];
+
+            if (hdr != nullptr) {
+                start = std::chrono::high_resolution_clock::now();
+            }
+
+            switch (record.op) {
+                case ycsb::Record::Op::INSERT: {
+                    v_client.put(record.key, record.value,thread_id);
+                    op_count++;
+                    break;
+                }
+                case ycsb::Record::Op::GET: {
+                    const bool found = v_client.get(record.key, &value,thread_id);
+                    op_count += found && (value != null_value);
+                    break;
+                }
+                case ycsb::Record::Op::UPDATE: {
+                    auto update_fn = [&](ValueType200* value) {
+                        value->data[0] = record.value.data[0];
+                        internal::pmem_persist(value->data.data(), sizeof(uint64_t));
+                    };
+                    op_count += v_client.update(record.key, update_fn,thread_id);
+                    break;
+                }
+                default: {
+                    throw std::runtime_error("Unknown operation: " + std::to_string(record.op));
+                }
+            }
+
+
+            if (hdr == nullptr) {
+                continue;
+            }
+
+            const auto end = std::chrono::high_resolution_clock::now();
+            const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+            hdr_record_value_atomic(hdr, duration.count());
+        }
+
+        return op_count;
+    }
 }  // namespace kv_bm
 }  // namespace viper

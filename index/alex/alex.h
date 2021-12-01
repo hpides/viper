@@ -664,7 +664,7 @@ namespace viper::alex {
         /*** Bulk loading ***/
 
     public:
-        viper::index::BaseIndex<KeyType> * bulk_load(std::vector<std::pair<uint64_t, index::KeyValueOffset>> * vector,hdr_histogram * bulk_hdr){
+        viper::index::BaseIndex<KeyType> * bulk_load(std::vector<std::pair<uint64_t, index::KeyValueOffset>> * vector,hdr_histogram * bulk_hdr,int threads){
             std::pair<uint64_t, index::KeyValueOffset> * pairs=new std::pair<uint64_t, index::KeyValueOffset>[vector->size()];
             for(int x = 0; x < vector->size(); ++x)
             {

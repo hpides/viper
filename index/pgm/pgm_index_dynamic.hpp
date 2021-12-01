@@ -16,6 +16,7 @@
 #pragma once
 
 #include "pgm_index.hpp"
+#include "pgm_index_variants.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
@@ -40,7 +41,7 @@ namespace pgm {
  * @tparam V the type of a value
  * @tparam PGMType the type of @ref PGMIndex to use in the container
  */
-template<typename K, typename V, typename PGMType = PGMIndex<K, 16>>
+template<typename K, typename V, typename PGMType = PGMIndex<K, 64>>
 class DynamicPGMIndex : public viper::index::BaseIndex<K>{
     class ItemA;
     class ItemB;
@@ -61,7 +62,7 @@ class DynamicPGMIndex : public viper::index::BaseIndex<K>{
     bool SupportBulk(){
         return true;
     }
-    viper::index::BaseIndex<K> * bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr){
+    viper::index::BaseIndex<K> * bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr,int threads){
         std::chrono::high_resolution_clock::time_point start= std::chrono::high_resolution_clock::now();
         auto p= new DynamicPGMIndex<uint64_t,viper::index::KeyValueOffset>(vector->begin(),vector->end());
         const auto end = std::chrono::high_resolution_clock::now();

@@ -87,7 +87,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
         }
         struct hdr_histogram * bulk_hdr;
         hdr_init(1, 1000000000, 4, &bulk_hdr);
-        fixture.BulkLoadIndex(bulk_hdr);
+        fixture.BulkLoadIndex(bulk_hdr, state.threads);
         state.counters["bulk_time ms"] = hdr_max(bulk_hdr);
         hdr_close(bulk_hdr);
         hdr_init(1, 1000000000, 4, &fixture.hdr_);
@@ -122,10 +122,18 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
             BenchmarkParameters params;
             bool printHeader = is_init_thread(state);
             PerfEventBlock e(state, num_ops_per_thread, params, printHeader);
-            op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr);
+            if(fixture.GetIndexType()=="R-Xindex"){
+                op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr,state.thread_index);
+            }else{
+                op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr);
+            }
         } else {
             // Actual benchmark
-            op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr);
+            if(fixture.GetIndexType()=="R-Xindex"){
+                op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr,state.thread_index);
+            }else{
+                op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr);
+            }
         }
         state.SetItemsProcessed(num_ops_per_thread);
         if (log_latency) {

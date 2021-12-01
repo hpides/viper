@@ -24,6 +24,8 @@
 #include "../../benchmark/benchmark.hpp"
 #include <hdr_histogram.h>
 #include <list>
+#include "../../index/XIndex-R/xindex.h"
+#include "../../index/XIndex-R/xindex_impl.h"
 
 #ifndef NDEBUG
 #define DEBUG_LOG(msg) (std::cout << msg << std::endl)
@@ -368,7 +370,7 @@ namespace viper {
 
         hdr_histogram* GetOpHdr();
 
-        void bulkload_index(hdr_histogram * bulk_hdr);
+        void bulkload_index(hdr_histogram * bulk_hdr,int threads);
 
         void reclaim();
 
@@ -406,6 +408,17 @@ namespace viper {
             template<typename UpdateFn>
             bool update(const K &key, UpdateFn update_fn);
 
+            // xindex start
+
+            bool put(const K &key, const V &value,uint32_t thread_id);
+
+            bool get(const K &key, V *value,uint32_t thread_id);
+
+            template<typename UpdateFn>
+            bool update(const K &key, UpdateFn update_fn,uint32_t thread_id);
+
+            // xindex end
+
             bool remove(const K &key);
 
             ~Client();
@@ -414,6 +427,8 @@ namespace viper {
             Client(ViperT &viper);
 
             bool put(const K &key, const V &value, bool delete_old);
+
+            bool put(const K &key, const V &value, bool delete_old,uint32_t thread_id);
 
             inline void update_access_information();
 
@@ -519,7 +534,7 @@ namespace viper {
     }
 
     template<typename K, typename V>
-    void Viper<K, V>::bulkload_index(hdr_histogram * bulk_hdr){
+    void Viper<K, V>::bulkload_index(hdr_histogram * bulk_hdr,int threads){
         if(map_->SupportBulk()==false){
             return;
         }
@@ -548,7 +563,7 @@ namespace viper {
         }
         std::sort (vector->begin(), vector->end(), index::BulkComparator<uint64_t, index::KeyValueOffset>());
         std::cout<<"Bulk load size:"+std::to_string(vector->size())<<std::endl;
-        auto p = map_->bulk_load(vector,bulk_hdr);
+        auto p = map_->bulk_load(vector,bulk_hdr,threads);
         auto temp_p=map_;
         delete temp_p;
         delete vector;
@@ -586,7 +601,7 @@ namespace viper {
         }else if(index_type == 3){
             map_ = new pgm::DynamicPGMIndex<uint64_t,index::KeyValueOffset>{};
             std::cout<<"use pgm as index"<<std::endl;
-        }else if(index_type==4||index_type==5){
+        }else if(index_type==4||index_type==5||index_type==6){
             map_=new index::DummyIndex<uint64_t>(index_type);
         }
         current_block_page_ = 0;
@@ -1193,6 +1208,51 @@ namespace viper {
         return is_new_item;
     }
 
+    template<typename K, typename V>
+    bool Viper<K, V>::Client::put(const K &key, const V &value, const bool delete_old,uint32_t thread_id) {
+        v_page_->lock();
+
+        // We now have the lock on this page
+        std::bitset<VPage::num_slots_per_page> *free_slots = &v_page_->free_slots;
+        const data_offset_size_t free_slot_idx = free_slots->_Find_first();
+
+        if (free_slot_idx >= free_slots->size()) {
+            // Page is full. Free lock on page and restart.
+            v_page_->unlock();
+            update_access_information();
+            return put(key, value, delete_old);
+        }
+
+        // We have found a free slot on this page. Persist data.
+        v_page_->data[free_slot_idx] = {key, value};
+        typename VPage::VEntry *entry_ptr = v_page_->data.data() + free_slot_idx;
+        internal::pmem_persist(entry_ptr, sizeof(typename VPage::VEntry));
+
+        free_slots->reset(free_slot_idx);
+        internal::pmem_persist(free_slots, sizeof(*free_slots));
+
+        // Store data in DRAM map.
+        const KVOffset kv_offset{v_block_number_, v_page_number_, free_slot_idx};
+        KVOffset old_offset;
+
+        old_offset = this->viper_.map_->Insert(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), kv_offset,thread_id);
+
+
+        const bool is_new_item = old_offset.is_tombstone();
+        if (!is_new_item && delete_old) {
+            // Need to free slot at old location for this key
+            free_occupied_slot(old_offset, key);
+        }
+
+        v_page_->unlock();
+
+        // We have added one value, so +1
+        size_delta_++;
+        info_sync();
+
+        return is_new_item;
+    }
+
     /*template<>
     bool Viper<std::string, std::string>::Client::put(const std::string &key, const std::string &value,
                                                       const bool delete_old) {
@@ -1308,6 +1368,11 @@ namespace viper {
         return put(key, value, true);
     }
 
+    template<typename K, typename V>
+    bool Viper<K, V>::Client::put(const K &key, const V &value,uint32_t thread_id) {
+        return put(key, value, true,thread_id);
+    }
+
 /**
  * Get the `value` for a given `key`.
  * Returns true if the item was found or false if not.
@@ -1323,6 +1388,18 @@ namespace viper {
 
         while (true) {
             KVOffset kv_offset = this->viper_.map_->Get(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), key_check_fn);
+            if (kv_offset.is_tombstone()) {
+                return false;
+            }
+            if (get_value_from_offset(kv_offset, value)) {
+                return true;
+            }
+        }
+    }
+    template<typename K, typename V>
+    bool Viper<K, V>::Client::get(const K &key, V *value,uint32_t thread_id) {
+        while (true) {
+            KVOffset kv_offset = this->viper_.map_->Get(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(),thread_id);
             if (kv_offset.is_tombstone()) {
                 return false;
             }
@@ -1389,6 +1466,31 @@ namespace viper {
 
         while (true) {
             const KVOffset kv_offset = this->viper_.map_->Get(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), key_check_fn);
+            if (kv_offset.is_tombstone()) {
+                return false;
+            }
+
+            const auto[block, page, slot] = kv_offset.get_offsets();
+            VPage &v_page = this->viper_.v_blocks_[block]->v_pages[page];
+            if (!v_page.lock(false)) {
+                // Could not lock page, so the record could be modified and we need to try again
+                continue;
+            }
+
+            update_fn(&(v_page.data[slot].second));
+            v_page.unlock();
+            return true;
+        }
+    }
+    template<typename K, typename V>
+    template<typename UpdateFn>
+    bool Viper<K, V>::Client::update(const K &key, UpdateFn update_fn,uint32_t thread_id) {
+        if constexpr (std::is_same_v<K, std::string>) {
+            throw std::runtime_error("In-place update not supported for variable length records!");
+        }
+
+        while (true) {
+            const KVOffset kv_offset = this->viper_.map_->Get(((kv_bm::BMRecord<uint32_t, 2>)key).get_key(), thread_id);
             if (kv_offset.is_tombstone()) {
                 return false;
             }

@@ -51,7 +51,7 @@ class BaseFixture : public benchmark::Fixture {
     virtual void DeInitMap() {};
 
     virtual uint64_t GetIndexSize() {throw std::runtime_error("GetIndexSize not implemented");}
-    virtual void BulkLoadIndex(hdr_histogram * bulk_hdr) {throw std::runtime_error("GetIndexSize not implemented");}
+    virtual void BulkLoadIndex(hdr_histogram * bulk_hdr,int threads) {throw std::runtime_error("GetIndexSize not implemented");}
 
     virtual hdr_histogram* GetOpHdr(){throw std::runtime_error("GetOpHdr not implemented");}
 
@@ -72,6 +72,11 @@ class BaseFixture : public benchmark::Fixture {
 
     virtual uint64_t run_ycsb(uint64_t start_idx, uint64_t end_idx,
                               const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
+        throw std::runtime_error("YCSB not implemented");
+    }
+
+    virtual uint64_t run_ycsb(uint64_t start_idx, uint64_t end_idx,
+                              const std::vector<ycsb::Record>& data, hdr_histogram* hdr,uint32_t thread_id) {
         throw std::runtime_error("YCSB not implemented");
     }
 
