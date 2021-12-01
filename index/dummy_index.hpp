@@ -12,6 +12,7 @@
 #include "FITing-tree/inplace_index.h"
 #include "XIndex-R/xindex.h"
 #include "XIndex-R/xindex_impl.h"
+#include "pgm/pgm_index_dynamic.hpp"
 
 namespace viper::index {
     template<typename KeyType>
@@ -25,7 +26,14 @@ namespace viper::index {
             return true;
         }
         BaseIndex<KeyType>* bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr,int threads){
-            if(index_type==4){
+            if(index_type==3){
+                std::chrono::high_resolution_clock::time_point start= std::chrono::high_resolution_clock::now();
+                auto p= new pgm::DynamicPGMIndex<uint64_t,viper::index::KeyValueOffset>(vector->begin(),vector->end());
+                const auto end = std::chrono::high_resolution_clock::now();
+                const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+                hdr_record_value_atomic(bulk_hdr, duration.count());
+                return p;
+            }else if(index_type==4){
                 uint64_t * ks=new uint64_t[vector->size()];
                 KeyValueOffset * vs=new KeyValueOffset[vector->size()];
                 for(int x = 0; x < vector->size(); ++x)

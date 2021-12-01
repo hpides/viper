@@ -59,19 +59,6 @@ class DynamicPGMIndex : public viper::index::BaseIndex<K>{
     std::vector<PGMType> pgms;     ///< (i-min_index_level)th element is the index at the ith level.
 
     using KeyValueOffset=viper::index::KeyValueOffset;
-    bool SupportBulk(){
-        return true;
-    }
-    viper::index::BaseIndex<K> * bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr,int threads){
-        std::chrono::high_resolution_clock::time_point start= std::chrono::high_resolution_clock::now();
-        auto p= new DynamicPGMIndex<uint64_t,viper::index::KeyValueOffset>(vector->begin(),vector->end());
-        const auto end = std::chrono::high_resolution_clock::now();
-        const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        hdr_record_value_atomic(bulk_hdr, duration.count());
-        std::cout<<"Bulk time: "+std::to_string(duration.count())<<std::endl;
-        return p;
-
-    }
     uint64_t GetIndexSize() { return size_in_bytes(); }
     KeyValueOffset CoreInsert(const K & k, viper::index::KeyValueOffset offset) {
         insert_or_assign(k,offset);
