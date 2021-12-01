@@ -60,6 +60,7 @@ class DynamicPGMIndex : public viper::index::BaseIndex<K>{
 
     using KeyValueOffset=viper::index::KeyValueOffset;
     uint64_t GetIndexSize() { return size_in_bytes(); }
+    uint64_t GetIndex_Size() { return index_size_in_bytes(); }
     KeyValueOffset CoreInsert(const K & k, viper::index::KeyValueOffset offset) {
         insert_or_assign(k,offset);
         return KeyValueOffset::NONE();

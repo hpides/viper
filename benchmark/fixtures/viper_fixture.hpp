@@ -19,6 +19,7 @@ class ViperFixture : public BaseFixture {
     void BulkLoadIndex(hdr_histogram * bulk_hdr,int threads);
 
     uint64_t GetIndexSize();
+    uint64_t GetIndex_Size();
 
     std::string GetIndexType();
 
@@ -63,7 +64,7 @@ class ViperFixture : public BaseFixture {
         return viper_->GetRetrainHdr();
     }
     template <typename KeyT, typename ValueT>
-    uint64_t ViperFixture<KeyT, ValueT>::GetIndexSize(){
+    uint64_t ViperFixture<KeyT, ValueT>::(){
         return viper_->get_index_size();
     }
     template <typename KeyT, typename ValueT>

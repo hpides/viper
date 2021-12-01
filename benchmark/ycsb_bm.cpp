@@ -190,7 +190,10 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
             hdr_close(index_retrain_hdr);
         }
 
-        state.counters["index_size"] = fixture.GetIndexSize();
+        state.counters["index_size + data_size"] = fixture.GetIndexSize();
+
+        state.counters["index_size"] = fixture.GetIndex_Size();
+
         state.counters["index_type : "+ fixture.GetIndexType()] = 0;
         fixture.DeInitMap();
     }
