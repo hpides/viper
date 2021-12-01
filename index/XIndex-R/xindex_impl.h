@@ -67,17 +67,34 @@ XIndex<key_t, val_t, seq>::~XIndex() {
     uint64_t XIndex<key_t, val_t, seq>::GetIndexSize(){
         return 0;
     }
-    template <class key_t, class val_t, bool seq>
-    KeyValueOffset XIndex<key_t, val_t, seq>::CoreInsert(const key_t & k, viper::index::KeyValueOffset offset,uint32_t thread_id){
-    put(k,offset,thread_id);
-    return KeyValueOffset::NONE();
-}
-template <class key_t, class val_t, bool seq>
-KeyValueOffset XIndex<key_t, val_t, seq>::CoreGet(const key_t & k,uint32_t thread_id){
-    KeyValueOffset o ;
-    get(k,o,thread_id);
-    return o;
-}
+    template <class key_t, class val_t>
+    XIndexR<key_t, val_t>::XIndexR(const std::vector<key_t> &keys,const std::vector<val_t> &vals,size_t worker_num, size_t bg_n){
+        std::vector<viper::index::KeyForXindex> ks;
+        for(key_t k:keys){
+            ks.push_back(viper::index::KeyForXindex(k));
+        }
+        this->x = new xindex::XIndex<viper::index::KeyForXindex,val_t>{ks,vals,worker_num,bg_n};
+    }
+    template <class key_t, class val_t>
+    XIndexR<key_t, val_t>::~XIndexR(){
+        delete this->x;
+    }
+    template <class key_t, class val_t>
+    uint64_t XIndexR<key_t, val_t>::GetIndexSize(){
+        return this->x->GetIndexSize();
+    }
+    template <class key_t, class val_t>
+    KeyValueOffset XIndexR<key_t, val_t>::CoreInsert(const key_t & k, viper::index::KeyValueOffset offset,uint32_t thread_id){
+        this->x->put(viper::index::KeyForXindex(k),offset,thread_id);
+        return KeyValueOffset::NONE();
+    }
+    template <class key_t, class val_t>
+    KeyValueOffset XIndexR<key_t, val_t>::CoreGet(const key_t & k,uint32_t thread_id){
+        KeyValueOffset o ;
+        this->x->get(viper::index::KeyForXindex(k),o,thread_id);
+        return o;
+    }
+
 template <class key_t, class val_t, bool seq>
 inline bool XIndex<key_t, val_t, seq>::get(const key_t &key, val_t &val,
                                            const uint32_t worker_id) {
@@ -125,11 +142,14 @@ template <class key_t, class val_t, bool seq>
 void *XIndex<key_t, val_t, seq>::background(void *this_) {
   volatile XIndex &index = *(XIndex *)this_;
   if (index.bg_num == 0) return nullptr;
-
-  size_t bg_num = index.bg_num;
+  size_t bg_num;
+  if(!index.bg_running){
+      return nullptr;
+  }else{
+      bg_num= index.bg_num;
+  }
   std::vector<pthread_t> threads(bg_num);
   std::vector<bg_info_t> info(bg_num);
-
   for (size_t bg_i = 0; bg_i < bg_num; bg_i++) {
     info[bg_i].bg_i = bg_i;
     info[bg_i].bg_n = bg_num;

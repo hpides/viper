@@ -75,7 +75,7 @@ namespace viper::index {
                     vs.push_back((*vector)[x].second);
                 }
                 std::chrono::high_resolution_clock::time_point start= std::chrono::high_resolution_clock::now();
-                auto p=new xindex::XIndex<uint64_t,KeyValueOffset>(ks, vs, threads, 1);
+                auto p=new xindex::XIndexR<uint64_t,KeyValueOffset>(ks, vs, threads, 1);
                 const auto end = std::chrono::high_resolution_clock::now();
                 const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
                 hdr_record_value_atomic(bulk_hdr, duration.count());

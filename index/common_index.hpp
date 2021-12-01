@@ -167,11 +167,11 @@ namespace viper::index {
         }
 
         virtual KeyValueOffset CoreInsert(const KeyType &, KeyValueOffset) {
-            throw std::runtime_error("Insert not implemented");
+            throw std::runtime_error("Insert  not implemented");
         }
 
         virtual KeyValueOffset CoreInsert(const KeyType &, KeyValueOffset,uint32_t thread_id) {
-            throw std::runtime_error("Insert not implemented");
+            throw std::runtime_error("Insert thread_id not implemented");
         }
 
         virtual KeyValueOffset
@@ -237,5 +237,42 @@ namespace viper::index {
         }
     };
 
+    class KeyForXindex {
+        typedef std::array<double, 1> model_key_t;
+
+    public:
+        static constexpr size_t model_key_size() { return 1; }
+        static KeyForXindex max() {
+            static KeyForXindex max_key(std::numeric_limits<uint64_t>::max());
+            return max_key;
+        }
+        static KeyForXindex min() {
+            static KeyForXindex min_key(std::numeric_limits<uint64_t>::min());
+            return min_key;
+        }
+
+        KeyForXindex() : key(0) {}
+        KeyForXindex(uint64_t key) : key(key) {}
+        KeyForXindex(const KeyForXindex &other) { key = other.key; }
+        KeyForXindex &operator=(const KeyForXindex &other) {
+            key = other.key;
+            return *this;
+        }
+
+        model_key_t to_model_key() const {
+            model_key_t model_key;
+            model_key[0] = key;
+            return model_key;
+        }
+
+        friend bool operator<(const KeyForXindex &l, const KeyForXindex &r) { return l.key < r.key; }
+        friend bool operator>(const KeyForXindex &l, const KeyForXindex &r) { return l.key > r.key; }
+        friend bool operator>=(const KeyForXindex &l, const KeyForXindex &r) { return l.key >= r.key; }
+        friend bool operator<=(const KeyForXindex &l, const KeyForXindex &r) { return l.key <= r.key; }
+        friend bool operator==(const KeyForXindex &l, const KeyForXindex &r) { return l.key == r.key; }
+        friend bool operator!=(const KeyForXindex &l, const KeyForXindex &r) { return l.key != r.key; }
+
+        uint64_t key;
+    } ;
 }
 #endif //VIPER_COMMON_INDEX_H

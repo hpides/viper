@@ -1,5 +1,11 @@
 project(ycsb)
 include(FetchContent)
+set(JEMALLOC_DIR "/usr/lib/x86_64-linux-gnu")
+set(MKL_LINK_DIRECTORY "/opt/intel/mkl/lib/intel64")
+set(MKL_INCLUDE_DIRECTORY "/opt/intel/mkl/include")
+link_directories(${JEMALLOC_DIR})
+link_directories(${MKL_LINK_DIRECTORY})
+include_directories(${MKL_INCLUDE_DIRECTORY})
 SET(
         src
 
@@ -29,5 +35,5 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(hdr_histogram)
 
 add_executable(ycsb ${src})
-target_compile_options(ycsb PRIVATE -march=native -mclwb -pthread -g)
-target_link_libraries(ycsb pthread stdc++fs stdc++ viper benchmark hdr_histogram_static)
+target_compile_options(ycsb PRIVATE -march=native -mtune=native -mclwb -pthread -g)
+target_link_libraries(ycsb pthread stdc++fs stdc++ viper benchmark hdr_histogram_static  mkl_rt jemalloc)

@@ -1228,7 +1228,7 @@ namespace viper {
             // Page is full. Free lock on page and restart.
             v_page_->unlock();
             update_access_information();
-            return put(key, value, delete_old);
+            return put(key, value, delete_old,thread_id);
         }
 
         // We have found a free slot on this page. Persist data.

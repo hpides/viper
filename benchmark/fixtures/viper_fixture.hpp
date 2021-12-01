@@ -16,7 +16,7 @@ class ViperFixture : public BaseFixture {
 
     hdr_histogram* GetRetrainHdr();
 
-    void BulkLoadIndex(hdr_histogram * bulk_hdr);
+    void BulkLoadIndex(hdr_histogram * bulk_hdr,int threads);
 
     uint64_t GetIndexSize();
 
@@ -99,7 +99,7 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
 // 2 alex
 // 3 pgm
 
-    int index_num=5;
+    int index_num=6;
 
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE,index_num, v_config);
     if(index_num==1){
@@ -297,7 +297,6 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
     auto v_client = viper_->get_client();
     ValueType200 value;
     const ValueType200 null_value{0ul};
-
     std::chrono::high_resolution_clock::time_point start;
     for (int op_num = start_idx; op_num < end_idx; ++op_num) {
         const ycsb::Record& record = data[op_num];
