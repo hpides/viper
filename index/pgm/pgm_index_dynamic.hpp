@@ -41,7 +41,7 @@ namespace pgm {
  * @tparam V the type of a value
  * @tparam PGMType the type of @ref PGMIndex to use in the container
  */
-template<typename K, typename V, typename PGMType = PGMIndex<K, 128>>
+template<typename K, typename V, typename PGMType = PGMIndex<K, 256>>
 class DynamicPGMIndex : public viper::index::BaseIndex<K>{
     class ItemA;
     class ItemB;
