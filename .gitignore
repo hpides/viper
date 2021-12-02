@@ -5,4 +5,4 @@ venv/
 charts/
 __pycache__/
 /.idea
-cmake-build-debug-system
+/cmake-build-debug-system
