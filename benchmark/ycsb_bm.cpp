@@ -148,7 +148,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
     if (is_init_thread(state)) {
         state.counters["index_size + data_size"] = fixture.GetIndexSize();
 
-        state.counters["index_size"] = fixture.GetIndex_Size();
+        state.counters["index_size"] = fixture.GetIndexSizeWithoutData();
         fixture.DeInitMap();
         if(fixture.GetIndexType()=="R-Xindex"){
             std::this_thread::sleep_for(std::chrono::seconds(1));

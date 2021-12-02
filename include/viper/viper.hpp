@@ -365,7 +365,7 @@ namespace viper {
         ~Viper();
 
         uint64_t get_index_size();
-        uint64_t getindex_size();
+        uint64_t getindexsizewithoutdata();
 
         hdr_histogram* GetRetrainHdr();
 
@@ -535,8 +535,8 @@ namespace viper {
     }
 
     template<typename K, typename V>
-    uint64_t Viper<K, V>::getindex_size(){
-        return map_->GetIndex_Size();
+    uint64_t Viper<K, V>::getindexsizewithoutdata(){
+        return map_->GetIndexSizeWithoutData();
     }
 
     template<typename K, typename V>
