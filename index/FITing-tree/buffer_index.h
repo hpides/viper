@@ -30,6 +30,9 @@ protected:
 
     using KeyValueOffset=viper::index::KeyValueOffset;
     uint64_t GetIndexSize() { return index_size(); }
+
+    uint64_t GetIndex_Size() { return index_model_size(); }
+
     KeyValueOffset CoreInsert(const K & k, viper::index::KeyValueOffset offset) {
         upsert(k,offset);
         return KeyValueOffset::NONE();
@@ -224,7 +227,7 @@ public:
     }
 
 
-    // Print index info
+    // Print index+data info
     size_t index_size() const {
         size_t model_size = 0;
         size_t slot_size = 0;
@@ -242,6 +245,25 @@ public:
         std::cout << "Model size: " << (double)model_size/(1024*1024) << " MB" << std::endl;
         std::cout << "Fill rate: " << (double)100*data_size/slot_size << "%" << std::endl;
         return model_size+slot_size;
+    }
+    // Print index info
+    size_t index_model_size() const {
+        size_t model_size = 0;
+        size_t slot_size = 0;
+        size_t data_size = 0;
+        model_size += sizeof(*this) - 2 * RESERVE * (sizeof(K) + sizeof(P)) + (btree.get_stats().innernodes * btree.get_stats().innerslots + btree.get_stats().leaves * btree.get_stats().leafslots) * (sizeof(K) + sizeof(void*)) + btree.get_stats().leaves * sizeof(void*) * 2;
+        slot_size += 2 * RESERVE * (sizeof(K) + sizeof(P));
+        data_size += (left_buffer.number + right_buffer.number) * (sizeof(K) + sizeof(P));
+        auto it = btree.begin();
+        while (it != btree.end()) {
+            it->second->node_size(model_size, slot_size, data_size);
+            it++;
+        }
+
+        std::cout << "Total size: " << (double)(model_size+slot_size)/(1024*1024) << " MB" << std::endl;
+        std::cout << "Model size: " << (double)model_size/(1024*1024) << " MB" << std::endl;
+        std::cout << "Fill rate: " << (double)100*data_size/slot_size << "%" << std::endl;
+        return model_size;
     }
 
 };

@@ -118,8 +118,10 @@ namespace viper::index {
             return false;
         }
 
+        //index+data size
         virtual uint64_t GetIndexSize() { throw std::runtime_error("GetIndexSize not implemented"); }
-        virtual uint64_t GetIndex_Size() { return 0; }
+        //index size
+        virtual uint64_t GetIndex_Size() {return 0; }
 
         virtual KeyValueOffset Insert(const KeyType &k, KeyValueOffset o) {
             std::chrono::high_resolution_clock::time_point start;
