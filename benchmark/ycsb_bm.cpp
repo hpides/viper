@@ -31,8 +31,8 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime()  \
-            ->Threads(1)\
-            ->ThreadRange(1, 16)
+            ->Threads(1)
+//            ->ThreadRange(1, 16)
 
 
 #define DEFINE_BM(fixture, workload, data) \
@@ -146,6 +146,13 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
     }
 
     if (is_init_thread(state)) {
+        state.counters["index_size + data_size"] = fixture.GetIndexSize();
+
+        state.counters["index_size"] = fixture.GetIndex_Size();
+        fixture.DeInitMap();
+        if(fixture.GetIndexType()=="R-Xindex"){
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
         state.counters["total_count"] = op_counter;
         if (log_latency) {
             hdr_histogram *global_hdr = fixture.get_hdr();
@@ -192,13 +199,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
             state.counters["retrain_hdr_9999"] = hdr_value_at_percentile(index_retrain_hdr, 99.99);
             hdr_close(index_retrain_hdr);
         }
-
-        state.counters["index_size + data_size"] = fixture.GetIndexSize();
-
-        state.counters["index_size"] = fixture.GetIndex_Size();
-
         state.counters["index_type : "+ fixture.GetIndexType()] = 0;
-        fixture.DeInitMap();
     }
 
     if (op_counter == 0) {

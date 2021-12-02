@@ -143,10 +143,9 @@ void *XIndex<key_t, val_t, seq>::background(void *this_) {
   volatile XIndex &index = *(XIndex *)this_;
   if (index.bg_num == 0) return nullptr;
   size_t bg_num;
+  bg_num= index.bg_num;
   if(!index.bg_running){
       return nullptr;
-  }else{
-      bg_num= index.bg_num;
   }
   std::vector<pthread_t> threads(bg_num);
   std::vector<bg_info_t> info(bg_num);
