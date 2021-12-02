@@ -31,8 +31,8 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime()  \
-            ->Threads(1)
- //           ->ThreadRange(1, 16) \
+            ->Threads(1)\
+            ->ThreadRange(1, 16)
 
 
 #define DEFINE_BM(fixture, workload, data) \
@@ -77,6 +77,9 @@ static std::vector<ycsb::Record> data_zipf_10_90;
 void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::Record> *data,
               const std::filesystem::path &wl_file, bool log_latency, bool perf,bool log_index_op,bool log_index_retrain) {
     set_cpu_affinity(state.thread_index);
+
+    struct hdr_histogram * index_retrain_hdr;
+    struct hdr_histogram * index_op_hdr;
     if (is_init_thread(state)) {
         fixture.InitMap();
         fixture.prefill_ycsb(prefill_data);
@@ -91,6 +94,13 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
         state.counters["bulk_time ms"] = hdr_max(bulk_hdr);
         hdr_close(bulk_hdr);
         hdr_init(1, 1000000000, 4, &fixture.hdr_);
+
+        if(log_index_op){
+            index_op_hdr=fixture.GetOpHdr();
+        }
+        if(log_index_retrain){
+            index_retrain_hdr=fixture.GetRetrainHdr();
+        }
     }
 
     struct hdr_histogram *hdr;
@@ -99,14 +109,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
     } else {
         hdr = nullptr;
     }
-    struct hdr_histogram * index_op_hdr;
-    if(log_index_op){
-        index_op_hdr=fixture.GetOpHdr();
-    }
-    struct hdr_histogram * index_retrain_hdr;
-    if(log_index_retrain){
-        index_retrain_hdr=fixture.GetRetrainHdr();
-    }
+
 
     uint64_t start_idx = 0;
     uint64_t end_idx = 0;

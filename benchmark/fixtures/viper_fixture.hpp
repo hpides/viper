@@ -64,7 +64,7 @@ class ViperFixture : public BaseFixture {
         return viper_->GetRetrainHdr();
     }
     template <typename KeyT, typename ValueT>
-    uint64_t ViperFixture<KeyT, ValueT>::(){
+    uint64_t ViperFixture<KeyT, ValueT>::GetIndexSize(){
         return viper_->get_index_size();
     }
     template <typename KeyT, typename ValueT>
@@ -100,7 +100,7 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
 // 2 alex
 // 3 pgm
 
-    int index_num=6;
+    int index_num=1;
 
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE,index_num, v_config);
     if(index_num==1){
