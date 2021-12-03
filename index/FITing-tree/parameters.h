@@ -19,5 +19,5 @@
 
 // Additional reserved space for left buffer and nodes
 // Also represents insert/delete times in inplace_node
-#define RESERVE (256 * EPSILON)
+#define RESERVE 64
 
