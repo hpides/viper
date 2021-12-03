@@ -25,7 +25,6 @@ namespace viper::index {
         std::vector<uint64_t> ks;
         std::vector<KeyValueOffset> vs;
 
-        using KeyValueOffset=viper::index::KeyValueOffset;
         KeyValueOffset CoreInsert(const K & k, viper::index::KeyValueOffset offset) {
             throw std::runtime_error("RadixSpline dont support CoreInsert");
         }
