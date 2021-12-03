@@ -7,14 +7,42 @@
 
 #include <hdr_histogram.h>
 #include <set>
+#include <utility>
 #include "common_index.hpp"
 #include "FITing-tree/buffer_index.h"
 #include "FITing-tree/inplace_index.h"
 #include "XIndex-R/xindex.h"
 #include "XIndex-R/xindex_impl.h"
 #include "pgm/pgm_index_dynamic.hpp"
+#include  "rs/radix_spline.h"
+#include "rs/builder.h"
 
 namespace viper::index {
+    template<typename K>
+    class RsCare: public BaseIndex<K>{
+    public:
+        rs::RadixSpline<uint64_t> rs;
+        std::vector<uint64_t> ks;
+        std::vector<KeyValueOffset> vs;
+
+        using KeyValueOffset=viper::index::KeyValueOffset;
+        KeyValueOffset CoreInsert(const K & k, viper::index::KeyValueOffset offset) {
+            throw std::runtime_error("RadixSpline dont support CoreInsert");
+        }
+        KeyValueOffset CoreGet(const K & k) {
+            rs::SearchBound bound = rs.GetSearchBound(k);
+            auto start = std::begin(ks) + bound.begin, last = std::begin(ks) + bound.end;
+            auto position = std::lower_bound(start, last, k)-std::begin(ks);
+            return vs[position];
+        }
+
+
+        RsCare(rs::RadixSpline<uint64_t> rs,std::vector<uint64_t> ks,std::vector<KeyValueOffset> vs):
+                rs(std::move(rs)),
+                ks(std::move(ks)),
+                vs(std::move(vs)){
+        }
+    };
     template<typename KeyType>
     class DummyIndex : public BaseIndex<KeyType>{
     public:
@@ -80,6 +108,26 @@ namespace viper::index {
                 const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
                 hdr_record_value_atomic(bulk_hdr, duration.count());
                 return p;
+            }else if(index_type==7){
+
+                std::vector<uint64_t> ks;
+                std::vector<KeyValueOffset> vs;
+                for(int x = 0; x < vector->size(); ++x)
+                {
+                    ks.push_back((*vector)[x].first);
+                    vs.push_back((*vector)[x].second);
+                }
+                std::chrono::high_resolution_clock::time_point start= std::chrono::high_resolution_clock::now();
+                uint64_t min = ks.front();
+                uint64_t max = ks.back();
+                rs::Builder<uint64_t> rsb(min, max);
+                for (const auto& key : ks) rsb.AddKey(key);
+                rs::RadixSpline<uint64_t> rs = rsb.Finalize();
+                auto p=new RsCare<uint64_t>(rs,ks, vs);
+                const auto end = std::chrono::high_resolution_clock::now();
+                const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+                hdr_record_value_atomic(bulk_hdr, duration.count());
+                return p;
             }
             return nullptr;
         }
@@ -88,5 +136,6 @@ namespace viper::index {
         }
 
     };
+
 }
 #endif //VIPER_DUMMY_INDEX_H

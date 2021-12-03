@@ -124,6 +124,8 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
         index_type="FITing-tree InplaceIndex";
     }else if(index_num==6){
         index_type="R-Xindex";
+    }else if(index_num==7){
+        index_type="rs";
     }
     this->prefill(num_prefill_inserts);
     viper_initialized_ = true;

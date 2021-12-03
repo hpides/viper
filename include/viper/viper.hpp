@@ -617,6 +617,9 @@ namespace viper {
         }else if(index_type==6){
             map_=new index::DummyIndex<uint64_t>(index_type);
             std::cout<<"use xindex-r as index"<<std::endl;
+        }else if(index_type==7){
+            map_=new index::DummyIndex<uint64_t>(index_type);
+            std::cout<<"use rs as index"<<std::endl;
         }
         current_block_page_ = 0;
         current_size_ = 0;
