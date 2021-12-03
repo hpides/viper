@@ -21,7 +21,7 @@ class ViperFixture : public BaseFixture {
     //index+data size
     uint64_t GetIndexSize();
     //indexsize
-    uint64_t GetIndex_Size();
+    uint64_t GetIndexSizeWithoutData();
 
     std::string GetIndexType();
 
@@ -72,8 +72,8 @@ class ViperFixture : public BaseFixture {
     }
     //index size
     template <typename KeyT, typename ValueT>
-    uint64_t ViperFixture<KeyT, ValueT>::GetIndex_Size(){
-        return viper_->getindex_size();
+    uint64_t ViperFixture<KeyT, ValueT>::GetIndexSizeWithoutData(){
+        return viper_->getindexsizewithoutdata();
     }
 
     template <typename KeyT, typename ValueT>

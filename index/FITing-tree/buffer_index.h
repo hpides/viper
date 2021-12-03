@@ -31,7 +31,7 @@ protected:
     using KeyValueOffset=viper::index::KeyValueOffset;
     uint64_t GetIndexSize() { return index_size(); }
 
-    uint64_t GetIndex_Size() { return index_model_size(); }
+    uint64_t GetIndexSizeWithoutData() { return index_model_size(); }
 
     KeyValueOffset CoreInsert(const K & k, viper::index::KeyValueOffset offset) {
         upsert(k,offset);
