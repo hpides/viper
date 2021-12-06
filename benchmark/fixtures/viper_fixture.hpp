@@ -8,11 +8,11 @@
 namespace viper {
 namespace kv_bm {
 
-template <typename KeyT = KeyType8, typename ValueT = ValueType200>
+template <typename KeyT = KeyType8, typename ValueT = ValueType80>
 class ViperFixture : public BaseFixture {
   public:
     typedef KeyT KeyType;
-    using ViperT = Viper<KeyT, ValueT>;
+    using ViperT = Viper<KeyType8, ValueType80>;
 
     hdr_histogram* GetRetrainHdr();
 
@@ -109,7 +109,7 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
 // 2 alex
 // 3 pgm
 
-    int index_num=7;
+    int index_num=1;
 
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE,index_num, v_config);
     if(index_num==1){
@@ -303,12 +303,12 @@ uint64_t ViperFixture<KeyT, ValueT>::run_ycsb(uint64_t, uint64_t, const std::vec
 }
 
 template <>
-uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
+uint64_t ViperFixture<KeyType8, ValueType80>::run_ycsb(
     uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr) {
     uint64_t op_count = 0;
     auto v_client = viper_->get_client();
-    ValueType200 value;
-    const ValueType200 null_value{0ul};
+    ValueType80 value;
+    const ValueType80 null_value{0ul};
     std::chrono::high_resolution_clock::time_point start;
     for (int op_num = start_idx; op_num < end_idx; ++op_num) {
         const ycsb::Record& record = data[op_num];
@@ -329,7 +329,7 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
                 break;
             }
             case ycsb::Record::Op::UPDATE: {
-                auto update_fn = [&](ValueType200* value) {
+                auto update_fn = [&](ValueType80* value) {
                     value->data[0] = record.value.data[0];
                     internal::pmem_persist(value->data.data(), sizeof(uint64_t));
                 };
@@ -354,12 +354,12 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
     return op_count;
 }
     template <>
-    uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
+    uint64_t ViperFixture<KeyType8, ValueType80>::run_ycsb(
             uint64_t start_idx, uint64_t end_idx, const std::vector<ycsb::Record>& data, hdr_histogram* hdr,uint32_t thread_id){
         uint64_t op_count = 0;
         auto v_client = viper_->get_client();
-        ValueType200 value;
-        const ValueType200 null_value{0ul};
+        ValueType80 value;
+        const ValueType80 null_value{0ul};
 
         std::chrono::high_resolution_clock::time_point start;
         for (int op_num = start_idx; op_num < end_idx; ++op_num) {
@@ -381,7 +381,7 @@ uint64_t ViperFixture<KeyType8, ValueType200>::run_ycsb(
                     break;
                 }
                 case ycsb::Record::Op::UPDATE: {
-                    auto update_fn = [&](ValueType200* value) {
+                    auto update_fn = [&](ValueType80* value) {
                         value->data[0] = record.value.data[0];
                         internal::pmem_persist(value->data.data(), sizeof(uint64_t));
                     };

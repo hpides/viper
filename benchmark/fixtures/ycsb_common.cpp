@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <cstring>
+#include <iostream>
 
 namespace viper::kv_bm::ycsb {
 
@@ -20,6 +21,10 @@ void read_workload_file(const std::filesystem::path wl_file, std::vector<Record>
         throw std::runtime_error(wl_file.string() + " is empty.");
     }
 
+    std::cout<<"size"<<std::endl;
+    std::cout<<size<<std::endl;
+    std::cout<<"Record"<<std::endl;
+    std::cout<<sizeof(Record)<<std::endl;
     assert(size % sizeof(Record) == 0);
     const uint64_t num_records = size / sizeof(Record);
     data->resize(num_records);
