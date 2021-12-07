@@ -61,8 +61,14 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
                     std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _perf) GENERAL_ARGS
+#define DEFINE_PERF(fixture, workload, data) \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _perf, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _perf) GENERAL_ARGS;
 #define ALL_BMS(fixture) \
-            DEFINE_BM(fixture, 5050_uniform, data_uniform_50_50)/*; \
+            DEFINE_PERF(fixture, 5050_uniform, data_uniform_50_50)/*; \
             DEFINE_BM(fixture, 1090_uniform, data_uniform_10_90); \
             DEFINE_BM(fixture, 5050_zipf,    data_zipf_50_50); \
             DEFINE_BM(fixture, 1090_zipf,    data_zipf_10_90)*/
@@ -125,14 +131,14 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
             BenchmarkParameters params;
             bool printHeader = is_init_thread(state);
             PerfEventBlock e(state, num_ops_per_thread, params, printHeader);
-            if(fixture.GetIndexType()=="R-Xindex"){
+            if(fixture.GetIndexType()=="R-Xindex"||fixture.GetIndexType()=="H-Xindex"){
                 op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr,state.thread_index);
             }else{
                 op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr);
             }
         } else {
             // Actual benchmark
-            if(fixture.GetIndexType()=="R-Xindex"){
+            if(fixture.GetIndexType()=="R-Xindex"||fixture.GetIndexType()=="H-Xindex"){
                 op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr,state.thread_index);
             }else{
                 op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr);
@@ -150,9 +156,6 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
 
         state.counters["index_size"] = fixture.GetIndexSizeWithoutData();
         fixture.DeInitMap();
-        if(fixture.GetIndexType()=="R-Xindex"){
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
         state.counters["total_count"] = op_counter;
         if (log_latency) {
             hdr_histogram *global_hdr = fixture.get_hdr();

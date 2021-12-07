@@ -26,6 +26,7 @@
 #include <list>
 #include "../../index/XIndex-R/xindex.h"
 #include "../../index/XIndex-R/xindex_impl.h"
+#include "../../index/cuckoo/cuckoo_care.hpp"
 
 #ifndef NDEBUG
 #define DEBUG_LOG(msg) (std::cout << msg << std::endl)
@@ -36,7 +37,7 @@
 /**
  * Define this to use Viper in DRAM instead of PMem. This will allocate all VPages in DRAM.
  */
-//#define VIPER_DRAM
+#define VIPER_DRAM
 
 namespace viper {
 
@@ -619,7 +620,13 @@ namespace viper {
             std::cout<<"use xindex-r as index"<<std::endl;
         }else if(index_type==7){
             map_=new index::DummyIndex<uint64_t>(index_type);
+            std::cout<<"use xindex-h as index"<<std::endl;
+        }else if(index_type==8){
+            map_=new index::DummyIndex<uint64_t>(index_type);
             std::cout<<"use rs as index"<<std::endl;
+        }else if(index_type==9){
+            map_=new index::CuckooCare<uint64_t>();
+            std::cout<<"use cuckoo as index"<<std::endl;
         }
         current_block_page_ = 0;
         current_size_ = 0;

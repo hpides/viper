@@ -13,6 +13,8 @@
 #include "FITing-tree/inplace_index.h"
 #include "XIndex-R/xindex.h"
 #include "XIndex-R/xindex_impl.h"
+#include "XIndex-H/xindex.h"
+#include "XIndex-H/xindex_impl.h"
 #include "pgm/pgm_index_dynamic.hpp"
 #include  "rs/radix_spline.h"
 #include "rs/builder.h"
@@ -108,6 +110,20 @@ namespace viper::index {
                 hdr_record_value_atomic(bulk_hdr, duration.count());
                 return p;
             }else if(index_type==7){
+                std::vector<uint64_t> ks;
+                std::vector<KeyValueOffset> vs;
+                for(int x = 0; x < vector->size(); ++x)
+                {
+                    ks.push_back((*vector)[x].first);
+                    vs.push_back((*vector)[x].second);
+                }
+                std::chrono::high_resolution_clock::time_point start= std::chrono::high_resolution_clock::now();
+                auto p=new xindexh::XIndexH<uint64_t,KeyValueOffset>(ks, vs, threads, 0);
+                const auto end = std::chrono::high_resolution_clock::now();
+                const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+                hdr_record_value_atomic(bulk_hdr, duration.count());
+                return p;
+            }else if(index_type==8){
 
                 std::vector<uint64_t> ks;
                 std::vector<KeyValueOffset> vs;
