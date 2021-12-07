@@ -69,7 +69,7 @@ struct PerfEvent {
       registerCounter("LLC-misses", PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_MISSES);
       registerCounter("LLC-accesses", PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_REFERENCES);
       registerCounter("branch-misses", PERF_TYPE_HARDWARE, PERF_COUNT_HW_BRANCH_MISSES);
-      registerCounter("branch-all", PERF_TYPE_HARDWARE, PERF_COUNT_HW_BRANCH_INSTRUCTIONS);
+      registerCounter("branch-retired", PERF_TYPE_HARDWARE, PERF_COUNT_HW_BRANCH_INSTRUCTIONS);
       registerCounter("task-clock", PERF_TYPE_SOFTWARE, PERF_COUNT_SW_TASK_CLOCK);
       // additional counters can be found in linux/perf_event.h
 
