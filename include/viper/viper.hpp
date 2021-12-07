@@ -37,7 +37,7 @@
 /**
  * Define this to use Viper in DRAM instead of PMem. This will allocate all VPages in DRAM.
  */
-//#define VIPER_DRAM
+#define VIPER_DRAM
 
 namespace viper {
 

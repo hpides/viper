@@ -69,7 +69,7 @@ class XIndex {
 
         KeyValueOffset CoreGet(const K &k, uint32_t thread_id);
 
-        xindex::XIndex<viper::index::KeyForXindex,V> * x;
+        xindexh::XIndex<viper::index::KeyForXindex,V> * x;
 
     };
 
