@@ -372,6 +372,9 @@ namespace viper::alex {
     public:
 
         uint64_t GetIndexSize(){
+            return model_size() + data_size();
+        }
+        uint64_t GetIndexSizeWithoutData() {
             return model_size();
         }
         bool SupportBulk(){
