@@ -61,8 +61,14 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
                     std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _perf) GENERAL_ARGS
+#define DEFINE_PERF(fixture, workload, data) \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _perf, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _perf) GENERAL_ARGS;
 #define ALL_BMS(fixture) \
-            DEFINE_BM(fixture, 5050_uniform, data_uniform_50_50)/*; \
+            DEFINE_PERF(fixture, 5050_uniform, data_uniform_50_50)/*; \
             DEFINE_BM(fixture, 1090_uniform, data_uniform_10_90); \
             DEFINE_BM(fixture, 5050_zipf,    data_zipf_50_50); \
             DEFINE_BM(fixture, 1090_zipf,    data_zipf_10_90)*/
