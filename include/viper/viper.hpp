@@ -36,7 +36,7 @@
 /**
  * Define this to use Viper in DRAM instead of PMem. This will allocate all VPages in DRAM.
  */
-#define VIPER_DRAM
+//#define VIPER_DRAM
 
 namespace viper {
 
@@ -1806,13 +1806,13 @@ namespace viper {
     template<typename K, typename V>
     inline bool Viper<K, V>::Client::get_value_from_offset(const KVOffset offset, V *value) {
         const auto[block, page, slot] = offset.get_offsets();
-        const VPage *v_page = &this->viper_.v_blocks_[block]->v_pages[page];
-        const std::atomic<version_lock_t> &page_lock = v_page->version_lock;
+        const VPage &v_page = this->viper_.v_blocks_[block]->v_pages[page];
+        const std::atomic<version_lock_t> &page_lock = v_page.version_lock;
         version_lock_t lock_val = page_lock.load(LOAD_ORDER);
         if (IS_LOCKED(lock_val)) {
             return false;
         }
-        *value = v_page->data[slot].second;
+        *value = v_page.data[slot].second;
         return lock_val == page_lock.load(LOAD_ORDER);
     }
 

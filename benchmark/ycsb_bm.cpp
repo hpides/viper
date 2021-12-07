@@ -23,7 +23,7 @@
 
 using namespace viper::kv_bm;
 
-static constexpr char BASE_DIR[] = "/mnt/tmpssd/aikv/ycsb-data";
+static constexpr char BASE_DIR[] = "/mnt/tmpssd/aikv/ycsb-data-test";
 static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
 
 #define GENERAL_ARGS \
@@ -36,27 +36,27 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
 
 
 #define DEFINE_BM(fixture, workload, data) \
-            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _tp, KeyType8, ValueType80)(benchmark::State& state) { \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _tp, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
                     std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,false,false); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _tp) GENERAL_ARGS;  \
-            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _lat, KeyType8, ValueType80)(benchmark::State& state) { \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _lat, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
                     std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", true,false,false,false); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _lat) GENERAL_ARGS;\
-            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _index_op, KeyType8, ValueType80)(benchmark::State& state) { \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _index_op, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
                     std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,true,false); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _index_op) GENERAL_ARGS;\
-            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _index_retrain, KeyType8, ValueType80)(benchmark::State& state) { \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _index_retrain, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
                     std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,false,true); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _index_retrain) GENERAL_ARGS;\
-            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _perf, KeyType8, ValueType80)(benchmark::State& state) { \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _perf, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
                     std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false); \
             } \
@@ -91,7 +91,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
         struct hdr_histogram * bulk_hdr;
         hdr_init(1, 1000000000, 4, &bulk_hdr);
         fixture.BulkLoadIndex(bulk_hdr, state.threads);
-        state.counters["bulk_time us"] = hdr_max(bulk_hdr);
+        state.counters["bulk_time ms"] = hdr_max(bulk_hdr);
         hdr_close(bulk_hdr);
         hdr_init(1, 1000000000, 4, &fixture.hdr_);
 
@@ -220,6 +220,7 @@ ALL_BMS(ViperFixture);
 
 
 int main(int argc, char **argv) {
+    std::cout << "Prefilling data..." << std::endl;
     std::filesystem::path prefill_file = BASE_DIR + std::string{PREFILL_FILE};
     ycsb::read_workload_file(prefill_file, &prefill_data);
 

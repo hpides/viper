@@ -11,7 +11,7 @@ struct Record {
     // This will be overwritten by the file read.
     const Op op = INSERT;
     const KeyType8 key;
-    const ValueType80 value;
+    const ValueType200 value;
 };
 
 void read_workload_file(const std::filesystem::path wl_file, std::vector<Record>* data);

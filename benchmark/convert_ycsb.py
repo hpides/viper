@@ -3,7 +3,7 @@ import sys
 import struct
 import codecs
 
-INSERT_RE = re.compile(r'^(INSERT|UPDATE) usertable user(\d+) \[ field0=(.{80}) .*$')
+INSERT_RE = re.compile(r'^(INSERT|UPDATE) usertable user(\d+) \[ field0=(.{200}) .*$')
 READ_RE = re.compile(r'^READ usertable user(\d+) .*$')
 BIN_UINT64_T_FORMAT = '<Q'
 BIN_UINT32_T_FORMAT = '<I'
@@ -25,20 +25,20 @@ def convert_file(in_file, out_file):
             if match is not None:
                 op = 'GET'
                 key = int(match.group(1))
-                value = "a" * 80
+                value = "a" * 200
                 matched = True
 
             if not matched:
                 continue
 
-            #print(f"op: {op} | key: {key} | value: {value}")
+            # print(f"op: {op} | key: {key} | value: {value}")
             bytes = struct.pack(BIN_UINT32_T_FORMAT, OPS[op]) + \
                     struct.pack(BIN_UINT64_T_FORMAT, key) + \
                     value.encode('UTF-8')
             out_f.write(bytes)
 
-            if line_num % 1000000 == 0:
-                print(f"Converted {line_num} records")
+            # if line_num % 1000000 == 0:
+            #     print(f"Converted {line_num} records")
 
 
 if __name__ == '__main__':

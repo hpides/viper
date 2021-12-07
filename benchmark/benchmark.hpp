@@ -86,10 +86,8 @@ using Offset = uint64_t;
 using KeyType8 = BMRecord<uint32_t, 2>;
 using KeyType16 = BMRecord<uint32_t, 4>;
 using KeyType32 = BMRecord<uint32_t, 8>;
-using KeyType80 = BMRecord<uint32_t, 20>;
 using KeyType100 = BMRecord<uint32_t, 25>;
 using ValueType8 = KeyType8;
-using ValueType80 = KeyType80;
 using ValueType100 = KeyType100;
 using ValueType200 = BMRecord<uint32_t, 50>;
 using ValueType500 = BMRecord<uint32_t, 125>;
@@ -120,7 +118,7 @@ static constexpr size_t CPU_AFFINITY_OFFSET = 0;  // 0 or #logical-cpu-per-socke
 #endif
 
 static constexpr uint64_t ONE_GB = (1024ul*1024*1024) * 1;  // 1GB
-static constexpr uint64_t BM_POOL_SIZE = 150*ONE_GB;
+static constexpr uint64_t BM_POOL_SIZE = 2*ONE_GB;
 
 std::string get_time_string();
 std::string get_output_file(const std::string& bm_name);
