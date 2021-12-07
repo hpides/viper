@@ -118,7 +118,7 @@ static constexpr size_t CPU_AFFINITY_OFFSET = 0;  // 0 or #logical-cpu-per-socke
 #endif
 
 static constexpr uint64_t ONE_GB = (1024ul*1024*1024) * 1;  // 1GB
-static constexpr uint64_t BM_POOL_SIZE = 2*ONE_GB;
+static constexpr uint64_t BM_POOL_SIZE = 150*ONE_GB;
 
 std::string get_time_string();
 std::string get_output_file(const std::string& bm_name);
