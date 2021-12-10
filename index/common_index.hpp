@@ -55,7 +55,13 @@ namespace viper::index {
 
         inline bool operator!=(const KeyValueOffset &rhs) const { return offset != rhs.offset; }
     };
-
+    struct SkipListKey {
+    public:
+        uint64_t u;
+        KeyValueOffset o;
+        SkipListKey(uint64_t u,KeyValueOffset o):u(u),o(o){
+        }
+    };
     template<typename T1, typename T2>
     struct BulkComparator
     {
@@ -119,7 +125,7 @@ namespace viper::index {
         }
 
         //index+data size
-        virtual uint64_t GetIndexSize() { throw std::runtime_error("GetIndexSize not implemented"); }
+        virtual uint64_t GetIndexSize() { return 0;}
         //index size
         virtual uint64_t GetIndexSizeWithoutData() {return 0; }
 

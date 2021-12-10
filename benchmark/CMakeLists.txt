@@ -6,8 +6,15 @@ set(MKL_INCLUDE_DIRECTORY "/opt/intel/mkl/include")
 link_directories(${JEMALLOC_DIR})
 link_directories(${MKL_LINK_DIRECTORY})
 include_directories(${MKL_INCLUDE_DIRECTORY})
+set(mass
+        ${CMAKE_SOURCE_DIR}/index/mass/mass_node.c
+        ${CMAKE_SOURCE_DIR}/index/mass/mass_tree.c
+        ${CMAKE_SOURCE_DIR}/index/mass/allocator.c
+        ${CMAKE_SOURCE_DIR}/index/skiplist/arena.cc
+        )
 SET(
         src
+
 
         ${CMAKE_CURRENT_SOURCE_DIR}/benchmark.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/benchmark.hpp
@@ -17,6 +24,7 @@ SET(
         ${CMAKE_CURRENT_SOURCE_DIR}/ycsb_bm.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/ycsb_common.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/ycsb_common.hpp
+        ${mass}
 )
 FetchContent_Declare(
         google_benchmark
