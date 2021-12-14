@@ -51,6 +51,9 @@ public:
 
     uint64_t GetIndexSize();
 
+    //index size
+    uint64_t GetIndexSizeWithoutData();
+
     inline bool get(const key_t &key, val_t &val, const uint32_t worker_id);
 
     inline bool put(const key_t &key, const val_t &val, const uint32_t worker_id);
@@ -89,6 +92,8 @@ private:
         ~XIndexR();
 
         uint64_t GetIndexSize();
+
+        uint64_t GetIndexSizeWithoutData();
 
         KeyValueOffset CoreInsert(const K &k, viper::index::KeyValueOffset offset, uint32_t thread_id);
 

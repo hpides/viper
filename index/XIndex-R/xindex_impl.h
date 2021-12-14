@@ -65,7 +65,11 @@ XIndex<key_t, val_t, seq>::~XIndex() {
     using KeyValueOffset=viper::index::KeyValueOffset;
     template <class key_t, class val_t, bool seq>
     uint64_t XIndex<key_t, val_t, seq>::GetIndexSize(){
-        return 0;
+        return root->size_in_bytes();
+    }
+    template <class key_t, class val_t, bool seq>
+    uint64_t XIndex<key_t, val_t, seq>::GetIndexSizeWithoutData(){
+        return root->index_size_in_bytes();
     }
     template <class key_t, class val_t>
     XIndexR<key_t, val_t>::XIndexR(const std::vector<key_t> &keys,const std::vector<val_t> &vals,size_t worker_num, size_t bg_n){
@@ -82,6 +86,10 @@ XIndex<key_t, val_t, seq>::~XIndex() {
     template <class key_t, class val_t>
     uint64_t XIndexR<key_t, val_t>::GetIndexSize(){
         return this->x->GetIndexSize();
+    }
+    template <class key_t, class val_t>
+    uint64_t XIndexR<key_t, val_t>::GetIndexSizeWithoutData(){
+        return this->x->GetIndexSizeWithoutData();
     }
     template <class key_t, class val_t>
     KeyValueOffset XIndexR<key_t, val_t>::CoreInsert(const key_t & k, viper::index::KeyValueOffset offset,uint32_t thread_id){

@@ -52,6 +52,19 @@ class Root {
   inline size_t range_scan(const key_t &begin, const key_t &end,
                            std::vector<std::pair<key_t, val_t>> &result);
 
+  inline size_t size_in_bytes() const {
+        size_t data_size = record_number * (sizeof(key_t) + sizeof(val_t)+8);
+        return index_size_in_bytes() + data_size;
+  }
+
+  inline size_t index_size_in_bytes() const {
+        size_t group_size = sizeof(group_t) * (group_n + 16);
+        size_t rmi_size = rmi_2nd_stage_model_n * sizeof(rmi_2nd_stage) + (rmi_2nd_stage_model_n + 1) * sizeof(linear_model_t);
+        size_t model_size = (group_n * config.group_error_tolerance) * sizeof(linear_model_t);
+        size_t root = sizeof(Root);
+        return group_size + rmi_size + model_size + root;
+  }
+
   static void *do_adjustment(void *args);
   Root *create_new_root();
   void trim_root();
