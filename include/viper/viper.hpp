@@ -29,6 +29,7 @@
 #include "../../index/cuckoo/cuckoo_care.hpp"
 #include "../../index/mass/mass_care.hpp"
 #include "../../index/skiplist/skiplist_care.hpp"
+#include "../../index/bwtree/bwtree_care.hpp"
 
 
 #ifndef NDEBUG
@@ -636,6 +637,9 @@ namespace viper {
         }else if(index_type==11){
             map_=new index::SkipListCare<uint64_t>();
             std::cout<<"use skiplist as index"<<std::endl;
+        }else if(index_type==12){
+            map_=new index::BwTreeCare<uint64_t>();
+            std::cout<<"use bwtree as index"<<std::endl;
         }
         current_block_page_ = 0;
         current_size_ = 0;

@@ -11,6 +11,7 @@ set(mass
         ${CMAKE_SOURCE_DIR}/index/mass/mass_tree.c
         ${CMAKE_SOURCE_DIR}/index/mass/allocator.c
         ${CMAKE_SOURCE_DIR}/index/skiplist/arena.cc
+        ${CMAKE_SOURCE_DIR}/index/bwtree/bwtree.cpp
         )
 SET(
         src
@@ -44,4 +45,4 @@ FetchContent_MakeAvailable(hdr_histogram)
 
 add_executable(ycsb ${src})
 target_compile_options(ycsb PRIVATE -march=native -mtune=native -mclwb -pthread -g)
-target_link_libraries(ycsb pthread stdc++fs stdc++ viper benchmark hdr_histogram_static  mkl_rt jemalloc)
+target_link_libraries(ycsb pthread stdc++fs atomic stdc++ viper benchmark hdr_histogram_static  mkl_rt jemalloc)
