@@ -27,6 +27,9 @@
 #include "../../index/XIndex-R/xindex.h"
 #include "../../index/XIndex-R/xindex_impl.h"
 #include "../../index/cuckoo/cuckoo_care.hpp"
+#include "../../index/mass/mass_care.hpp"
+#include "../../index/skiplist/skiplist_care.hpp"
+
 
 #ifndef NDEBUG
 #define DEBUG_LOG(msg) (std::cout << msg << std::endl)
@@ -627,6 +630,12 @@ namespace viper {
         }else if(index_type==9){
             map_=new index::CuckooCare<uint64_t>();
             std::cout<<"use cuckoo as index"<<std::endl;
+        }else if(index_type==10){
+            map_=new index::MassCare<uint64_t>();
+            std::cout<<"use mass tree as index"<<std::endl;
+        }else if(index_type==11){
+            map_=new index::SkipListCare<uint64_t>();
+            std::cout<<"use skiplist as index"<<std::endl;
         }
         current_block_page_ = 0;
         current_size_ = 0;
