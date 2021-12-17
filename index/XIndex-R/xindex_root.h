@@ -83,6 +83,7 @@ class Root {
   std::unique_ptr<std::pair<key_t, group_t *volatile>[]> groups;
   size_t rmi_2nd_stage_model_n = 0;
   size_t group_n = 0;
+  size_t record_number = 0;
 };
 
 }  // namespace xindex

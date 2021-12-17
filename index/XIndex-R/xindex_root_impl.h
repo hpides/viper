@@ -38,6 +38,7 @@ void Root<key_t, val_t, seq>::init(const std::vector<key_t> &keys,
 
   // try different initial # of groups
   size_t record_n = keys.size();
+  record_number = record_n;
   const size_t group_size_to_group_error_experience_ratio = 1000;
   size_t group_n_trial =
       record_n /
