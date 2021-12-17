@@ -7,9 +7,7 @@ link_directories(${JEMALLOC_DIR})
 link_directories(${MKL_LINK_DIRECTORY})
 include_directories(${MKL_INCLUDE_DIRECTORY})
 set(mass
-        ${CMAKE_SOURCE_DIR}/index/mass/mass_node.c
-        ${CMAKE_SOURCE_DIR}/index/mass/mass_tree.c
-        ${CMAKE_SOURCE_DIR}/index/mass/allocator.c
+        ${CMAKE_SOURCE_DIR}/index/mass/masstree.c
         ${CMAKE_SOURCE_DIR}/index/skiplist/arena.cc
         ${CMAKE_SOURCE_DIR}/index/bwtree/bwtree.cpp
         )
