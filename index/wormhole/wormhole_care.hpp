@@ -19,6 +19,10 @@ namespace viper::index {
             wh = wh_create();
             ref = wh_ref(wh);
         }
+        ~WormCare(){
+            wh_unref(ref);
+            wh_destroy(wh);
+        }
         KeyValueOffset CoreInsert(const K & k, KeyValueOffset o) {
             uint64_t offset=o.get_offset();
             wh_put(ref, &k, 8, &offset, 8);
