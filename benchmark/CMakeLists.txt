@@ -10,6 +10,9 @@ set(mass
         ${CMAKE_SOURCE_DIR}/index/mass/masstree.c
         ${CMAKE_SOURCE_DIR}/index/skiplist/arena.cc
         ${CMAKE_SOURCE_DIR}/index/bwtree/bwtree.cpp
+        ${CMAKE_SOURCE_DIR}/index/wormhole/kv.c
+        ${CMAKE_SOURCE_DIR}/index/wormhole/lib.c
+        ${CMAKE_SOURCE_DIR}/index/wormhole/wh.c
         )
 SET(
         src
