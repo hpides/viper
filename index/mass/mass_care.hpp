@@ -16,6 +16,9 @@ namespace viper::index {
         MassCare(){
             mt = masstree_create(NULL);
         }
+        ~MassCare(){
+            masstree_destroy(mt);
+        }
         KeyValueOffset CoreInsert(const K & k, KeyValueOffset o) {
             masstree_put(mt, &k, 8, (void*)o.get_offset());
             return KeyValueOffset();
