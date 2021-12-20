@@ -3375,7 +3375,7 @@ wormhole_park(struct wormref * const ref)
 }
 
   inline void
-wormhole_resume(struct wormref * const l)
+wormhole_resume(struct wormref * const ref)
 {
   qsbr_resume(&(ref->qref));
 }
