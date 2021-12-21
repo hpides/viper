@@ -262,7 +262,7 @@ public:
      * @param key key value of the element to search for
      * @return an iterator to an element with key equivalent to @p key. If no such element is found, end() is returned
      */
-    iterator find(const K &key) const {
+    iterator find(const K &key)  {
         for (auto i = min_level; i < used_levels; ++i) {
             if (level(i).empty())
                 continue;
@@ -270,14 +270,19 @@ public:
             auto first = level(i).begin();
             auto last = level(i).end();
             if (has_pgm(i)) {
+                this->LogHdr1Start();
                 auto range = pgm(i).search(key);
                 first = level(i).begin() + range.lo;
                 last = level(i).begin() + range.hi;
+                this->LogHdr1End();
             }
 
+            this->LogHdr2Start();
             auto it = lower_bound_bl(first, last, key);
-            if (it != level(i).end() && it->first == key)
+            if (it != level(i).end() && it->first == key) {
+                this->LogHdr2End();
                 return it->deleted() ? end() : iterator(this, i, it);
+            }
         }
 
         return end();

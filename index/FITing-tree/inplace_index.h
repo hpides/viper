@@ -86,9 +86,15 @@ public:
     }
 
     // Point query
-    P find(K key) const {
+    P find(K key) {
         if (!less_than(key, min_key) && !greater_than(key, max_key)) {
-            return (--btree.upper_bound(key))->second->find(key);
+            this->LogHdr1Start();
+            auto * p1=(--btree.upper_bound(key))->second;
+            this->LogHdr1End();
+            this->LogHdr2Start();
+            auto res=p1->find(key);
+            this->LogHdr2End();
+            return res;
         }
         else if (less_than(key, min_key)) {
             return left_buffer.find(key);
