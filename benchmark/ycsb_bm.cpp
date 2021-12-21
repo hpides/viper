@@ -38,37 +38,42 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
 #define DEFINE_BM(fixture, workload, data) \
             BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _tp, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
-                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,false,false); \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,false,false,false); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _tp) GENERAL_ARGS;  \
             BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _lat, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
-                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", true,false,false,false); \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", true,false,false,false,false); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _lat) GENERAL_ARGS;\
             BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _index_op, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
-                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,true,false); \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,true,false,false); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _index_op) GENERAL_ARGS;\
             BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _index_retrain, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
-                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,false,true); \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,false,true,false); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _index_retrain) GENERAL_ARGS;\
             BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _perf, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
-                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false); \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false,false); \
             } \
-            BENCHMARK_REGISTER_F(fixture, workload ## _perf) GENERAL_ARGS
+            BENCHMARK_REGISTER_F(fixture, workload ## _perf) GENERAL_ARGS;\
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _cus, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false,true); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _cus) GENERAL_ARGS;
 #define DEFINE_PERF(fixture, workload, data) \
             BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _perf, KeyType8, ValueType200)(benchmark::State& state) { \
                 ycsb_run(state, *this, &data, \
-                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false); \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false,false); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _perf) GENERAL_ARGS;
 #define ALL_BMS(fixture) \
-            DEFINE_PERF(fixture, 5050_uniform, data_uniform_50_50)/*; \
+            DEFINE_BM(fixture, 5050_uniform, data_uniform_50_50)/*; \
             DEFINE_BM(fixture, 1090_uniform, data_uniform_10_90); \
             DEFINE_BM(fixture, 5050_zipf,    data_zipf_50_50); \
             DEFINE_BM(fixture, 1090_zipf,    data_zipf_10_90)*/
@@ -81,11 +86,13 @@ static std::vector<ycsb::Record> data_zipf_50_50;
 static std::vector<ycsb::Record> data_zipf_10_90;
 
 void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::Record> *data,
-              const std::filesystem::path &wl_file, bool log_latency, bool perf,bool log_index_op,bool log_index_retrain) {
+              const std::filesystem::path &wl_file, bool log_latency, bool perf,bool log_index_op,bool log_index_retrain,bool cus) {
     set_cpu_affinity(state.thread_index);
 
     struct hdr_histogram * index_retrain_hdr;
     struct hdr_histogram * index_op_hdr;
+    struct hdr_histogram * cus1;
+    struct hdr_histogram * cus2;
     if (is_init_thread(state)) {
         fixture.InitMap();
         fixture.prefill_ycsb(prefill_data);
@@ -106,6 +113,10 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
         }
         if(log_index_retrain){
             index_retrain_hdr=fixture.GetRetrainHdr();
+        }
+        if(cus){
+            cus1=fixture.GetCus1Hdr();
+            cus2=fixture.GetCus2Hdr();
         }
     }
 
@@ -201,6 +212,34 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
             state.counters["retrain_hdr_999"] = hdr_value_at_percentile(index_retrain_hdr, 99.9);
             state.counters["retrain_hdr_9999"] = hdr_value_at_percentile(index_retrain_hdr, 99.99);
             hdr_close(index_retrain_hdr);
+        }
+        if(cus){
+            state.counters["cus1_hdr_total"] = viper::cus_hdr::hdr_total(cus1);
+            state.counters["cus1_hdr_count"] = viper::cus_hdr::hdr_count(cus1);
+            state.counters["cus1_hdr_max"] = hdr_max(cus1);
+            state.counters["cus1_hdr_min"] = hdr_min(cus1);
+            state.counters["cus1_hdr_mean"] = hdr_mean(cus1);
+            state.counters["cus1_hdr_std"] = hdr_stddev(cus1);
+            state.counters["cus1_hdr_median"] = hdr_value_at_percentile(cus1, 50.0);
+            state.counters["cus1_hdr_90"] = hdr_value_at_percentile(cus1, 90.0);
+            state.counters["cus1_hdr_95"] = hdr_value_at_percentile(cus1, 95.0);
+            state.counters["cus1_hdr_99"] = hdr_value_at_percentile(cus1, 99.0);
+            state.counters["cus1_hdr_999"] = hdr_value_at_percentile(cus1, 99.9);
+            state.counters["cus1_hdr_9999"] = hdr_value_at_percentile(cus1, 99.99);
+            hdr_close(cus1);
+            state.counters["cus2_hdr_total"] = viper::cus_hdr::hdr_total(cus2);
+            state.counters["cus2_hdr_count"] = viper::cus_hdr::hdr_count(cus2);
+            state.counters["cus2_hdr_max"] = hdr_max(cus2);
+            state.counters["cus2_hdr_min"] = hdr_min(cus2);
+            state.counters["cus2_hdr_mean"] = hdr_mean(cus2);
+            state.counters["cus2_hdr_std"] = hdr_stddev(cus2);
+            state.counters["cus2_hdr_median"] = hdr_value_at_percentile(cus2, 50.0);
+            state.counters["cus2_hdr_90"] = hdr_value_at_percentile(cus2, 90.0);
+            state.counters["cus2_hdr_95"] = hdr_value_at_percentile(cus2, 95.0);
+            state.counters["cus2_hdr_99"] = hdr_value_at_percentile(cus2, 99.0);
+            state.counters["cus2_hdr_999"] = hdr_value_at_percentile(cus2, 99.9);
+            state.counters["cus2_hdr_9999"] = hdr_value_at_percentile(cus2, 99.99);
+            hdr_close(cus2);
         }
         state.counters["index_type : "+ fixture.GetIndexType()] = 0;
     }

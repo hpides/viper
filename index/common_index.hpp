@@ -77,7 +77,11 @@ namespace viper::index {
     public:
         hdr_histogram *op_hdr;
         hdr_histogram *retrain_hdr;
+        hdr_histogram *cus_hdr1;
+        hdr_histogram *cus_hdr2;
         std::chrono::high_resolution_clock::time_point start;
+        std::chrono::high_resolution_clock::time_point start_cus1;
+        std::chrono::high_resolution_clock::time_point start_cus2;
 
         virtual BaseIndex* bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr,int threads){
             return nullptr;
@@ -113,9 +117,53 @@ namespace viper::index {
             hdr_record_value_atomic(retrain_hdr, duration.count());
         }
 
+        hdr_histogram *GetCusHdr1() {
+            if (cus_hdr1 == nullptr) {
+                hdr_init(1, 1000000000, 4, &cus_hdr1);
+            }
+            return cus_hdr1;
+        }
+        void LogHdr1Start() {
+            if (cus_hdr1 == nullptr) {
+                return;
+            }
+            start_cus1 = std::chrono::high_resolution_clock::now();
+        }
+        void LogHdr1End() {
+            if (cus_hdr1 == nullptr) {
+                return;
+            }
+            const auto end = std::chrono::high_resolution_clock::now();
+            const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start_cus1);
+            hdr_record_value_atomic(cus_hdr1, duration.count());
+        }
+
+        hdr_histogram *GetCusHdr2() {
+            if (cus_hdr2 == nullptr) {
+                hdr_init(1, 1000000000, 4, &cus_hdr2);
+            }
+            return cus_hdr2;
+        }
+        void LogHdr2Start() {
+            if (cus_hdr2 == nullptr) {
+                return;
+            }
+            start_cus2 = std::chrono::high_resolution_clock::now();
+        }
+        void LogHdr2End() {
+            if (cus_hdr2 == nullptr) {
+                return;
+            }
+            const auto end = std::chrono::high_resolution_clock::now();
+            const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start_cus2);
+            hdr_record_value_atomic(cus_hdr2, duration.count());
+        }
+
         BaseIndex() {
             op_hdr = nullptr;
             retrain_hdr = nullptr;
+            cus_hdr1= nullptr;
+            cus_hdr2= nullptr;
         }
 
         virtual ~BaseIndex() {};

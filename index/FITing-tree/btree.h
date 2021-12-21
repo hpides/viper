@@ -44,6 +44,7 @@
 #include <memory>
 #include <cstddef>
 #include <assert.h>
+#include "../common_index.hpp"
 
 // *** Debugging Macros
 

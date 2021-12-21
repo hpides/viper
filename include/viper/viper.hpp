@@ -373,6 +373,8 @@ namespace viper {
         uint64_t getindexsizewithoutdata();
 
         hdr_histogram* GetRetrainHdr();
+        hdr_histogram* GetCus1Hdr();
+        hdr_histogram* GetCus2Hdr();
 
         hdr_histogram* GetOpHdr();
 
@@ -1162,6 +1164,14 @@ namespace viper {
     template<typename K, typename V>
     hdr_histogram* Viper<K, V>::GetRetrainHdr(){
         return map_->GetRetrainHdr();
+    }
+    template<typename K, typename V>
+    hdr_histogram* Viper<K, V>::GetCus1Hdr(){
+        return map_->GetCusHdr1();
+    }
+    template<typename K, typename V>
+    hdr_histogram* Viper<K, V>::GetCus2Hdr(){
+        return map_->GetCusHdr2();
     }
 
     template<typename K, typename V>
