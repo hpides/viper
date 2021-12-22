@@ -43,6 +43,11 @@ namespace viper::index {
                 ks(std::move(ks)),
                 vs(std::move(vs)){
         }
+
+        uint64_t GetIndexSize() { return rs.GetSize(); }
+
+        uint64_t GetIndexSizeWithoutData() { return rs.GetSize(); }
+
     };
     template<typename KeyType>
     class DummyIndex : public BaseIndex<KeyType>{

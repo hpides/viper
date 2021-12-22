@@ -959,8 +959,12 @@ namespace viper::alex {
         // use lower_bound()
         typename self_type::Iterator find(const KeyType &key) {
             stats_.num_lookups++;
+            this->LogHdr1Start();
             data_node_type *leaf = get_leaf(key);
+            this->LogHdr1End();
+            this->LogHdr2Start();
             int idx = leaf->find_key(key);
+            this->LogHdr2End();
             if (idx < 0) {
                 return end();
             } else {
@@ -970,8 +974,12 @@ namespace viper::alex {
 
         typename self_type::ConstIterator find(const KeyType &key) const {
             stats_.num_lookups++;
+            this->LogHdr1Start();
             data_node_type *leaf = get_leaf(key);
+            this->LogHdr1End();
+            this->LogHdr2Start();
             int idx = leaf->find_key(key);
+            this->LogHdr2End();
             if (idx < 0) {
                 return cend();
             } else {
