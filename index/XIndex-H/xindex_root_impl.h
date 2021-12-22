@@ -110,7 +110,13 @@ double HRoot<key_t, val_t>::re_init(const std::vector<key_t> &keys,
 
 template <class key_t, class val_t>
 inline result_t HRoot<key_t, val_t>::get(const key_t &key, val_t &val) {
-  return locate_group(key)->get(key, val);
+    this->LogHdr1Start();
+    auto group = locate_group(key);
+    this->LogHdr1End();
+    this->LogHdr2Start();
+    auto res = group->get(key, val);
+    this->LogHdr2End();
+  return res;
 }
 
 template <class key_t, class val_t>

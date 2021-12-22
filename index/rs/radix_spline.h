@@ -32,6 +32,7 @@ class RadixSpline {
   // Returns the estimated position of `key`.
   double GetEstimatedPosition(const KeyType key) const {
     // Truncate to data boundaries.
+    this->LogHdr1Start();
     if (key <= min_key_) return 0;
     if (key >= max_key_) return num_keys_ - 1;
 
@@ -48,16 +49,20 @@ class RadixSpline {
     // Interpolate.
     const double key_diff = key - down.x;
     return std::fma(key_diff, slope, down.y);
+
+    this->LogHdr1End();
   }
 
   // Returns a search bound [begin, end) around the estimated position.
   SearchBound GetSearchBound(const KeyType key) const {
     const size_t estimate = GetEstimatedPosition(key);
+    this->LogHdr2Start();
     const size_t begin = (estimate < max_error_) ? 0 : (estimate - max_error_);
     // `end` is exclusive.
     const size_t end = (estimate + max_error_ + 2 > num_keys_)
                            ? num_keys_
                            : (estimate + max_error_ + 2);
+    this->LogHdr2End();
     return SearchBound{begin, end};
   }
 

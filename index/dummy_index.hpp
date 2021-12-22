@@ -32,8 +32,10 @@ namespace viper::index {
         }
         KeyValueOffset CoreGet(const K & k) {
             rs::SearchBound bound = rs.GetSearchBound(k);
+            this->LogHdr2Start();
             auto start = std::begin(ks) + bound.begin, last = std::begin(ks) + bound.end;
             auto position = std::lower_bound(start, last, k)-std::begin(ks);
+            this->LogHdr2End();
             return vs[position];
         }
 
