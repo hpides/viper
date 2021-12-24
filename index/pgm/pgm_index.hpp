@@ -124,6 +124,7 @@ protected:
             last_n = build_level(epsilon_recursive, in_fun_rec, out_fun);
             levels_offsets.push_back(levels_offsets.back() + last_n + 1);
         }
+        std::cout<<"Number of leaf nodes！！！！！！！！！！！！！！！！！！！！: "<<segments.size()<<std::endl;
     }
 
     /**
