@@ -6,13 +6,14 @@
 #include <vector>
 
 #include "common.h"
+#include "../common_index.hpp"
 
 namespace rs {
 
 // Approximates a cumulative distribution function (CDF) using spline
 // interpolation.
 template <class KeyType>
-class RadixSpline {
+class RadixSpline : public viper::index::BaseIndex<KeyType>{
  public:
   RadixSpline() = default;
 
@@ -30,7 +31,7 @@ class RadixSpline {
         spline_points_(std::move(spline_points)) {}
 
   // Returns the estimated position of `key`.
-  double GetEstimatedPosition(const KeyType key) const {
+  double GetEstimatedPosition(const KeyType key)  {
     // Truncate to data boundaries.
     this->LogHdr1Start();
     if (key <= min_key_) return 0;
@@ -54,7 +55,7 @@ class RadixSpline {
   }
 
   // Returns a search bound [begin, end) around the estimated position.
-  SearchBound GetSearchBound(const KeyType key) const {
+  SearchBound GetSearchBound(const KeyType key)  {
     const size_t estimate = GetEstimatedPosition(key);
     this->LogHdr2Start();
     const size_t begin = (estimate < max_error_) ? 0 : (estimate - max_error_);

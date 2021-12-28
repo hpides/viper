@@ -31,6 +31,7 @@
 #include "../../index/skiplist/skiplist_care.hpp"
 #include "../../index/bwtree/bwtree_care.hpp"
 #include "../../index/wormhole/wormhole_care.hpp"
+#include "../../index/stx/btree_care.hpp"
 
 #ifndef NDEBUG
 #define DEBUG_LOG(msg) (std::cout << msg << std::endl)
@@ -645,6 +646,9 @@ namespace viper {
         }else if(index_type==13){
             map_=new index::WormCare<uint64_t>();
             std::cout<<"use wormhole as index"<<std::endl;
+        }else if(index_type==14){
+            map_=new index::BwTreeCare<uint64_t>();
+            std::cout<<"use stx btree as index"<<std::endl;
         }
         current_block_page_ = 0;
         current_size_ = 0;

@@ -19,7 +19,7 @@
 
 #include <memory>
 #include <vector>
-
+#include <hdr_histogram.h>
 #include "helper.h"
 #include "xindex_root.h"
 #include "xindex_util.h"
@@ -42,11 +42,13 @@ class XIndex {
   inline bool get(const key_t &key, val_t &val, const uint32_t worker_id);
   inline bool put(const key_t &key, const val_t &val, const uint32_t worker_id);
   inline bool remove(const key_t &key, const uint32_t worker_id);
-
+    hdr_histogram *GetCusHdr1() ;
+    hdr_histogram *GetCusHdr2() ;
  private:
   void start_bg();
   void terminate_bg();
   static void *background(void *this_);
+
 
   root_t *volatile root = nullptr;
   pthread_t bg_master;
@@ -68,6 +70,9 @@ class XIndex {
         KeyValueOffset CoreInsert(const K &k, viper::index::KeyValueOffset offset, uint32_t thread_id);
 
         KeyValueOffset CoreGet(const K &k, uint32_t thread_id);
+
+        hdr_histogram *GetCusHdr1() ;
+        hdr_histogram *GetCusHdr2() ;
 
         xindexh::XIndex<viper::index::KeyForXindex,V> * x;
 

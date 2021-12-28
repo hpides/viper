@@ -2425,7 +2425,7 @@ namespace viper::alex {
                     size += static_cast<data_node_type *>(cur)->data_size();
                 }
             }
-            std::cout<<"Number of leaf nodes!!!!!!!!!!!!!!!!!!!!!!!!!: "<<i<<std::endl;
+            //std::cout<<"Number of leaf nodes!!!!!!!!!!!!!!!!!!!!!!!!!: "<<i<<std::endl;
             return size;
         }
 
@@ -2437,7 +2437,7 @@ namespace viper::alex {
                  node_it.next()) {
                 size += node_it.current()->node_size();
             }
-            std::cout<<"Number of all nodes!!!!!!!!!!!!!!!!!!!!!!!!!: "<<j<<std::endl;
+            //std::cout<<"Number of all nodes!!!!!!!!!!!!!!!!!!!!!!!!!: "<<j<<std::endl;
             return size;
         }
 

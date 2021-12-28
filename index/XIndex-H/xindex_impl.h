@@ -56,6 +56,15 @@ XIndex<key_t, val_t>::~XIndex() {
   terminate_bg();
 }
     template <class key_t, class val_t>
+    hdr_histogram * XIndex<key_t, val_t>::GetCusHdr1() {
+        return root->GetCusHdr1();
+    }
+
+    template <class key_t, class val_t>
+    hdr_histogram * XIndex<key_t, val_t>::GetCusHdr2() {
+        return root->GetCusHdr2();
+    }
+    template <class key_t, class val_t>
     uint64_t XIndex<key_t, val_t>::GetIndexSize(){
         return 0;
     }
@@ -71,6 +80,15 @@ XIndex<key_t, val_t>::~XIndex() {
     template <class key_t, class val_t>
     XIndexH<key_t, val_t>::~XIndexH(){
         delete this->x;
+    }
+    template <class key_t, class val_t>
+    hdr_histogram * XIndexH<key_t, val_t>::GetCusHdr1() {
+        return x->GetCusHdr1();
+    }
+
+    template <class key_t, class val_t>
+    hdr_histogram * XIndexH<key_t, val_t>::GetCusHdr2() {
+        return x->GetCusHdr2();
     }
     template <class key_t, class val_t>
     uint64_t XIndexH<key_t, val_t>::GetIndexSize(){

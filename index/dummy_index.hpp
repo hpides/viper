@@ -46,6 +46,13 @@ namespace viper::index {
                 vs(std::move(vs)){
         }
 
+        hdr_histogram *GetCusHdr1() {
+            return rs.GetCusHdr1();
+        }
+        hdr_histogram *GetCusHdr2() {
+            return rs.GetCusHdr2();
+        }
+
         uint64_t GetIndexSize() { return rs.GetSize(); }
 
         uint64_t GetIndexSizeWithoutData() { return rs.GetSize(); }

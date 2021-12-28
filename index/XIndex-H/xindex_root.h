@@ -21,7 +21,8 @@
 #include <vector>
 
 #include "xindex_group.h"
-
+#include <hdr_histogram.h>
+#include "../common_index.hpp"
 #if !defined(XINDEX_ROOT_Hh)
 #define XINDEX_ROOT_Hh
 
@@ -30,7 +31,7 @@ namespace xindexh {
  * HRoot
  */
 template <class key_t, class val_t>
-class HRoot {
+class HRoot : public viper::index::BaseIndex<key_t> {
   typedef LinearModel<key_t> linear_model_t;
   typedef HGroup<key_t, val_t> group_t;
 

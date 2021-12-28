@@ -62,6 +62,17 @@ template <class key_t, class val_t, bool seq>
 XIndex<key_t, val_t, seq>::~XIndex() {
   terminate_bg();
 }
+
+    template <class key_t, class val_t, bool seq>
+    hdr_histogram * XIndex<key_t, val_t, seq>::GetCusHdr1() {
+        return root->GetCusHdr1();
+    }
+
+    template <class key_t, class val_t, bool seq>
+    hdr_histogram * XIndex<key_t, val_t, seq>::GetCusHdr2() {
+        return root->GetCusHdr2();
+    }
+
     using KeyValueOffset=viper::index::KeyValueOffset;
     template <class key_t, class val_t, bool seq>
     uint64_t XIndex<key_t, val_t, seq>::GetIndexSize(){
@@ -83,6 +94,16 @@ XIndex<key_t, val_t, seq>::~XIndex() {
     XIndexR<key_t, val_t>::~XIndexR(){
         delete this->x;
     }
+    template <class key_t, class val_t>
+    hdr_histogram * XIndexR<key_t, val_t>::GetCusHdr1() {
+        return x->GetCusHdr1();
+    }
+
+    template <class key_t, class val_t>
+    hdr_histogram * XIndexR<key_t, val_t>::GetCusHdr2() {
+        return x->GetCusHdr2();
+    }
+
     template <class key_t, class val_t>
     uint64_t XIndexR<key_t, val_t>::GetIndexSize(){
         return this->x->GetIndexSize();

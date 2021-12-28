@@ -21,14 +21,14 @@
  */
 
 #include "xindex_group.h"
-
+#include "../common_index.hpp"
 #if !defined(XINDEX_ROOT_H)
 #define XINDEX_ROOT_H
 
 namespace xindex {
 
 template <class key_t, class val_t, bool seq>
-class Root {
+class Root :public viper::index::BaseIndex<key_t>{
   typedef LinearModel<key_t> linear_model_t;
   typedef Group<key_t, val_t, seq, max_model_n> group_t;
 

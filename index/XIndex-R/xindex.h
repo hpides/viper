@@ -19,7 +19,7 @@
  * For more about XIndex, visit:
  *     https://ppopp20.sigplan.org/details/PPoPP-2020-papers/13/XIndex-A-Scalable-Learned-Index-for-Multicore-Data-Storage
  */
-
+#include <hdr_histogram.h>
 #include "helper.h"
 #include "xindex_buffer.h"
 #include "xindex_group.h"
@@ -46,6 +46,9 @@ public:
            size_t worker_num, size_t bg_n);
 
     ~XIndex();
+
+    hdr_histogram *GetCusHdr1() ;
+    hdr_histogram *GetCusHdr2() ;
 
     using KeyValueOffset = viper::index::KeyValueOffset;
 
@@ -90,6 +93,9 @@ private:
                 size_t worker_num, size_t bg_n);
 
         ~XIndexR();
+
+        hdr_histogram *GetCusHdr1() ;
+        hdr_histogram *GetCusHdr2() ;
 
         uint64_t GetIndexSize();
 

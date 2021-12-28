@@ -117,7 +117,7 @@ namespace viper::index {
             hdr_record_value_atomic(retrain_hdr, duration.count());
         }
 
-        hdr_histogram *GetCusHdr1() {
+        virtual hdr_histogram *GetCusHdr1() {
             if (cus_hdr1 == nullptr) {
                 hdr_init(1, 1000000000, 4, &cus_hdr1);
             }
@@ -138,7 +138,7 @@ namespace viper::index {
             hdr_record_value_atomic(cus_hdr1, duration.count());
         }
 
-        hdr_histogram *GetCusHdr2() {
+        virtual hdr_histogram *GetCusHdr2() {
             if (cus_hdr2 == nullptr) {
                 hdr_init(1, 1000000000, 4, &cus_hdr2);
             }
