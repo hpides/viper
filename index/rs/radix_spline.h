@@ -49,9 +49,9 @@ class RadixSpline : public viper::index::BaseIndex<KeyType>{
 
     // Interpolate.
     const double key_diff = key - down.x;
-    return std::fma(key_diff, slope, down.y);
-
     this->LogHdr1End();
+
+    return std::fma(key_diff, slope, down.y);
   }
 
   // Returns a search bound [begin, end) around the estimated position.
