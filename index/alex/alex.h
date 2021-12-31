@@ -1237,6 +1237,8 @@ namespace viper::alex {
                 model_node_type *parent = traversal_path.back().node;
 
                 while (fail) {
+                    this->LogHdr3Start();
+                    this->LogHdr3End();
                     auto start_time = std::chrono::high_resolution_clock::now();
                     viper::index::BaseIndex<KeyType>::LogRetrainStart();
                     stats_.num_expand_and_scales += leaf->num_resizes_;

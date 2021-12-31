@@ -376,7 +376,7 @@ namespace viper {
         hdr_histogram* GetRetrainHdr();
         hdr_histogram* GetCus1Hdr();
         hdr_histogram* GetCus2Hdr();
-
+        hdr_histogram* GetCus3Hdr();
         hdr_histogram* GetOpHdr();
 
         void bulkload_index(hdr_histogram * bulk_hdr,int threads);
@@ -1176,6 +1176,11 @@ namespace viper {
     template<typename K, typename V>
     hdr_histogram* Viper<K, V>::GetCus2Hdr(){
         return map_->GetCusHdr2();
+    }
+
+    template<typename K, typename V>
+    hdr_histogram* Viper<K, V>::GetCus3Hdr(){
+        return map_->GetCusHdr3();
     }
 
     template<typename K, typename V>

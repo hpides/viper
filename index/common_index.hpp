@@ -79,9 +79,11 @@ namespace viper::index {
         hdr_histogram *retrain_hdr;
         hdr_histogram *cus_hdr1;
         hdr_histogram *cus_hdr2;
+        hdr_histogram *cus_hdr3;
         std::chrono::high_resolution_clock::time_point start;
         std::chrono::high_resolution_clock::time_point start_cus1;
         std::chrono::high_resolution_clock::time_point start_cus2;
+        std::chrono::high_resolution_clock::time_point start_cus3;
 
         virtual BaseIndex* bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr,int threads){
             return nullptr;
@@ -159,11 +161,33 @@ namespace viper::index {
             hdr_record_value_atomic(cus_hdr2, duration.count());
         }
 
+        virtual hdr_histogram *GetCusHdr3() {
+            if (cus_hdr3 == nullptr) {
+                hdr_init(1, 1000000000, 4, &cus_hdr3);
+            }
+            return cus_hdr3;
+        }
+        void LogHdr3Start() {
+            if (cus_hdr3 == nullptr) {
+                return;
+            }
+            start_cus3 = std::chrono::high_resolution_clock::now();
+        }
+        void LogHdr3End() {
+            if (cus_hdr3 == nullptr) {
+                return;
+            }
+            const auto end = std::chrono::high_resolution_clock::now();
+            const auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start_cus3);
+            hdr_record_value_atomic(cus_hdr3, duration.count());
+        }
+
         BaseIndex() {
             op_hdr = nullptr;
             retrain_hdr = nullptr;
             cus_hdr1= nullptr;
             cus_hdr2= nullptr;
+            cus_hdr3= nullptr;
         }
 
         virtual ~BaseIndex() {};

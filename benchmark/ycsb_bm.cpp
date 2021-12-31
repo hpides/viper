@@ -119,6 +119,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
     struct hdr_histogram * index_op_hdr;
     struct hdr_histogram * cus1;
     struct hdr_histogram * cus2;
+    struct hdr_histogram * cus3;
     if (is_init_thread(state)) {
         fixture.InitMap();
         fixture.prefill_ycsb(prefill_data);
@@ -139,6 +140,7 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
         }
         if(log_index_retrain){
             index_retrain_hdr=fixture.GetRetrainHdr();
+            cus3=fixture.GetCus3Hdr();
         }
         if(cus){
             cus1=fixture.GetCus1Hdr();
@@ -238,6 +240,19 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
             state.counters["retrain_hdr_999"] = hdr_value_at_percentile(index_retrain_hdr, 99.9);
             state.counters["retrain_hdr_9999"] = hdr_value_at_percentile(index_retrain_hdr, 99.99);
             hdr_close(index_retrain_hdr);
+            state.counters["cus3_hdr_total"] = viper::cus_hdr::hdr_total(cus3);
+            state.counters["cus3_hdr_count"] = viper::cus_hdr::hdr_count(cus3);
+            state.counters["cus3_hdr_max"] = hdr_max(cus3);
+            state.counters["cus3_hdr_min"] = hdr_min(cus3);
+            state.counters["cus3_hdr_mean"] = hdr_mean(cus3);
+            state.counters["cus3_hdr_std"] = hdr_stddev(cus3);
+            state.counters["cus3_hdr_median"] = hdr_value_at_percentile(cus3, 50.0);
+            state.counters["cus3_hdr_90"] = hdr_value_at_percentile(cus3, 90.0);
+            state.counters["cus3_hdr_95"] = hdr_value_at_percentile(cus3, 95.0);
+            state.counters["cus3_hdr_99"] = hdr_value_at_percentile(cus3, 99.0);
+            state.counters["cus3_hdr_999"] = hdr_value_at_percentile(cus3, 99.9);
+            state.counters["cus3_hdr_9999"] = hdr_value_at_percentile(cus3, 99.99);
+            hdr_close(cus3);
         }
         if(cus){
             state.counters["cus1_hdr_total"] = viper::cus_hdr::hdr_total(cus1);

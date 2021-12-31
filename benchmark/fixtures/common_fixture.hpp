@@ -100,6 +100,9 @@ class BaseFixture : public benchmark::Fixture {
     virtual hdr_histogram* GetCus2Hdr(){
         return nullptr;
     }
+    virtual hdr_histogram* GetCus3Hdr(){
+        return nullptr;
+    }
 
     static void log_find_count(benchmark::State& state, const uint64_t num_found, const uint64_t num_expected);
 
