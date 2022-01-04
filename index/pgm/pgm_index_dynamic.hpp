@@ -135,15 +135,18 @@ class DynamicPGMIndex : public viper::index::BaseIndex<K>{
     }
 
     void insert(const Item &new_item) {
+        this->LogHdr3Start();
         auto insertion_point = lower_bound_bl(level(min_level).begin(), level(min_level).end(), new_item);
         if (insertion_point != level(min_level).end() && *insertion_point == new_item) {
             *insertion_point = new_item;
+            this->LogHdr3End();
             return;
         }
 
         if (level(min_level).size() < buffer_max_size) {
             level(min_level).insert(insertion_point, new_item);
             used_levels = used_levels == min_level ? min_level + 1 : used_levels;
+            this->LogHdr3End();
             return;
         }
 
@@ -163,6 +166,7 @@ class DynamicPGMIndex : public viper::index::BaseIndex<K>{
             if (i - min_index_level >= int(pgms.size()))
                 pgms.emplace_back();
         }
+        this->LogHdr3End();
 
         pairwise_merge(new_item, i, slots_required, insertion_point);
     }

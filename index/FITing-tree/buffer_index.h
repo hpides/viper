@@ -153,7 +153,9 @@ public:
         if (!less_than(key, min_key) && !greater_than(key, max_key)) {
             auto it = --btree.upper_bound(key);
             NODE* leaf = it->second;
+            this->LogHdr3Start();
             size_t ref = leaf->upsert(key, payload);
+            this->LogHdr3End();
             if (ref < RESERVE) {
                 return;
             }
@@ -183,7 +185,9 @@ public:
             }
         }
         else if (less_than(key, min_key)) {
+            this->LogHdr3Start();
             size_t ref = left_buffer.upsert(key, payload);
+            this->LogHdr3End();
             if (ref < RESERVE) {
                 return;
             }
@@ -210,7 +214,9 @@ public:
             }
         }
         else {
+            this->LogHdr3Start();
             size_t ref = right_buffer.upsert(key, payload);
+            this->LogHdr3End();
             if (ref < RESERVE) {
                 return;
             }

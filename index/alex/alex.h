@@ -1221,7 +1221,9 @@ namespace viper::alex {
             data_node_type *leaf = get_leaf(key);
 
             // Nonzero fail flag means that the insert did not happen
+            this->LogHdr3Start();
             std::pair<int, int> ret = leaf->insert(this,key, payload);
+            this->LogHdr3End();
             int fail = ret.first;
             int insert_pos = ret.second;
             if (fail == -1) {
@@ -1237,8 +1239,8 @@ namespace viper::alex {
                 model_node_type *parent = traversal_path.back().node;
 
                 while (fail) {
-                    this->LogHdr3Start();
-                    this->LogHdr3End();
+//                    this->LogHdr3Start();
+//                    this->LogHdr3End();
                     auto start_time = std::chrono::high_resolution_clock::now();
                     viper::index::BaseIndex<KeyType>::LogRetrainStart();
                     stats_.num_expand_and_scales += leaf->num_resizes_;
