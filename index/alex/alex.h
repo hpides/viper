@@ -2422,16 +2422,14 @@ namespace viper::alex {
         // Size in bytes of all the keys, payloads, and bitmaps stored in this index
         long long data_size() const {
             long long size = 0;
-            auto i = 0;
             for (NodeIterator node_it = NodeIterator(this); !node_it.is_end();
                  node_it.next()) {
                 AlexNode<KeyType, P> *cur = node_it.current();
                 if (cur->is_leaf_) {
                     size += static_cast<data_node_type *>(cur)->data_size();
-                    i += 1;
                 }
             }
-            //std::cout<<"Number of leaf nodes!!!!!!!!!!!!!!!!!!!!!!!!!: "<<i<<std::endl;
+            std::cout<<"Number of leaf nodes!!!!!!!!!!!!!!!!!!!!!!!!!: "<<stats_.num_data_nodes<<std::endl;
             return size;
         }
 
@@ -2439,13 +2437,11 @@ namespace viper::alex {
         // data nodes
         long long model_size() const {
             long long size = 0;
-            auto j = 0;
             for (NodeIterator node_it = NodeIterator(this); !node_it.is_end();
                  node_it.next()) {
                 size += node_it.current()->node_size();
-                j += 1;
             }
-            //std::cout<<"Number of all nodes!!!!!!!!!!!!!!!!!!!!!!!!!: "<<j<<std::endl;
+            std::cout<<"Number of all nodes!!!!!!!!!!!!!!!!!!!!!!!!!: "<<stats_.num_data_nodes + stats_.num_model_nodes<<std::endl;
             return size;
         }
 
