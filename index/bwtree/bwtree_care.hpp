@@ -67,12 +67,26 @@ namespace viper::index {
     public:
         TreeType *map;
         BwTreeCare(){
-            map = new TreeType(false,
+            map = new TreeType(true,
                                BwKeyComparator(1),
                                BwKeyEqualityChecker(1));
         }
         ~BwTreeCare(){
             delete map;
+        }
+        bool SupportBulk(int threads){
+            return false;
+        }
+        BaseIndex<K>* bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr,int threads) {
+            delete map;
+            wangziqi2013::bwtree::BwTreeBase::total_thread_num=threads;
+            map = new TreeType(true,
+                               BwKeyComparator(1),
+                               BwKeyEqualityChecker(1));
+            for(auto o:*vector){
+                map->Insert(o.first,o.second.get_offset());
+            }
+            return this;
         }
         KeyValueOffset CoreInsert(const K & k, KeyValueOffset o) {
             map->Insert(k,o.get_offset());

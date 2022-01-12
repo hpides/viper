@@ -31,7 +31,7 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime()  \
-            ->Threads(1)
+            ->Threads(12)
 //            ->ThreadRange(1, 16)
 
 
@@ -98,13 +98,60 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
                     std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false,true); \
             } \
             BENCHMARK_REGISTER_F(fixture, workload ## _cus) GENERAL_ARGS;
+#define DEFINE_WRITE_ONLY(fixture, workload, data) \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _tp, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,false,false,false); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _tp) GENERAL_ARGS;  \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _lat, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", true,false,false,false,false); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _lat) GENERAL_ARGS;\
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _index_op, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,true,false,false); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _index_op) GENERAL_ARGS;\
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _index_retrain, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,false,true,false); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _index_retrain) GENERAL_ARGS;\
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _perf, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false,false); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _perf) GENERAL_ARGS;
+#define DEFINE_MULTI_THREAD(fixture, workload, data) \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _tp, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,false,false,false); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _tp) GENERAL_ARGS;  \
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _lat, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", true,false,false,false,false); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _lat) GENERAL_ARGS;\
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _index_op, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,false,true,false,false); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _index_op) GENERAL_ARGS;\
+            BENCHMARK_TEMPLATE2_DEFINE_F(fixture, workload ## _perf, KeyType8, ValueType200)(benchmark::State& state) { \
+                ycsb_run(state, *this, &data, \
+                    std::string{BASE_DIR} + "/ycsb_wl_" #workload ".dat", false,true,false,false,false); \
+            } \
+            BENCHMARK_REGISTER_F(fixture, workload ## _perf) GENERAL_ARGS;
 #define ALL_BMS(fixture) \
             DEFINE_READ_ONLY(fixture, 5050_uniform, data_uniform_50_50)/*; \
             DEFINE_BM(fixture, 1090_uniform, data_uniform_10_90); \
             DEFINE_BM(fixture, 5050_zipf,    data_zipf_50_50); \
             DEFINE_BM(fixture, 1090_zipf,    data_zipf_10_90)*/
 
-
+#define NDEBUG
 static std::vector<ycsb::Record> prefill_data;
 static std::vector<ycsb::Record> data_uniform_50_50;
 static std::vector<ycsb::Record> data_uniform_10_90;
@@ -170,14 +217,14 @@ void ycsb_run(benchmark::State &state, BaseFixture &fixture, std::vector<ycsb::R
             BenchmarkParameters params;
             bool printHeader = is_init_thread(state);
             PerfEventBlock e(state, num_ops_per_thread, params, printHeader);
-            if(fixture.GetIndexType()=="R-Xindex"||fixture.GetIndexType()=="H-Xindex"){
+            if(fixture.GetIndexType()=="R-Xindex"||fixture.GetIndexType()=="H-Xindex"||fixture.GetIndexType()=="wormhole"){
                 op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr,state.thread_index);
             }else{
                 op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr);
             }
         } else {
             // Actual benchmark
-            if(fixture.GetIndexType()=="R-Xindex"||fixture.GetIndexType()=="H-Xindex"){
+            if(fixture.GetIndexType()=="R-Xindex"||fixture.GetIndexType()=="H-Xindex"||fixture.GetIndexType()=="wormhole"){
                 op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr,state.thread_index);
             }else{
                 op_counter = fixture.run_ycsb(start_idx, end_idx, *data, hdr);

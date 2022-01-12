@@ -65,7 +65,7 @@ namespace viper::index {
         DummyIndex(int type){
             index_type=type;
         }
-        bool SupportBulk(){
+        bool SupportBulk(int threads){
             return true;
         }
         BaseIndex<KeyType>* bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr,int threads){

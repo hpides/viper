@@ -46,10 +46,10 @@ void BaseFixture::log_find_count(benchmark::State& state, uint64_t num_found, ui
 
 template <typename PrefillFn>
 void BaseFixture::prefill_internal(const size_t num_prefills, PrefillFn prefill_fn) {
-#ifndef NDEBUG
+//#ifndef NDEBUG
     std::cout << "START PREFILL." << std::endl;
     const auto start = std::chrono::high_resolution_clock::now();
-#endif
+//#endif
     cpu_set_t cpuset_before;
     pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
     set_cpu_affinity();
@@ -70,11 +70,11 @@ void BaseFixture::prefill_internal(const size_t num_prefills, PrefillFn prefill_
     }
 
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset_before);
-#ifndef NDEBUG
+//#ifndef NDEBUG
     const auto end = std::chrono::high_resolution_clock::now();
     const auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
     std::cout << "PREFILL DURATION: " << duration << " s (~" << (num_prefills / (duration + 0.5) / 1e6) << "M/s)" << std::endl;
-#endif
+//#endif
 }
 
 void BaseFixture::prefill(const size_t num_prefills) {
@@ -105,9 +105,9 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
     std::vector<std::string>& keys = std::get<0>(var_size_kvs_);
     if (keys.size() > 0) {
         // Data has been generated already.
-#ifndef NDEBUG
+//#ifndef NDEBUG
         std::cout << "SKIPPING STRING GENERATION..." << std::endl;
-#endif
+//#endif
         return;
     }
 
@@ -167,11 +167,11 @@ void BaseFixture::generate_strings(size_t num_strings, size_t key_size, size_t v
         unique_keys.insert(*key);
     }
 
-#ifndef NDEBUG
+//#ifndef NDEBUG
     const auto end = std::chrono::high_resolution_clock::now();
     const auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
     std::cout << "GENERATION DURATION: " << duration << " s." << std::endl;
-#endif
+//#endif
 }
 
 bool is_init_thread(const benchmark::State& state) {

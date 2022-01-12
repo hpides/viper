@@ -23,6 +23,8 @@ namespace viper::index {
     public:
         leveldb::SkipList<SkipListKey,SkipListKeyComparator> *map;
         leveldb::Arena * arena;
+        std::mutex m;
+        int threads;
         SkipListCare(){
             arena = new leveldb::Arena();
             map = new leveldb::SkipList<SkipListKey,SkipListKeyComparator>(cmp,arena);
@@ -31,9 +33,19 @@ namespace viper::index {
             delete map;
             delete arena;
         }
+        bool SupportBulk(int threads){
+            this->threads=threads;
+            return false;
+        }
         KeyValueOffset CoreInsert(const K & k, KeyValueOffset o) {
+            if(threads>1){
+                m.lock();
+            }
             SkipListKey key(k,o);
             map->Insert(key);
+            if(threads>1){
+                m.unlock();
+            }
             return KeyValueOffset();
         }
         KeyValueOffset CoreGet(const K & k) {

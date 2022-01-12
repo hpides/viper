@@ -124,7 +124,7 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
 // 2 alex
 // 3 pgm
 
-    int index_num=2;
+    int index_num=12;
 
     viper_ = ViperT::create(pool_file_, BM_POOL_SIZE,index_num, v_config);
     if(index_num==1){
@@ -155,6 +155,8 @@ void ViperFixture<KeyT, ValueT>::InitMap(uint64_t num_prefill_inserts, ViperConf
         index_type="wormhole";
     }else if(index_num==14){
         index_type="stx-btree";
+    }else if(index_num==15){
+        index_type="art";
     }
     this->prefill(num_prefill_inserts);
     viper_initialized_ = true;

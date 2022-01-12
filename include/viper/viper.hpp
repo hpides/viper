@@ -32,6 +32,7 @@
 #include "../../index/bwtree/bwtree_care.hpp"
 #include "../../index/wormhole/wormhole_care.hpp"
 #include "../../index/stx/btree_care.hpp"
+#include "../../index/ART/art_care.hpp"
 
 #ifndef NDEBUG
 #define DEBUG_LOG(msg) (std::cout << msg << std::endl)
@@ -549,7 +550,7 @@ namespace viper {
 
     template<typename K, typename V>
     void Viper<K, V>::bulkload_index(hdr_histogram * bulk_hdr,int threads){
-        if(map_->SupportBulk()==false){
+        if(map_->SupportBulk(threads)==false){
             return;
         }
         const block_size_t num_used_blocks = v_base_.v_metadata->num_used_blocks.load(LOAD_ORDER);
@@ -649,6 +650,9 @@ namespace viper {
         }else if(index_type==14){
             map_=new index::BwTreeCare<uint64_t>();
             std::cout<<"use stx btree as index"<<std::endl;
+        }else if(index_type==15){
+            map_=new index::BwTreeCare<uint64_t>();
+            std::cout<<"use art as index"<<std::endl;
         }
         current_block_page_ = 0;
         current_size_ = 0;

@@ -192,7 +192,7 @@ namespace viper::index {
 
         virtual ~BaseIndex() {};
 
-        virtual bool SupportBulk(){
+        virtual bool SupportBulk(int threads){
             return false;
         }
 

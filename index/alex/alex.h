@@ -377,7 +377,7 @@ namespace viper::alex {
         uint64_t GetIndexSizeWithoutData() {
             return model_size();
         }
-        bool SupportBulk(){
+        bool SupportBulk(int threads){
             return true;
         }
         // When bulk loading, Alex can use provided knowledge of the expected fraction

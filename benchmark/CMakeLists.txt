@@ -13,6 +13,7 @@ set(mass
         ${CMAKE_SOURCE_DIR}/index/wormhole/kv.c
         ${CMAKE_SOURCE_DIR}/index/wormhole/lib.c
         ${CMAKE_SOURCE_DIR}/index/wormhole/wh.c
+        ${CMAKE_SOURCE_DIR}/index/ART/Tree.cpp
         )
 SET(
         src
@@ -44,6 +45,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(hdr_histogram)
 
+
+
+#set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR})
+#set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "/tmp/my_installed_onetbb")
+set(TBB_DIR "/tmp/my_installed_onetbb/lib64/cmake/TBB")
+#set(TBB_INCLUDE_DIR "/tmp/my_installed_onetbb/include")
+find_package(TBB REQUIRED)
 add_executable(ycsb ${src})
-target_compile_options(ycsb PRIVATE -march=native -mtune=native -mclwb -pthread -g)
-target_link_libraries(ycsb pthread stdc++fs atomic stdc++ viper benchmark hdr_histogram_static  mkl_rt jemalloc)
+target_compile_options(ycsb PRIVATE -O3 -Ofast -march=native -mtune=native -mclwb -pthread)
+target_link_libraries(ycsb TBB::tbb pthread stdc++fs atomic stdc++ viper benchmark hdr_histogram_static  mkl_rt jemalloc)
