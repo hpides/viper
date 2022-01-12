@@ -75,6 +75,7 @@ namespace viper::index {
             delete map;
         }
         bool SupportBulk(int threads){
+            map->UpdateThreadLocal(threads);
             return false;
         }
         BaseIndex<K>* bulk_load(std::vector<std::pair<uint64_t, KeyValueOffset>> * vector,hdr_histogram * bulk_hdr,int threads) {
