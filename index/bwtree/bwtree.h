@@ -2750,7 +2750,7 @@ class BwTree : public BwTreeBase {
       
       // This will collect all nodes since we have adjusted the currenr thread
       // GC ID
-      assert(GetGCMetaData(i)->node_count == 0);
+      //assert(GetGCMetaData(i)->node_count == 0);
     }
     
     return;

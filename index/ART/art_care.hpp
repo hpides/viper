@@ -13,29 +13,40 @@
 namespace viper::index {
 
 
+    static std::unordered_map<uint64_t,uint64_t> * umap=nullptr;
+    static std::unordered_map<uint64_t,uint64_t> * v=nullptr;
+
     template<typename K>
     class ArtCare:public BaseIndex<K>{
     public:
-        void loadKey(TID tid, Key &key) {
+        static void loadKey(TID tid, Key &key) {
             // Store the key of the tuple into the key vector
             // Implementation is database specific
-            auto k=map[tid];
+            auto k=(umap->find(tid))->second;
+            key.setKeyLen(sizeof(k));
             reinterpret_cast<uint64_t *>(&key[0])[0] = __builtin_bswap64(k);
         }
 
-        std::unordered_map<uint64_t,uint64_t> map;
-
         ART_OLC::Tree *tree;
+        std::vector<ART::ThreadInfo> ts;
         ArtCare(){
+            umap=new std::unordered_map<uint64_t,uint64_t>;
             tree=new ART_OLC::Tree(loadKey);
         }
         ~ArtCare(){
             delete tree;
+            delete umap;
+        }
+        bool SupportBulk(int threads){
+            for(int i=0;i<threads;i++){
+                ts.push_back(tree->getThreadInfo());
+            }
+            return false;
         }
         KeyValueOffset CoreInsert(const K & k, KeyValueOffset o) {
             auto t = tree->getThreadInfo();
             Key key;
-            map[o.get_offset()]=k;
+            (*umap)[o.get_offset()]=k;
             loadKey(o.get_offset(),key);
             tree->insert(key, o.get_offset(),t);
             return KeyValueOffset();
@@ -43,12 +54,13 @@ namespace viper::index {
         KeyValueOffset CoreGet(const K & k) {
             auto t = tree->getThreadInfo();
             Key key;
+            key.setKeyLen(sizeof(k));
             reinterpret_cast<uint64_t *>(&key[0])[0] = __builtin_bswap64(k);
             auto val = tree->lookup(key,t);
             return KeyValueOffset((uint64_t)val);
         }
     };
-    //template<> std::unordered_map<uint64_t,uint64_t> ArtCare<uint64_t>::map();
+    //template<> std::unordered_map<uint64_t,uint64_t> ArtCare<uint64_t>::map;
 }
 
 

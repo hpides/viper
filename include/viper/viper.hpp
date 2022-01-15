@@ -651,7 +651,7 @@ namespace viper {
             map_=new index::BwTreeCare<uint64_t>();
             std::cout<<"use stx btree as index"<<std::endl;
         }else if(index_type==15){
-            map_=new index::BwTreeCare<uint64_t>();
+            map_=new index::ArtCare<uint64_t>();
             std::cout<<"use art as index"<<std::endl;
         }
         current_block_page_ = 0;

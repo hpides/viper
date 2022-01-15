@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <cstring>
 #include <memory>
+#include <iostream>
 #include <assert.h>
 
 using KeyLen = uint64_t;
@@ -49,6 +50,7 @@ public:
 
 inline uint8_t &Key::operator[](std::size_t i) {
     assert(i < len);
+
     return data[i];
 }
 

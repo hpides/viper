@@ -14,6 +14,7 @@ set(mass
         ${CMAKE_SOURCE_DIR}/index/wormhole/lib.c
         ${CMAKE_SOURCE_DIR}/index/wormhole/wh.c
         ${CMAKE_SOURCE_DIR}/index/ART/Tree.cpp
+        #${CMAKE_SOURCE_DIR}/index/ART/art_care.cpp
         )
 SET(
         src
