@@ -2,28 +2,26 @@
 // Created by florian on 18.11.15.
 //
 
-#ifndef ART_OPTIMISTICLOCK_COUPLING_N_H
-#define ART_OPTIMISTICLOCK_COUPLING_N_H
+#ifndef ARTVERSION1_TREE_H
+#define ARTVERSION1_TREE_H
 #include "N.h"
 
 using namespace ART;
 
-namespace ART_OLC {
+namespace ART_unsynchronized {
 
     class Tree {
     public:
         using LoadKeyFunction = void (*)(TID tid, Key &key);
 
     private:
+
         N *const root;
 
         TID checkKey(const TID tid, const Key &k) const;
 
         LoadKeyFunction loadKey;
 
-        Epoche epoche{256};
-
-    public:
         enum class CheckPrefixResult : uint8_t {
             Match,
             NoMatch,
@@ -41,20 +39,21 @@ namespace ART_OLC {
             Bigger,
         };
         enum class PCEqualsResults : uint8_t {
+            StartMatch,
             BothMatch,
             Contained,
-            NoMatch
+            NoMatch,
         };
         static CheckPrefixResult checkPrefix(N* n, const Key &k, uint32_t &level);
 
         static CheckPrefixPessimisticResult checkPrefixPessimistic(N *n, const Key &k, uint32_t &level,
                                                                    uint8_t &nonMatchingKey,
                                                                    Prefix &nonMatchingPrefix,
-                                                                   LoadKeyFunction loadKey, bool &needRestart);
+                                                                   LoadKeyFunction loadKey);
 
-        static PCCompareResults checkPrefixCompare(const N* n, const Key &k, uint8_t fillKey, uint32_t &level, LoadKeyFunction loadKey, bool &needRestart);
+        static PCCompareResults checkPrefixCompare(N* n, const Key &k, uint32_t &level, LoadKeyFunction loadKey);
 
-        static PCEqualsResults checkPrefixEquals(const N* n, uint32_t &level, const Key &start, const Key &end, LoadKeyFunction loadKey, bool &needRestart);
+        static PCEqualsResults checkPrefixEquals(N* n, uint32_t &level, const Key &start, const Key &end, LoadKeyFunction loadKey);
 
     public:
 
@@ -66,16 +65,14 @@ namespace ART_OLC {
 
         ~Tree();
 
-        ThreadInfo getThreadInfo();
-
-        TID lookup(const Key &k, ThreadInfo &threadEpocheInfo) const;
+        TID lookup(const Key &k) const;
 
         bool lookupRange(const Key &start, const Key &end, Key &continueKey, TID result[], std::size_t resultLen,
-                         std::size_t &resultCount, ThreadInfo &threadEpocheInfo) const;
+                         std::size_t &resultCount) const;
 
-        void insert(const Key &k, TID tid, ThreadInfo &epocheInfo);
+        void insert(const Key &k, TID tid);
 
-        void remove(const Key &k, TID tid, ThreadInfo &epocheInfo);
+        void remove(const Key &k, TID tid);
     };
 }
-#endif //ART_OPTIMISTICLOCK_COUPLING_N_H
+#endif //ARTVERSION1_SYNCHRONIZEDTREE_H

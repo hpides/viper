@@ -2,17 +2,12 @@
 #include <algorithm>
 #include "N.h"
 
-namespace ART_OLC {
+namespace ART_unsynchronized {
 
-    bool N48::isFull() const {
-        return count == 48;
-    }
-
-    bool N48::isUnderfull() const {
-        return count == 12;
-    }
-
-    void N48::insert(uint8_t key, N *n) {
+    bool N48::insert(uint8_t key, N *n) {
+        if (count == 48) {
+            return false;
+        }
         unsigned pos = count;
         if (children[pos]) {
             for (pos = 0; children[pos] != nullptr; pos++);
@@ -20,6 +15,7 @@ namespace ART_OLC {
         children[pos] = n;
         childIndex[key] = (uint8_t) pos;
         count++;
+        return true;
     }
 
     template<class NODE>
@@ -31,9 +27,8 @@ namespace ART_OLC {
         }
     }
 
-    bool N48::change(uint8_t key, N *val) {
+    void N48::change(uint8_t key, N *val) {
         children[childIndex[key]] = val;
-        return true;
     }
 
     N *N48::getChild(const uint8_t k) const {
@@ -44,12 +39,16 @@ namespace ART_OLC {
         }
     }
 
-    void N48::remove(uint8_t k) {
+    bool N48::remove(uint8_t k, bool force) {
+        if (count == 12 && !force) {
+            return false;
+        }
         assert(childIndex[k] != emptyMarker);
         children[childIndex[k]] = nullptr;
         childIndex[k] = emptyMarker;
         count--;
         assert(getChild(k) == nullptr);
+        return true;
     }
 
     N *N48::getAnyChild() const {
@@ -75,13 +74,8 @@ namespace ART_OLC {
         }
     }
 
-    uint64_t N48::getChildren(uint8_t start, uint8_t end, std::tuple<uint8_t, N *> *&children,
+    void N48::getChildren(uint8_t start, uint8_t end, std::tuple<uint8_t, N *> *&children,
                           uint32_t &childrenCount) const {
-        restart:
-        bool needRestart = false;
-        uint64_t v;
-        v = readLockOrRestart(needRestart);
-        if (needRestart) goto restart;
         childrenCount = 0;
         for (unsigned i = start; i <= end; i++) {
             if (this->childIndex[i] != emptyMarker) {
@@ -89,8 +83,5 @@ namespace ART_OLC {
                 childrenCount++;
             }
         }
-        readUnlockOrRestart(v, needRestart);
-        if (needRestart) goto restart;
-        return v;
     }
 }

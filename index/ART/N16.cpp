@@ -3,17 +3,13 @@
 #include "N.h"
 #include <emmintrin.h> // x86 SSE intrinsics
 
-namespace ART_OLC {
+namespace ART_unsynchronized {
+    const uint8_t N16_shrink = 3;
 
-    bool N16::isFull() const {
-        return count == 16;
-    }
-
-    bool N16::isUnderfull() const {
-        return count == 3;
-    }
-
-    void N16::insert(uint8_t key, N *n) {
+    bool N16::insert(uint8_t key, N *n) {
+        if (count == 16) {
+            return false;
+        }
         uint8_t keyByteFlipped = flipSign(key);
         __m128i cmp = _mm_cmplt_epi8(_mm_set1_epi8(keyByteFlipped), _mm_loadu_si128(reinterpret_cast<__m128i *>(keys)));
         uint16_t bitfield = _mm_movemask_epi8(cmp) & (0xFFFF >> (16 - count));
@@ -23,6 +19,7 @@ namespace ART_OLC {
         keys[pos] = keyByteFlipped;
         children[pos] = n;
         count++;
+        return true;
     }
 
     template<class NODE>
@@ -32,11 +29,19 @@ namespace ART_OLC {
         }
     }
 
-    bool N16::change(uint8_t key, N *val) {
+    template<>
+    void N16::copyTo(N4 *n) const {
+        n->count = count;
+        for (unsigned i = 0; i < N16_shrink; i++) {
+            n->keys[i] = flipSign(keys[i]);
+        }
+        memcpy(n->children, children, sizeof(uintptr_t) * N16_shrink);
+    }
+
+    void N16::change(uint8_t key, N *val) {
         N **childPos = const_cast<N **>(getChildPos(key));
         assert(childPos != nullptr);
         *childPos = val;
-        return true;
     }
 
     N *const *N16::getChildPos(const uint8_t k) const {
@@ -59,7 +64,10 @@ namespace ART_OLC {
         }
     }
 
-    void N16::remove(uint8_t k) {
+    bool N16::remove(uint8_t k, bool force) {
+        if (count == N16_shrink && !force) {
+            return false;
+        }
         N *const *leafPlace = getChildPos(k);
         assert(leafPlace != nullptr);
         std::size_t pos = leafPlace - children;
@@ -67,6 +75,7 @@ namespace ART_OLC {
         memmove(children + pos, children + pos + 1, (count - pos - 1) * sizeof(N *));
         count--;
         assert(getChild(k) == nullptr);
+        return true;
     }
 
     N *N16::getAnyChild() const {
@@ -85,13 +94,8 @@ namespace ART_OLC {
         }
     }
 
-    uint64_t N16::getChildren(uint8_t start, uint8_t end, std::tuple<uint8_t, N *> *&children,
+    void N16::getChildren(uint8_t start, uint8_t end, std::tuple<uint8_t, N *> *&children,
                           uint32_t &childrenCount) const {
-        restart:
-        bool needRestart = false;
-        uint64_t v;
-        v = readLockOrRestart(needRestart);
-        if (needRestart) goto restart;
         childrenCount = 0;
         auto startPos = getChildPos(start);
         auto endPos = getChildPos(end);
@@ -105,8 +109,5 @@ namespace ART_OLC {
             children[childrenCount] = std::make_tuple(flipSign(keys[p - this->children]), *p);
             childrenCount++;
         }
-        readUnlockOrRestart(v, needRestart);
-        if (needRestart) goto restart;
-        return v;
     }
 }

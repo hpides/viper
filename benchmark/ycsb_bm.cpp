@@ -31,7 +31,7 @@ static constexpr char PREFILL_FILE[] = "/ycsb_prefill.dat";
             ->Iterations(1) \
             ->Unit(BM_TIME_UNIT) \
             ->UseRealTime()  \
-            ->Threads(12)
+            ->Threads(1)
 //            ->ThreadRange(1, 16)
 
 

@@ -7,40 +7,14 @@
 #include "N48.cpp"
 #include "N256.cpp"
 
-namespace ART_OLC {
+namespace ART_unsynchronized {
 
     void N::setType(NTypes type) {
-        typeVersionLockObsolete.fetch_add(convertTypeToVersion(type));
-    }
-
-    uint64_t N::convertTypeToVersion(NTypes type) {
-        return (static_cast<uint64_t>(type) << 62);
+        this->type = type;
     }
 
     NTypes N::getType() const {
-        return static_cast<NTypes>(typeVersionLockObsolete.load(std::memory_order_relaxed) >> 62);
-    }
-
-    void N::writeLockOrRestart(bool &needRestart) {
-
-        uint64_t version;
-        version = readLockOrRestart(needRestart);
-        if (needRestart) return;
-
-        upgradeToWriteLockOrRestart(version, needRestart);
-        if (needRestart) return;
-    }
-
-    void N::upgradeToWriteLockOrRestart(uint64_t &version, bool &needRestart) {
-        if (typeVersionLockObsolete.compare_exchange_strong(version, version + 0b10)) {
-            version = version + 0b10;
-        } else {
-            needRestart = true;
-        }
-    }
-
-    void N::writeUnlock() {
-        typeVersionLockObsolete.fetch_add(0b10);
+        return type;
     }
 
     N *N::getAnyChild(const N *node) {
@@ -66,23 +40,27 @@ namespace ART_OLC {
         __builtin_unreachable();
     }
 
-    bool N::change(N *node, uint8_t key, N *val) {
+    void N::change(N *node, uint8_t key, N *val) {
         switch (node->getType()) {
             case NTypes::N4: {
                 auto n = static_cast<N4 *>(node);
-                return n->change(key, val);
+                n->change(key, val);
+                return;
             }
             case NTypes::N16: {
                 auto n = static_cast<N16 *>(node);
-                return n->change(key, val);
+                n->change(key, val);
+                return;
             }
             case NTypes::N48: {
                 auto n = static_cast<N48 *>(node);
-                return n->change(key, val);
+                n->change(key, val);
+                return;
             }
             case NTypes::N256: {
                 auto n = static_cast<N256 *>(node);
-                return n->change(key, val);
+                n->change(key, val);
+                return;
             }
         }
         assert(false);
@@ -90,25 +68,8 @@ namespace ART_OLC {
     }
 
     template<typename curN, typename biggerN>
-    void N::insertGrow(curN *n, uint64_t v, N *parentNode, uint64_t parentVersion, uint8_t keyParent, uint8_t key, N *val, bool &needRestart, ThreadInfo &threadInfo) {
-        if (!n->isFull()) {
-            if (parentNode != nullptr) {
-                parentNode->readUnlockOrRestart(parentVersion, needRestart);
-                if (needRestart) return;
-            }
-            n->upgradeToWriteLockOrRestart(v, needRestart);
-            if (needRestart) return;
-            n->insert(key, val);
-            n->writeUnlock();
-            return;
-        }
-
-        parentNode->upgradeToWriteLockOrRestart(parentVersion, needRestart);
-        if (needRestart) return;
-
-        n->upgradeToWriteLockOrRestart(v, needRestart);
-        if (needRestart) {
-            parentNode->writeUnlock();
+    void N::insertGrow(curN *n, N *parentNode, uint8_t keyParent, uint8_t key, N *val) {
+        if (n->insert(key, val)) {
             return;
         }
 
@@ -118,52 +79,52 @@ namespace ART_OLC {
 
         N::change(parentNode, keyParent, nBig);
 
-        n->writeUnlockObsolete();
-        threadInfo.getEpoche().markNodeForDeletion(n, threadInfo);
-        parentNode->writeUnlock();
+        delete n;
     }
 
-    void N::insertAndUnlock(N *node, uint64_t v, N *parentNode, uint64_t parentVersion, uint8_t keyParent, uint8_t key, N *val, bool &needRestart, ThreadInfo &threadInfo) {
+    void N::insertA(N *node, N *parentNode, uint8_t keyParent, uint8_t key, N *val) {
         switch (node->getType()) {
             case NTypes::N4: {
                 auto n = static_cast<N4 *>(node);
-                insertGrow<N4, N16>(n, v, parentNode, parentVersion, keyParent, key, val, needRestart, threadInfo);
-                break;
+                insertGrow<N4, N16>(n, parentNode, keyParent, key, val);
+                return;
             }
             case NTypes::N16: {
                 auto n = static_cast<N16 *>(node);
-                insertGrow<N16, N48>(n, v, parentNode, parentVersion, keyParent, key, val, needRestart, threadInfo);
-                break;
+                insertGrow<N16, N48>(n, parentNode, keyParent, key, val);
+                return;
             }
             case NTypes::N48: {
                 auto n = static_cast<N48 *>(node);
-                insertGrow<N48, N256>(n, v, parentNode, parentVersion, keyParent, key, val, needRestart, threadInfo);
-                break;
+                insertGrow<N48, N256>(n, parentNode, keyParent, key, val);
+                return;
             }
             case NTypes::N256: {
                 auto n = static_cast<N256 *>(node);
-                insertGrow<N256, N256>(n, v, parentNode, parentVersion, keyParent, key, val, needRestart, threadInfo);
-                break;
+                n->insert(key, val);
+                return;
             }
         }
+        assert(false);
+        __builtin_unreachable();
     }
 
-    inline N *N::getChild(const uint8_t k, const N *node) {
+    N *N::getChild(const uint8_t k, N *node) {
         switch (node->getType()) {
             case NTypes::N4: {
-                auto n = static_cast<const N4 *>(node);
+                auto n = static_cast<N4 *>(node);
                 return n->getChild(k);
             }
             case NTypes::N16: {
-                auto n = static_cast<const N16 *>(node);
+                auto n = static_cast<N16 *>(node);
                 return n->getChild(k);
             }
             case NTypes::N48: {
-                auto n = static_cast<const N48 *>(node);
+                auto n = static_cast<N48 *>(node);
                 return n->getChild(k);
             }
             case NTypes::N256: {
-                auto n = static_cast<const N256 *>(node);
+                auto n = static_cast<N256 *>(node);
                 return n->getChild(k);
             }
         }
@@ -202,93 +163,46 @@ namespace ART_OLC {
     }
 
     template<typename curN, typename smallerN>
-    void N::removeAndShrink(curN *n, uint64_t v, N *parentNode, uint64_t parentVersion, uint8_t keyParent, uint8_t key, bool &needRestart, ThreadInfo &threadInfo) {
-        if (!n->isUnderfull() || parentNode == nullptr) {
-            if (parentNode != nullptr) {
-                parentNode->readUnlockOrRestart(parentVersion, needRestart);
-                if (needRestart) return;
-            }
-            n->upgradeToWriteLockOrRestart(v, needRestart);
-            if (needRestart) return;
-
-            n->remove(key);
-            n->writeUnlock();
-            return;
-        }
-        parentNode->upgradeToWriteLockOrRestart(parentVersion, needRestart);
-        if (needRestart) return;
-
-        n->upgradeToWriteLockOrRestart(v, needRestart);
-        if (needRestart) {
-            parentNode->writeUnlock();
+    void N::removeAndShrink(curN *n, N *parentNode, uint8_t keyParent, uint8_t key) {
+        if (n->remove(key, parentNode == nullptr)) {
             return;
         }
 
         auto nSmall = new smallerN(n->getPrefix(), n->getPrefixLength());
 
+
+        n->remove(key, true);
         n->copyTo(nSmall);
-        nSmall->remove(key);
         N::change(parentNode, keyParent, nSmall);
 
-        n->writeUnlockObsolete();
-        threadInfo.getEpoche().markNodeForDeletion(n, threadInfo);
-        parentNode->writeUnlock();
+        delete n;
     }
 
-    void N::removeAndUnlock(N *node, uint64_t v, uint8_t key, N *parentNode, uint64_t parentVersion, uint8_t keyParent, bool &needRestart, ThreadInfo &threadInfo) {
+    void N::removeA(N *node, uint8_t key, N *parentNode, uint8_t keyParent) {
         switch (node->getType()) {
             case NTypes::N4: {
                 auto n = static_cast<N4 *>(node);
-                removeAndShrink<N4, N4>(n, v, parentNode, parentVersion, keyParent, key, needRestart, threadInfo);
-                break;
+                n->remove(key, false);
+                return;
             }
             case NTypes::N16: {
                 auto n = static_cast<N16 *>(node);
-                removeAndShrink<N16, N4>(n, v, parentNode, parentVersion, keyParent, key, needRestart, threadInfo);
-                break;
+                removeAndShrink<N16, N4>(n, parentNode, keyParent, key);
+                return;
             }
             case NTypes::N48: {
                 auto n = static_cast<N48 *>(node);
-                removeAndShrink<N48, N16>(n, v, parentNode, parentVersion, keyParent, key, needRestart, threadInfo);
-                break;
+                removeAndShrink<N48, N16>(n, parentNode, keyParent, key);
+                return;
             }
             case NTypes::N256: {
                 auto n = static_cast<N256 *>(node);
-                removeAndShrink<N256, N48>(n, v, parentNode, parentVersion, keyParent, key, needRestart, threadInfo);
-                break;
+                removeAndShrink<N256, N48>(n, parentNode, keyParent, key);
+                return;
             }
         }
-    }
-
-    bool N::isLocked(uint64_t version) const {
-        return ((version & 0b10) == 0b10);
-    }
-
-    uint64_t N::readLockOrRestart(bool &needRestart) const {
-        uint64_t version;
-        version = typeVersionLockObsolete.load();
-/*        do {
-            version = typeVersionLockObsolete.load();
-        } while (isLocked(version));*/
-        if (isLocked(version) || isObsolete(version)) {
-            needRestart = true;
-        }
-        return version;
-        //uint64_t version;
-        //while (isLocked(version)) _mm_pause();
-        //return version;
-    }
-
-    bool N::isObsolete(uint64_t version) {
-        return (version & 1) == 1;
-    }
-
-    void N::checkOrRestart(uint64_t startRead, bool &needRestart) const {
-        readUnlockOrRestart(startRead, needRestart);
-    }
-
-    void N::readUnlockOrRestart(uint64_t startRead, bool &needRestart) const {
-        needRestart = (startRead != typeVersionLockObsolete.load());
+        assert(false);
+        __builtin_unreachable();
     }
 
     uint32_t N::getPrefixLength() const {
@@ -383,17 +297,21 @@ namespace ART_OLC {
     }
 
 
-    TID N::getAnyChildTid(const N *n, bool &needRestart) {
-        const N *nextNode = n;
+    TID N::getAnyChildTid(N *n) {
+        N *nextNode = n;
+        N *node = nullptr;
+
+        nextNode = getAnyChild(nextNode);
+
+        assert(nextNode != nullptr);
+        if (isLeaf(nextNode)) {
+            return getLeaf(nextNode);
+        }
 
         while (true) {
-            const N *node = nextNode;
-            auto v = node->readLockOrRestart(needRestart);
-            if (needRestart) return 0;
+            node = nextNode;
 
             nextNode = getAnyChild(node);
-            node->readUnlockOrRestart(v, needRestart);
-            if (needRestart) return 0;
 
             assert(nextNode != nullptr);
             if (isLeaf(nextNode)) {
@@ -402,27 +320,29 @@ namespace ART_OLC {
         }
     }
 
-    uint64_t N::getChildren(const N *node, uint8_t start, uint8_t end, std::tuple<uint8_t, N *> children[],
+    void N::getChildren(const N *node, uint8_t start, uint8_t end, std::tuple<uint8_t, N *> children[],
                         uint32_t &childrenCount) {
         switch (node->getType()) {
             case NTypes::N4: {
                 auto n = static_cast<const N4 *>(node);
-                return n->getChildren(start, end, children, childrenCount);
+                n->getChildren(start, end, children, childrenCount);
+                return;
             }
             case NTypes::N16: {
                 auto n = static_cast<const N16 *>(node);
-                return n->getChildren(start, end, children, childrenCount);
+                n->getChildren(start, end, children, childrenCount);
+                return;
             }
             case NTypes::N48: {
                 auto n = static_cast<const N48 *>(node);
-                return n->getChildren(start, end, children, childrenCount);
+                n->getChildren(start, end, children, childrenCount);
+                return;
             }
             case NTypes::N256: {
                 auto n = static_cast<const N256 *>(node);
-                return n->getChildren(start, end, children, childrenCount);
+                n->getChildren(start, end, children, childrenCount);
+                return;
             }
         }
-        assert(false);
-        __builtin_unreachable();
     }
 }

@@ -32,7 +32,8 @@
 #include "../../index/bwtree/bwtree_care.hpp"
 #include "../../index/wormhole/wormhole_care.hpp"
 #include "../../index/stx/btree_care.hpp"
-#include "../../index/ART/art_care.hpp"
+#include "../../index/ART/Tree.h"
+#include "../../index/ART/Key.h"
 
 #ifndef NDEBUG
 #define DEBUG_LOG(msg) (std::cout << msg << std::endl)
@@ -351,6 +352,8 @@ namespace viper {
         static const_ptr_type to_ptr_type(const type &x) { return &x; }
     };
 
+    static void * pv =nullptr;
+
     template<typename K, typename V>
     class Viper {
         using ViperT = Viper<K, V>;
@@ -360,6 +363,7 @@ namespace viper {
         static_assert(BLOCK_SIZE % v_page_size == 0, "Page needs to fit into block.");
         static constexpr page_size_t num_pages_per_block = BLOCK_SIZE / v_page_size;
         using VPageBlock = internal::ViperPageBlock<VPage, num_pages_per_block>;
+
 
     public:
         static std::unique_ptr<Viper<K, V>> create(const std::string &pool_file, uint64_t initial_pool_size, int index_type,
@@ -433,7 +437,6 @@ namespace viper {
 
             ~Client();
 
-        protected:
             Client(ViperT &viper);
 
             bool put(const K &key, const V &value, bool delete_old);
@@ -536,7 +539,50 @@ namespace viper {
 
         std::atomic<uint8_t> num_active_clients_;
         const uint8_t num_recovery_threads_;
+        template<typename Kk>
+        class ArtCare:public index::BaseIndex<Kk>{
+        public:
+            static void loadKey(TID tid, Key &key) {
+                // Store the key of the tuple into the key vector
+                // Implementation is database specific
+                auto c=(reinterpret_cast<Viper*>(pv))->get_client();
+                K k;
+                k=*(c.get_const_entry_from_offset(KVOffset(tid)).first);
+                uint64_t temp=((kv_bm::BMRecord<uint32_t, 2>)k).get_key();
+                key.setKeyLen(sizeof(temp));
+                reinterpret_cast<uint64_t *>(&key[0])[0] = __builtin_bswap64(temp);
+            }
+
+            ART_unsynchronized::Tree *tree;
+            ArtCare(){
+                tree=new ART_unsynchronized::Tree(loadKey);
+            }
+            ~ArtCare(){
+                delete tree;
+            }
+            bool SupportBulk(int threads){
+                return false;
+            }
+            index::KeyValueOffset CoreInsert(const Kk & k, index::KeyValueOffset o) {
+                Key key;
+                key.setKeyLen(sizeof(k));
+                reinterpret_cast<uint64_t *>(&key[0])[0] = __builtin_bswap64(k);
+                tree->insert(key, o.get_offset());
+                return index::KeyValueOffset();
+            }
+            index::KeyValueOffset CoreGet(const Kk & k) {
+                Key key;
+                key.setKeyLen(sizeof(k));
+                reinterpret_cast<uint64_t *>(&key[0])[0] = __builtin_bswap64(k);
+                auto val = tree->lookup(key);
+                return index::KeyValueOffset((uint64_t)val);
+            }
+        };
     };
+
+
+
+
 
     template<typename K, typename V>
     uint64_t Viper<K, V>::get_index_size(){
@@ -651,7 +697,7 @@ namespace viper {
             map_=new index::BwTreeCare<uint64_t>();
             std::cout<<"use stx btree as index"<<std::endl;
         }else if(index_type==15){
-            map_=new index::ArtCare<uint64_t>();
+            map_=new ArtCare<uint64_t>();
             std::cout<<"use art as index"<<std::endl;
         }
         current_block_page_ = 0;
@@ -677,6 +723,7 @@ namespace viper {
             recover_database();
         }
         current_block_page_ = KVOffset{v_base.v_metadata->num_used_blocks.load(LOAD_ORDER), 0, 0}.offset;
+        pv=this;
     }
 
     template<typename K, typename V>
