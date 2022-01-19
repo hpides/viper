@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 rm /mnt/pmem1/viper/*;
 cd /lab505/gjk/viper/cmake-build/benchmark/;
+make;
 #200m
 mv /mnt/tmpssd/aikv/ycsb-data-read200m/ycsb_prefill.dat /mnt/tmpssd/aikv/ycsb_prefill.dat
 mv /mnt/tmpssd/aikv/ycsb-data-read200m/ycsb_wl_5050_uniform.dat /mnt/tmpssd/aikv/ycsb_wl_5050_uniform.dat
