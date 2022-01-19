@@ -213,7 +213,7 @@ void set_cpu_affinity() {
 }
 
 void set_cpu_affinity(uint16_t thread_idx) {
-    return set_cpu_affinity(thread_idx, thread_idx + 1);
+    return set_cpu_affinity(thread_idx+3, thread_idx + 4);
 }
 
 void zero_block_device(const std::string& block_dev, size_t length) {
