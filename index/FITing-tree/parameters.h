@@ -15,9 +15,9 @@
 #define EPS 1e-12
 
 // Epsilon for making segmentation
-#define EPSILON 8
+#define EPSILON 21
 
 // Additional reserved space for left buffer and nodes
 // Also represents insert/delete times in inplace_node
-#define RESERVE 64
+#define RESERVE 0
 
